@@ -120,7 +120,7 @@ tasks.register('generateEmptyGameTestStructure') {
 
 tasks.register('prepareFlightGameTestRuntime') {
     group = 'verification'
-    description = 'Stages measured profiles and runtime aircraft mods for runGameTestServer.'
+    description = 'Stages runtime aircraft mods and optional measured profiles for runGameTestServer.'
     dependsOn tasks.named('generateEmptyGameTestStructure')
 
     doLast {
@@ -158,23 +158,27 @@ tasks.register('prepareFlightGameTestRuntime') {
             into modsDirectory
         }
 
+        File profileDirectory = new File(gameTestRunDirectory, 'config/warfare_wings')
+        File stagedProfile = new File(profileDirectory, 'flight_profiles.json')
+        project.delete(stagedProfile)
+
         String profileValue = project.findProperty('flightProfiles')?.toString()
         if (profileValue == null || profileValue.isBlank()) {
             profileValue = System.getenv('WW_FLIGHT_PROFILES')
         }
-        if (profileValue == null || profileValue.isBlank()) {
-            throw new GradleException('No measured flight_profiles.json supplied. Use -PflightProfiles=<path> or WW_FLIGHT_PROFILES.')
-        }
-        File profileFile = project.file(profileValue)
-        if (!profileFile.isFile()) {
-            throw new GradleException("Measured profile file does not exist: ${profileFile}")
-        }
-        File profileDirectory = new File(gameTestRunDirectory, 'config/warfare_wings')
-        profileDirectory.mkdirs()
-        project.copy {
-            from profileFile
-            into profileDirectory
-            rename { 'flight_profiles.json' }
+        if (profileValue != null && !profileValue.isBlank()) {
+            File profileFile = project.file(profileValue)
+            if (!profileFile.isFile()) {
+                throw new GradleException("Measured profile file does not exist: ${profileFile}")
+            }
+            profileDirectory.mkdirs()
+            project.copy {
+                from profileFile
+                into profileDirectory
+                rename { 'flight_profiles.json' }
+            }
+        } else {
+            logger.lifecycle('No measured profile supplied; the headless GameTest will run the real fighter benchmark first.')
         }
     }
 }
