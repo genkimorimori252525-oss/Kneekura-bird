@@ -1,5 +1,6 @@
 package com.wwdebug.benchmark.mixin;
 
+import com.wwdebug.autopilot.AutonomousFlightManager;
 import com.wwdebug.benchmark.BenchmarkManager;
 import net.minecraft.world.entity.Entity;
 import org.spongepowered.asm.mixin.Mixin;
@@ -13,6 +14,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public abstract class VehicleEntityBenchmarkMixin {
     @Inject(method = "tickPilot", at = @At("TAIL"), remap = false, require = 0)
     private void wwdebugBenchmark$applyFixedInput(CallbackInfo callbackInfo) {
-        BenchmarkManager.applyControl((Entity) (Object) this);
+        Entity aircraft = (Entity) (Object) this;
+        BenchmarkManager.applyControl(aircraft);
+        AutonomousFlightManager.applyControl(aircraft);
     }
 }
