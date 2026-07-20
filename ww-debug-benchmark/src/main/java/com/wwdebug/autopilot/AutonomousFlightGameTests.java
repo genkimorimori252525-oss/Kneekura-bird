@@ -4,6 +4,8 @@ import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.wwdebug.benchmark.BenchmarkCategory;
+import com.wwdebug.benchmark.BenchmarkManager;
 import com.wwdebug.benchmark.WWDebugBenchmarkMod;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.core.BlockPos;
@@ -13,26 +15,33 @@ import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.storage.LevelResource;
 import net.minecraft.world.phys.Vec2;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
+import net.minecraftforge.fml.loading.FMLPaths;
 
 import java.io.IOException;
 import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.FileTime;
 import java.util.Comparator;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Stream;
 
 /**
  * Headless integration test using the real Forge server, real aircraft entities and real physics.
  *
  * <p>Set {@code -PflightTestAircraft=all} to execute every fighter sequentially. The default smoke
- * test executes the A6M only. Runtime mod jars and the measured profile file are staged by
- * {@code prepareFlightGameTestRuntime}.</p>
+ * test executes the A6M only. If no measured profile file is staged, the test first runs the real
+ * fixed-input fighter benchmark, installs its generated profiles, and only then starts autonomous
+ * flight validation.</p>
  */
 @GameTestHolder(WWDebugBenchmarkMod.MOD_ID)
 @PrefixGameTestTemplate(false)
@@ -60,20 +69,39 @@ public final class AutonomousFlightGameTests {
                 .withRotation(new Vec2(0.0f, 0.0f))
                 .withSuppressedOutput();
 
-        Path summaryDirectory = server.getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT)
-                .resolve("wwdebug")
-                .resolve("autopilot");
-        long startedAt = System.currentTimeMillis();
+        Path worldRoot = server.getWorldPath(LevelResource.ROOT);
+        Path summaryDirectory = worldRoot.resolve("wwdebug").resolve("autopilot");
+        Path benchmarkDirectory = worldRoot.resolve("wwdebug").resolve("benchmarks");
+        Path configuredProfile = FMLPaths.CONFIGDIR.get()
+                .resolve("warfare_wings")
+                .resolve("flight_profiles.json");
+
         String target = System.getProperty("wwdebug.flightGameTestAircraft", "warfare_wings:a6m");
-        int started = "all".equalsIgnoreCase(target)
-                ? AutopilotValidationManager.startAll(source)
-                : AutopilotValidationManager.startOne(source, target);
-        if (started <= 0) {
-            throw new GameTestAssertException("Could not start autonomous-flight validation for " + target);
+        AtomicBoolean validationStarted = new AtomicBoolean(false);
+        AtomicLong validationStartedAt = new AtomicLong(0L);
+        long orchestrationStartedAt = System.currentTimeMillis();
+
+        if (Files.isRegularFile(configuredProfile)) {
+            startValidation(source, target, validationStarted, validationStartedAt);
+        } else {
+            int benchmarkCount = BenchmarkManager.start(source, BenchmarkCategory.FIGHTER, false);
+            if (benchmarkCount <= 0) {
+                throw new GameTestAssertException("Could not start measured fighter benchmark");
+            }
         }
 
         helper.succeedWhen(() -> {
-            Path summary = newestSummary(summaryDirectory, startedAt)
+            if (!validationStarted.get()) {
+                Path generatedProfile = newestProfile(benchmarkDirectory, orchestrationStartedAt)
+                        .orElseThrow(() -> new GameTestAssertException(
+                                "Measured fighter benchmark is still running"));
+                installProfile(generatedProfile, configuredProfile);
+                AutopilotProfileRegistry.reload(server);
+                startValidation(source, target, validationStarted, validationStartedAt);
+                throw new GameTestAssertException("Measured profiles installed; autonomous-flight validation started");
+            }
+
+            Path summary = newestSummary(summaryDirectory, validationStartedAt.get())
                     .orElseThrow(() -> new GameTestAssertException(
                             "Autonomous-flight validation is still running for " + target));
             Summary result = readSummary(summary);
@@ -86,7 +114,30 @@ public final class AutonomousFlightGameTests {
                         + result.passed() + "/" + result.total() + " passed; first failure="
                         + result.firstFailure() + "; summary=" + summary.toAbsolutePath());
             }
+            verifyRunwayStops(server, result.results());
         });
+    }
+
+    private static void startValidation(CommandSourceStack source, String target,
+                                        AtomicBoolean started, AtomicLong startedAt) {
+        int count = "all".equalsIgnoreCase(target)
+                ? AutopilotValidationManager.startAll(source)
+                : AutopilotValidationManager.startOne(source, target);
+        if (count <= 0) {
+            throw new GameTestAssertException("Could not start autonomous-flight validation for " + target);
+        }
+        startedAt.set(System.currentTimeMillis());
+        started.set(true);
+    }
+
+    private static void installProfile(Path generated, Path configured) {
+        try {
+            Files.createDirectories(configured.getParent());
+            Files.copy(generated, configured, StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException exception) {
+            throw new GameTestAssertException("Could not install measured flight profiles: "
+                    + exception.getMessage());
+        }
     }
 
     private static void buildRunway(ServerLevel level, BlockPos surfaceOrigin) {
@@ -94,8 +145,6 @@ public final class AutonomousFlightGameTests {
             for (int x = -RUNWAY_HALF_WIDTH; x <= RUNWAY_HALF_WIDTH; x++) {
                 BlockPos surface = surfaceOrigin.offset(x, 0, z);
                 level.setBlockAndUpdate(surface, Blocks.SMOOTH_STONE.defaultBlockState());
-                // Keep the immediate aircraft corridor deterministic even if the GameTest world
-                // generator or a previous failed run left blocks behind.
                 for (int y = 1; y <= 8; y++) {
                     level.setBlockAndUpdate(surface.above(y), Blocks.AIR.defaultBlockState());
                 }
@@ -103,11 +152,27 @@ public final class AutonomousFlightGameTests {
         }
     }
 
+    private static Optional<Path> newestProfile(Path directory, long startedAt) {
+        if (!Files.isDirectory(directory)) {
+            return Optional.empty();
+        }
+        try (Stream<Path> stream = Files.walk(directory, 4)) {
+            return stream
+                    .filter(Files::isRegularFile)
+                    .filter(path -> "flight_profiles.json".equals(path.getFileName().toString()))
+                    .filter(path -> modified(path).toMillis() >= startedAt)
+                    .max(Comparator.comparing(AutonomousFlightGameTests::modified));
+        } catch (IOException exception) {
+            throw new GameTestAssertException("Could not scan measured benchmark profiles: "
+                    + exception.getMessage());
+        }
+    }
+
     private static Optional<Path> newestSummary(Path directory, long startedAt) {
         if (!Files.isDirectory(directory)) {
             return Optional.empty();
         }
-        try (var stream = Files.list(directory)) {
+        try (Stream<Path> stream = Files.list(directory)) {
             return stream
                     .filter(Files::isRegularFile)
                     .filter(path -> path.getFileName().toString().startsWith("validation-summary-"))
@@ -150,11 +215,97 @@ public final class AutonomousFlightGameTests {
                             + string(row, "reason", "unknown");
                 }
             }
-            return new Summary(state, total, passed, firstFailure);
+            return new Summary(state, total, passed, firstFailure, results);
         } catch (IOException | RuntimeException exception) {
             throw new GameTestAssertException("Could not read autonomous-flight summary " + path
                     + ": " + exception.getMessage());
         }
+    }
+
+    private static void verifyRunwayStops(MinecraftServer server, JsonArray results) {
+        String directoryText = AutopilotLogManager.currentDirectory(server);
+        if ("not-opened".equals(directoryText)) {
+            throw new GameTestAssertException("Autonomous-flight telemetry directory was not opened");
+        }
+        Path aircraftDirectory = Path.of(directoryText).resolve("aircraft");
+        for (JsonElement element : results) {
+            if (!element.isJsonObject()) {
+                continue;
+            }
+            JsonObject row = element.getAsJsonObject();
+            if (!row.has("passed") || !row.get("passed").getAsBoolean()) {
+                continue;
+            }
+            String uuid = string(row, "aircraft_uuid", "none");
+            Path logFile = findAircraftLog(aircraftDirectory, uuid)
+                    .orElseThrow(() -> new GameTestAssertException(
+                            "Missing per-aircraft telemetry for " + uuid));
+            JsonObject frame = lastFrame(logFile);
+            JsonObject position = object(frame, "position");
+            JsonObject home = object(frame, "home_position");
+            JsonObject forward = object(frame, "runway_forward");
+
+            double dx = number(position, "x") - number(home, "x");
+            double dz = number(position, "z") - number(home, "z");
+            double forwardX = number(forward, "x");
+            double forwardZ = number(forward, "z");
+            double lateral = Math.abs(dx * -forwardZ + dz * forwardX);
+            double longitudinal = dx * forwardX + dz * forwardZ;
+            String phase = string(frame, "phase", "unknown");
+
+            if (!"PARKED".equals(phase)
+                    || lateral > RUNWAY_HALF_WIDTH
+                    || longitudinal < -RUNWAY_BEHIND
+                    || longitudinal > RUNWAY_AHEAD) {
+                throw new GameTestAssertException("Aircraft stopped outside the runway corridor: uuid="
+                        + uuid + ", phase=" + phase + ", lateral=" + lateral
+                        + ", longitudinal=" + longitudinal + ", log=" + logFile.toAbsolutePath());
+            }
+        }
+    }
+
+    private static Optional<Path> findAircraftLog(Path directory, String uuid) {
+        if (!Files.isDirectory(directory)) {
+            return Optional.empty();
+        }
+        try (Stream<Path> stream = Files.list(directory)) {
+            return stream
+                    .filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString().contains(uuid))
+                    .findFirst();
+        } catch (IOException exception) {
+            throw new GameTestAssertException("Could not scan per-aircraft telemetry: "
+                    + exception.getMessage());
+        }
+    }
+
+    private static JsonObject lastFrame(Path path) {
+        try (Stream<String> lines = Files.lines(path, StandardCharsets.UTF_8)) {
+            String line = lines
+                    .filter(value -> value.contains("\"event\":\"frame\""))
+                    .reduce((first, second) -> second)
+                    .orElseThrow(() -> new GameTestAssertException(
+                            "No telemetry frame found in " + path.toAbsolutePath()));
+            return GSON.fromJson(line, JsonObject.class);
+        } catch (IOException | RuntimeException exception) {
+            throw new GameTestAssertException("Could not read final telemetry frame " + path
+                    + ": " + exception.getMessage());
+        }
+    }
+
+    private static JsonObject object(JsonObject object, String key) {
+        if (!object.has(key) || !object.get(key).isJsonObject()) {
+            throw new GameTestAssertException("Telemetry frame is missing object field " + key);
+        }
+        return object.getAsJsonObject(key);
+    }
+
+    private static double number(JsonObject object, String key) {
+        if (!object.has(key) || !object.get(key).isJsonPrimitive()
+                || !object.get(key).getAsJsonPrimitive().isNumber()) {
+            throw new GameTestAssertException("Telemetry frame is missing numeric field " + key);
+        }
+        return object.get(key).getAsDouble();
     }
 
     private static int integer(JsonObject object, String key) {
@@ -167,6 +318,7 @@ public final class AutonomousFlightGameTests {
                 ? object.get(key).getAsString() : fallback;
     }
 
-    private record Summary(String state, int total, int passed, String firstFailure) {
+    private record Summary(String state, int total, int passed,
+                           String firstFailure, JsonArray results) {
     }
 }
