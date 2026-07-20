@@ -79,7 +79,6 @@ tasks.register('generateEmptyGameTestStructure') {
         target.parentFile.mkdirs()
         new java.io.DataOutputStream(new java.io.BufferedOutputStream(
                 new java.io.FileOutputStream(target))).withCloseable { out ->
-            // Root TAG_Compound.
             out.writeByte(10)
             out.writeUTF('')
 
@@ -216,7 +215,7 @@ tasks.named('check').configure {
     dependsOn tasks.named('runFlightSimulation')
 }
 
-tasks.named('runGameTestServer').configure {
+tasks.matching { it.name == 'runGameTestServer' }.configureEach {
     dependsOn tasks.named('prepareFlightGameTestRuntime')
 }
 
