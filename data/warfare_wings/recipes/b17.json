@@ -1,0 +1,33 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "PNP",
+    "ENE",
+    "EXE"
+  ],
+  "key": {
+    "X": [
+      {
+        "item": "warfare_wings:r_iron_frame"
+      }
+    ],
+    "P": [
+      {
+        "item": "immersive_aircraft:propeller"
+      }
+    ],
+    "E": [
+      {
+        "item": "immersive_aircraft:engine"
+      }
+    ],
+    "N": [
+      {
+        "item": "immersive_aircraft:hull"
+      }
+    ]
+  },
+  "result": {
+    "item": "warfare_wings:b17"
+  }
+}

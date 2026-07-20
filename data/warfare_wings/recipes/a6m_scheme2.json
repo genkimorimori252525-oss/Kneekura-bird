@@ -1,0 +1,28 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "FFY",
+    "FAY",
+    "FFF"
+  ],
+  "key": {
+    "A": [
+      {
+        "item": "warfare_wings:a6m"
+      }
+    ],
+    "F": [
+      {
+        "item": "minecraft:light_gray_wool"
+      }
+    ],
+    "Y": [
+      {
+        "item": "minecraft:red_wool"
+      }
+    ]
+  },
+  "result": {
+    "item": "warfare_wings:a6m_scheme2"
+  }
+}

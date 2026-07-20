@@ -1,0 +1,38 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "CQC",
+    "YAQ",
+    "FFF"
+  ],
+  "key": {
+    "A": [
+      {
+        "item": "warfare_wings:g4m"
+      }
+    ],
+    "Q": [
+      {
+        "item": "minecraft:green_wool"
+      }
+    ],
+    "F": [
+      {
+        "item": "minecraft:light_gray_wool"
+      }
+    ],
+    "C": [
+      {
+        "item": "minecraft:brown_wool"
+      }
+    ],
+    "Y": [
+      {
+        "item": "minecraft:red_wool"
+      }
+    ]
+  },
+  "result": {
+    "item": "warfare_wings:g4m_scheme2"
+  }
+}

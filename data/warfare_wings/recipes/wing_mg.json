@@ -1,0 +1,23 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    " G ",
+    "GRG",
+    "GRG"
+  ],
+  "key": {
+    "R": [
+      {
+        "item": "minecraft:gunpowder"
+      }
+    ],
+    "G": [
+      {
+        "item": "minecraft:iron_ingot"
+      }
+    ]
+  },
+  "result": {
+    "item": "warfare_wings:wing_mg"
+  }
+}

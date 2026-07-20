@@ -1,0 +1,33 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "FQF",
+    "QAQ",
+    "YYY"
+  ],
+  "key": {
+    "A": [
+      {
+        "item": "warfare_wings:he111"
+      }
+    ],
+    "Q": [
+      {
+        "item": "minecraft:orange_wool"
+      }
+    ],
+    "F": [
+      {
+        "item": "minecraft:green_wool"
+      }
+    ],
+    "Y": [
+      {
+        "item": "minecraft:black_wool"
+      }
+    ]
+  },
+  "result": {
+    "item": "warfare_wings:he111_scheme3"
+  }
+}

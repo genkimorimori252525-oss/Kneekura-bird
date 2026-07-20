@@ -1,0 +1,33 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "YXY",
+    "XAX",
+    "YWW"
+  ],
+  "key": {
+    "A": [
+      {
+        "item": "warfare_wings:spitfire"
+      }
+    ],
+    "Y": [
+      {
+        "item": "minecraft:yellow_wool"
+      }
+    ],
+    "X": [
+      {
+        "item": "minecraft:brown_wool"
+      }
+    ],
+    "W": [
+      {
+        "item": "minecraft:light_blue_wool"
+      }
+    ]
+  },
+  "result": {
+    "item": "warfare_wings:spitfire_scheme2"
+  }
+}

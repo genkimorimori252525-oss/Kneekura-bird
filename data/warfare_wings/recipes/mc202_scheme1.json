@@ -1,0 +1,38 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "YQY",
+    "QAW",
+    "YXX"
+  ],
+  "key": {
+    "A": [
+      {
+        "item": "warfare_wings:mc202"
+      }
+    ],
+    "Q": [
+      {
+        "item": "minecraft:green_wool"
+      }
+    ],
+    "Y": [
+      {
+        "item": "minecraft:orange_wool"
+      }
+    ],
+    "X": [
+      {
+        "item": "minecraft:light_gray_wool"
+      }
+    ],
+    "W": [
+      {
+        "item": "minecraft:white_wool"
+      }
+    ]
+  },
+  "result": {
+    "item": "warfare_wings:mc202_scheme1"
+  }
+}

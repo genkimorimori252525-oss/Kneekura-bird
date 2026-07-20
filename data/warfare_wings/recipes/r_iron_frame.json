@@ -1,0 +1,14 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "ingredients": [
+    {
+      "item": "warfare_wings:two_iron_frame"
+    },
+    {
+      "item": "warfare_wings:two_iron_frame"
+    }
+  ],
+  "result": {
+    "item": "warfare_wings:r_iron_frame"
+  }
+}

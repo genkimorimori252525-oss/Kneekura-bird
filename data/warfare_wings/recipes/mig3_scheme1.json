@@ -1,0 +1,33 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "WWW",
+    "YAY",
+    "WXX"
+  ],
+  "key": {
+    "A": [
+      {
+        "item": "warfare_wings:mig3"
+      }
+    ],
+    "Y": [
+      {
+        "item": "minecraft:red_wool"
+      }
+    ],
+    "X": [
+      {
+        "item": "minecraft:light_blue_wool"
+      }
+    ],
+    "W": [
+      {
+        "item": "minecraft:white_wool"
+      }
+    ]
+  },
+  "result": {
+    "item": "warfare_wings:mig3_scheme1"
+  }
+}

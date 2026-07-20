@@ -1,0 +1,38 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "QFQ",
+    "CAF",
+    "YYY"
+  ],
+  "key": {
+    "A": [
+      {
+        "item": "warfare_wings:bf109"
+      }
+    ],
+    "Q": [
+      {
+        "item": "minecraft:green_wool"
+      }
+    ],
+    "F": [
+      {
+        "item": "minecraft:gray_wool"
+      }
+    ],
+    "Y": [
+      {
+        "item": "minecraft:light_gray_wool"
+      }
+    ],
+    "C": [
+      {
+        "item": "minecraft:yellow_wool"
+      }
+    ]
+  },
+  "result": {
+    "item": "warfare_wings:bf109_scheme2"
+  }
+}

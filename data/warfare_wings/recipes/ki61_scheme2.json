@@ -1,0 +1,33 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "YYL",
+    "QAQ",
+    "YYY"
+  ],
+  "key": {
+    "A": [
+      {
+        "item": "warfare_wings:ki61"
+      }
+    ],
+    "Q": [
+      {
+        "item": "minecraft:cyan_wool"
+      }
+    ],
+    "L": [
+      {
+        "item": "minecraft:red_wool"
+      }
+    ],
+    "Y": [
+      {
+        "item": "minecraft:light_gray_wool"
+      }
+    ]
+  },
+  "result": {
+    "item": "warfare_wings:ki61_scheme2"
+  }
+}

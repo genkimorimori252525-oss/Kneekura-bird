@@ -1,0 +1,33 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "WWX",
+    "YAX",
+    "YXX"
+  ],
+  "key": {
+    "A": [
+      {
+        "item": "warfare_wings:p47n"
+      }
+    ],
+    "Y": [
+      {
+        "item": "minecraft:yellow_wool"
+      }
+    ],
+    "X": [
+      {
+        "item": "minecraft:light_gray_wool"
+      }
+    ],
+    "W": [
+      {
+        "item": "minecraft:black_wool"
+      }
+    ]
+  },
+  "result": {
+    "item": "warfare_wings:p47n_scheme1"
+  }
+}

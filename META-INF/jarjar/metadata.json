@@ -1,0 +1,15 @@
+{
+  "jars": [
+    {
+      "identifier": {
+        "group": "org.mariuszgromada.math",
+        "artifact": "MathParser.org-mXparser"
+      },
+      "version": {
+        "range": "[5.2.1,)",
+        "artifactVersion": "5.2.1"
+      },
+      "path": "META-INF/jars/MathParser.org-mXparser-5.2.1.jar"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "ingredients": [
+    {
+      "item": "warfare_wings:ww_bomb"
+    },
+    {
+      "item": "warfare_wings:ww_bomb"
+    }
+  ],
+  "result": {
+    "item": "warfare_wings:ww_usbomber"
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "QYW",
+    "QAR",
+    "QYY"
+  ],
+  "key": {
+    "A": [
+      {
+        "item": "warfare_wings:ki84"
+      }
+    ],
+    "Q": [
+      {
+        "item": "minecraft:green_wool"
+      }
+    ],
+    "Y": [
+      {
+        "item": "minecraft:light_gray_wool"
+      }
+    ],
+    "R": [
+      {
+        "item": "minecraft:yellow_wool"
+      }
+    ],
+    "W": [
+      {
+        "item": "minecraft:white_wool"
+      }
+    ]
+  },
+  "result": {
+    "item": "warfare_wings:ki84_scheme3"
+  }
+}

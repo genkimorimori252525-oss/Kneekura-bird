@@ -1,0 +1,1226 @@
+{
+  "a6m": {
+    "id": "warfare_wings:a6m",
+    "displayName": "A6M Zero",
+    "ai": {
+      "role": "fighter",
+      "faction": "ijn",
+      "doctrine": "turn_fighter"
+    },
+    "rawProperties": {
+      "engineSpeed": 0.075,
+      "yawSpeed": 3.8,
+      "pitchSpeed": 3.5,
+      "rollFactor": 60.0,
+      "mass": 5.4,
+      "lift": 0.135,
+      "glideFactor": 0.065,
+      "driftDrag": 0.008,
+      "wind": 0.0015,
+      "groundPitch": 11.8,
+      "pushSpeed": 0.05,
+      "fuel": 2.1,
+      "durability": 2.5
+    },
+    "weaponry": {
+      "mountCount": 2,
+      "frontGuns": 4,
+      "dropPoints": 2,
+      "rotatingGuns": 0
+    },
+    "dimensions": {
+      "length_blocks": 7.48,
+      "wingspan_blocks": 10.88,
+      "crew": 1
+    },
+    "theoreticalPerformance": {
+      "maxSpeed_bpt": 1.98623,
+      "maxSpeed_bps": 39.72,
+      "maxSpeed_kmh": 143.0,
+      "accelTo90pct_ticks": 99,
+      "accelTo90pct_sec": 5.0,
+      "turnRate_dps": 76.0,
+      "turnRadiusAtMax_blocks": 29.95,
+      "turnRadiusAt75pct_blocks": 22.46,
+      "turnRadiusAt50pct_blocks": 14.97,
+      "stallSpeed_bpt": 0.6667,
+      "stallSpeed_bps": 13.33,
+      "energyRetention90deg": 0.866,
+      "windSensitivity": 0.000278,
+      "pitchRate_dps": 70.0
+    }
+  },
+  "b17": {
+    "id": "warfare_wings:b17",
+    "displayName": "B-17 Flying Fortress",
+    "ai": {
+      "role": "bomber",
+      "faction": "usaaf",
+      "doctrine": "escort"
+    },
+    "rawProperties": {
+      "engineSpeed": 0.045,
+      "yawSpeed": 1.2,
+      "pitchSpeed": 1.1,
+      "rollFactor": 15.0,
+      "mass": 18.0,
+      "lift": 0.28,
+      "glideFactor": 0.08,
+      "driftDrag": 0.02,
+      "wind": 0.006,
+      "groundPitch": 5.5,
+      "pushSpeed": 0.05,
+      "fuel": 5.5,
+      "durability": 6.0
+    },
+    "weaponry": {
+      "mountCount": 2,
+      "frontGuns": 0,
+      "dropPoints": 2,
+      "rotatingGuns": 0
+    },
+    "dimensions": {
+      "length_blocks": 16.42,
+      "wingspan_blocks": 22.96,
+      "crew": 3
+    },
+    "theoreticalPerformance": {
+      "maxSpeed_bpt": 0.91093,
+      "maxSpeed_bps": 18.22,
+      "maxSpeed_kmh": 65.6,
+      "accelTo90pct_ticks": 87,
+      "accelTo90pct_sec": 4.3,
+      "turnRate_dps": 24.0,
+      "turnRadiusAtMax_blocks": 43.49,
+      "turnRadiusAt75pct_blocks": 32.62,
+      "turnRadiusAt50pct_blocks": 21.75,
+      "stallSpeed_bpt": 0.6667,
+      "stallSpeed_bps": 13.33,
+      "energyRetention90deg": 1.061,
+      "windSensitivity": 0.000333,
+      "pitchRate_dps": 22.0
+    }
+  },
+  "b29": {
+    "id": "warfare_wings:b29",
+    "displayName": "B-29 Superfortress",
+    "ai": {
+      "role": "bomber",
+      "faction": "usaaf",
+      "doctrine": "escort"
+    },
+    "rawProperties": {
+      "engineSpeed": 0.05,
+      "yawSpeed": 1.3,
+      "pitchSpeed": 1.2,
+      "rollFactor": 18.0,
+      "mass": 20.0,
+      "lift": 0.3,
+      "glideFactor": 0.085,
+      "driftDrag": 0.018,
+      "wind": 0.0055,
+      "groundPitch": 0.5,
+      "pushSpeed": 0.05,
+      "fuel": 6.5,
+      "durability": 6.5
+    },
+    "weaponry": {
+      "mountCount": 2,
+      "frontGuns": 0,
+      "dropPoints": 2,
+      "rotatingGuns": 0
+    },
+    "dimensions": {
+      "length_blocks": 21.02,
+      "wingspan_blocks": 32.5,
+      "crew": 3
+    },
+    "theoreticalPerformance": {
+      "maxSpeed_bpt": 1.05352,
+      "maxSpeed_bps": 21.07,
+      "maxSpeed_kmh": 75.9,
+      "accelTo90pct_ticks": 89,
+      "accelTo90pct_sec": 4.5,
+      "turnRate_dps": 26.0,
+      "turnRadiusAtMax_blocks": 46.43,
+      "turnRadiusAt75pct_blocks": 34.82,
+      "turnRadiusAt50pct_blocks": 23.22,
+      "stallSpeed_bpt": 0.6667,
+      "stallSpeed_bps": 13.33,
+      "energyRetention90deg": 1.099,
+      "windSensitivity": 0.000275,
+      "pitchRate_dps": 24.0
+    }
+  },
+  "bf109": {
+    "id": "warfare_wings:bf109",
+    "displayName": "Bf 109",
+    "ai": {
+      "role": "fighter",
+      "faction": "luftwaffe",
+      "doctrine": "energy_fighter"
+    },
+    "rawProperties": {
+      "engineSpeed": 0.098,
+      "yawSpeed": 3.2,
+      "pitchSpeed": 3.0,
+      "rollFactor": 75.0,
+      "mass": 6.0,
+      "lift": 0.142,
+      "glideFactor": 0.058,
+      "driftDrag": 0.01,
+      "wind": 0.0025,
+      "groundPitch": 13.0,
+      "pushSpeed": 0.05,
+      "fuel": 2.5,
+      "durability": 3.5
+    },
+    "weaponry": {
+      "mountCount": 2,
+      "frontGuns": 4,
+      "dropPoints": 2,
+      "rotatingGuns": 0
+    },
+    "dimensions": {
+      "length_blocks": 8.07,
+      "wingspan_blocks": 10.81,
+      "crew": 1
+    },
+    "theoreticalPerformance": {
+      "maxSpeed_bpt": 2.46851,
+      "maxSpeed_bps": 49.37,
+      "maxSpeed_kmh": 177.7,
+      "accelTo90pct_ticks": 97,
+      "accelTo90pct_sec": 4.8,
+      "turnRate_dps": 64.0,
+      "turnRadiusAtMax_blocks": 44.2,
+      "turnRadiusAt75pct_blocks": 33.15,
+      "turnRadiusAt50pct_blocks": 22.1,
+      "stallSpeed_bpt": 0.6667,
+      "stallSpeed_bps": 13.33,
+      "energyRetention90deg": 0.855,
+      "windSensitivity": 0.000417,
+      "pitchRate_dps": 60.0
+    }
+  },
+  "d4y": {
+    "id": "warfare_wings:d4y",
+    "displayName": "D4Y Suisei",
+    "ai": {
+      "role": "attacker",
+      "faction": "ijn",
+      "doctrine": "attacker"
+    },
+    "rawProperties": {
+      "engineSpeed": 0.085,
+      "yawSpeed": 3.2,
+      "pitchSpeed": 3.0,
+      "rollFactor": 48.0,
+      "mass": 6.6,
+      "lift": 0.2,
+      "glideFactor": 0.07,
+      "driftDrag": 0.013,
+      "wind": 0.003,
+      "groundPitch": 10.8,
+      "pushSpeed": 0.05,
+      "fuel": 2.5,
+      "durability": 3.3
+    },
+    "weaponry": {
+      "mountCount": 2,
+      "frontGuns": 2,
+      "dropPoints": 3,
+      "rotatingGuns": 0
+    },
+    "dimensions": {
+      "length_blocks": 8.36,
+      "wingspan_blocks": 9.91,
+      "crew": 3
+    },
+    "theoreticalPerformance": {
+      "maxSpeed_bpt": 1.99484,
+      "maxSpeed_bps": 39.9,
+      "maxSpeed_kmh": 143.6,
+      "accelTo90pct_ticks": 93,
+      "accelTo90pct_sec": 4.7,
+      "turnRate_dps": 64.0,
+      "turnRadiusAtMax_blocks": 35.72,
+      "turnRadiusAt75pct_blocks": 26.79,
+      "turnRadiusAt50pct_blocks": 17.86,
+      "stallSpeed_bpt": 0.6667,
+      "stallSpeed_bps": 13.33,
+      "energyRetention90deg": 0.931,
+      "windSensitivity": 0.000455,
+      "pitchRate_dps": 60.0
+    }
+  },
+  "f4u": {
+    "id": "warfare_wings:f4u",
+    "displayName": "F4U Corsair",
+    "ai": {
+      "role": "fighter",
+      "faction": "usn",
+      "doctrine": "energy_fighter"
+    },
+    "rawProperties": {
+      "engineSpeed": 0.1,
+      "yawSpeed": 2.9,
+      "pitchSpeed": 2.75,
+      "rollFactor": 74.0,
+      "mass": 7.8,
+      "lift": 0.16,
+      "glideFactor": 0.062,
+      "driftDrag": 0.011,
+      "wind": 0.0022,
+      "groundPitch": 11.7,
+      "pushSpeed": 0.05,
+      "fuel": 3.1,
+      "durability": 4.5
+    },
+    "weaponry": {
+      "mountCount": 2,
+      "frontGuns": 6,
+      "dropPoints": 3,
+      "rotatingGuns": 0
+    },
+    "dimensions": {
+      "length_blocks": 7.77,
+      "wingspan_blocks": 9.93,
+      "crew": 1
+    },
+    "theoreticalPerformance": {
+      "maxSpeed_bpt": 2.45881,
+      "maxSpeed_bps": 49.18,
+      "maxSpeed_kmh": 177.0,
+      "accelTo90pct_ticks": 96,
+      "accelTo90pct_sec": 4.8,
+      "turnRate_dps": 58.0,
+      "turnRadiusAtMax_blocks": 48.58,
+      "turnRadiusAt75pct_blocks": 36.43,
+      "turnRadiusAt50pct_blocks": 24.29,
+      "stallSpeed_bpt": 0.6667,
+      "stallSpeed_bps": 13.33,
+      "energyRetention90deg": 0.871,
+      "windSensitivity": 0.000282,
+      "pitchRate_dps": 55.0
+    }
+  },
+  "f6f": {
+    "id": "warfare_wings:f6f",
+    "displayName": "F6F Hellcat",
+    "ai": {
+      "role": "fighter",
+      "faction": "usn",
+      "doctrine": "energy_fighter"
+    },
+    "rawProperties": {
+      "engineSpeed": 0.095,
+      "yawSpeed": 2.8,
+      "pitchSpeed": 2.7,
+      "rollFactor": 72.0,
+      "mass": 7.4,
+      "lift": 0.155,
+      "glideFactor": 0.062,
+      "driftDrag": 0.011,
+      "wind": 0.002,
+      "groundPitch": 11.4,
+      "pushSpeed": 0.05,
+      "fuel": 3.0,
+      "durability": 4.5
+    },
+    "weaponry": {
+      "mountCount": 2,
+      "frontGuns": 6,
+      "dropPoints": 3,
+      "rotatingGuns": 0
+    },
+    "dimensions": {
+      "length_blocks": 7.35,
+      "wingspan_blocks": 11.73,
+      "crew": 1
+    },
+    "theoreticalPerformance": {
+      "maxSpeed_bpt": 2.33587,
+      "maxSpeed_bps": 46.72,
+      "maxSpeed_kmh": 168.2,
+      "accelTo90pct_ticks": 96,
+      "accelTo90pct_sec": 4.8,
+      "turnRate_dps": 56.0,
+      "turnRadiusAtMax_blocks": 47.8,
+      "turnRadiusAt75pct_blocks": 35.85,
+      "turnRadiusAt50pct_blocks": 23.9,
+      "stallSpeed_bpt": 0.6667,
+      "stallSpeed_bps": 13.33,
+      "energyRetention90deg": 0.862,
+      "windSensitivity": 0.00027,
+      "pitchRate_dps": 54.0
+    }
+  },
+  "fw190": {
+    "id": "warfare_wings:fw190",
+    "displayName": "Fw 190",
+    "ai": {
+      "role": "fighter",
+      "faction": "luftwaffe",
+      "doctrine": "energy_fighter"
+    },
+    "rawProperties": {
+      "engineSpeed": 0.1,
+      "yawSpeed": 3.1,
+      "pitchSpeed": 3.0,
+      "rollFactor": 76.0,
+      "mass": 6.7,
+      "lift": 0.15,
+      "glideFactor": 0.06,
+      "driftDrag": 0.011,
+      "wind": 0.0025,
+      "groundPitch": 11.8,
+      "pushSpeed": 0.05,
+      "fuel": 2.9,
+      "durability": 4.0
+    },
+    "weaponry": {
+      "mountCount": 2,
+      "frontGuns": 4,
+      "dropPoints": 2,
+      "rotatingGuns": 0
+    },
+    "dimensions": {
+      "length_blocks": 7.27,
+      "wingspan_blocks": 9.93,
+      "crew": 1
+    },
+    "theoreticalPerformance": {
+      "maxSpeed_bpt": 2.45881,
+      "maxSpeed_bps": 49.18,
+      "maxSpeed_kmh": 177.0,
+      "accelTo90pct_ticks": 96,
+      "accelTo90pct_sec": 4.8,
+      "turnRate_dps": 62.0,
+      "turnRadiusAtMax_blocks": 45.44,
+      "turnRadiusAt75pct_blocks": 34.08,
+      "turnRadiusAt50pct_blocks": 22.72,
+      "stallSpeed_bpt": 0.6667,
+      "stallSpeed_bps": 13.33,
+      "energyRetention90deg": 0.861,
+      "windSensitivity": 0.000373,
+      "pitchRate_dps": 60.0
+    }
+  },
+  "g10n1": {
+    "id": "warfare_wings:g10n1",
+    "displayName": "G10N1 Fugaku",
+    "ai": {
+      "role": "bomber",
+      "faction": "ijn",
+      "doctrine": "escort"
+    },
+    "rawProperties": {
+      "engineSpeed": 0.06,
+      "yawSpeed": 2.0,
+      "pitchSpeed": 2.0,
+      "rollFactor": 20.0,
+      "mass": 22.0,
+      "lift": 0.31,
+      "glideFactor": 0.09,
+      "driftDrag": 0.017,
+      "wind": 0.0048,
+      "groundPitch": 0.1,
+      "pushSpeed": 0.05,
+      "fuel": 6.0,
+      "durability": 5.5
+    },
+    "weaponry": {
+      "mountCount": 2,
+      "frontGuns": 0,
+      "dropPoints": 2,
+      "rotatingGuns": 0
+    },
+    "dimensions": {
+      "length_blocks": 28.41,
+      "wingspan_blocks": 36.94,
+      "crew": 3
+    },
+    "theoreticalPerformance": {
+      "maxSpeed_bpt": 1.2906,
+      "maxSpeed_bps": 25.81,
+      "maxSpeed_kmh": 92.9,
+      "accelTo90pct_ticks": 90,
+      "accelTo90pct_sec": 4.5,
+      "turnRate_dps": 40.0,
+      "turnRadiusAtMax_blocks": 36.97,
+      "turnRadiusAt75pct_blocks": 27.73,
+      "turnRadiusAt50pct_blocks": 18.49,
+      "stallSpeed_bpt": 0.6667,
+      "stallSpeed_bps": 13.33,
+      "energyRetention90deg": 1.108,
+      "windSensitivity": 0.000218,
+      "pitchRate_dps": 40.0
+    }
+  },
+  "g10n2": {
+    "id": "warfare_wings:g10n2",
+    "displayName": "G10N2 Fugaku",
+    "ai": {
+      "role": "bomber",
+      "faction": "ijn",
+      "doctrine": "escort"
+    },
+    "rawProperties": {
+      "engineSpeed": 0.06,
+      "yawSpeed": 2.0,
+      "pitchSpeed": 2.0,
+      "rollFactor": 20.0,
+      "mass": 17.0,
+      "lift": 0.31,
+      "glideFactor": 0.09,
+      "driftDrag": 0.017,
+      "wind": 0.0048,
+      "groundPitch": 0.1,
+      "pushSpeed": 0.05,
+      "fuel": 6.0,
+      "durability": 5.5
+    },
+    "weaponry": {
+      "mountCount": 2,
+      "frontGuns": 0,
+      "dropPoints": 2,
+      "rotatingGuns": 0
+    },
+    "dimensions": {
+      "length_blocks": 23.62,
+      "wingspan_blocks": 35.76,
+      "crew": 3
+    },
+    "theoreticalPerformance": {
+      "maxSpeed_bpt": 1.2906,
+      "maxSpeed_bps": 25.81,
+      "maxSpeed_kmh": 92.9,
+      "accelTo90pct_ticks": 90,
+      "accelTo90pct_sec": 4.5,
+      "turnRate_dps": 40.0,
+      "turnRadiusAtMax_blocks": 36.97,
+      "turnRadiusAt75pct_blocks": 27.73,
+      "turnRadiusAt50pct_blocks": 18.49,
+      "stallSpeed_bpt": 0.6667,
+      "stallSpeed_bps": 13.33,
+      "energyRetention90deg": 1.108,
+      "windSensitivity": 0.000282,
+      "pitchRate_dps": 40.0
+    }
+  },
+  "g4m": {
+    "id": "warfare_wings:g4m",
+    "displayName": "G4M Betty",
+    "ai": {
+      "role": "torpedo_bomber",
+      "faction": "ijn",
+      "doctrine": "escort"
+    },
+    "rawProperties": {
+      "engineSpeed": 0.065,
+      "yawSpeed": 2.9,
+      "pitchSpeed": 2.7,
+      "rollFactor": 22.0,
+      "mass": 12.0,
+      "lift": 0.23,
+      "glideFactor": 0.085,
+      "driftDrag": 0.016,
+      "wind": 0.005,
+      "groundPitch": 6.7,
+      "pushSpeed": 0.05,
+      "fuel": 4.5,
+      "durability": 4.0
+    },
+    "weaponry": {
+      "mountCount": 2,
+      "frontGuns": 0,
+      "dropPoints": 2,
+      "rotatingGuns": 0
+    },
+    "dimensions": {
+      "length_blocks": 15.25,
+      "wingspan_blocks": 19.9,
+      "crew": 3
+    },
+    "theoreticalPerformance": {
+      "maxSpeed_bpt": 1.42794,
+      "maxSpeed_bps": 28.56,
+      "maxSpeed_kmh": 102.8,
+      "accelTo90pct_ticks": 91,
+      "accelTo90pct_sec": 4.5,
+      "turnRate_dps": 58.0,
+      "turnRadiusAtMax_blocks": 28.21,
+      "turnRadiusAt75pct_blocks": 21.16,
+      "turnRadiusAt50pct_blocks": 14.11,
+      "stallSpeed_bpt": 0.6667,
+      "stallSpeed_bps": 13.33,
+      "energyRetention90deg": 0.971,
+      "windSensitivity": 0.000417,
+      "pitchRate_dps": 54.0
+    }
+  },
+  "he111": {
+    "id": "warfare_wings:he111",
+    "displayName": "He 111",
+    "ai": {
+      "role": "bomber",
+      "faction": "luftwaffe",
+      "doctrine": "escort"
+    },
+    "rawProperties": {
+      "engineSpeed": 0.055,
+      "yawSpeed": 2.2,
+      "pitchSpeed": 2.1,
+      "rollFactor": 20.0,
+      "mass": 13.5,
+      "lift": 0.26,
+      "glideFactor": 0.088,
+      "driftDrag": 0.018,
+      "wind": 0.0055,
+      "groundPitch": 10.0,
+      "pushSpeed": 0.05,
+      "fuel": 4.8,
+      "durability": 4.0
+    },
+    "weaponry": {
+      "mountCount": 2,
+      "frontGuns": 0,
+      "dropPoints": 2,
+      "rotatingGuns": 0
+    },
+    "dimensions": {
+      "length_blocks": 12.41,
+      "wingspan_blocks": 18.26,
+      "crew": 3
+    },
+    "theoreticalPerformance": {
+      "maxSpeed_bpt": 1.15887,
+      "maxSpeed_bps": 23.18,
+      "maxSpeed_kmh": 83.4,
+      "accelTo90pct_ticks": 89,
+      "accelTo90pct_sec": 4.5,
+      "turnRate_dps": 44.0,
+      "turnRadiusAtMax_blocks": 30.18,
+      "turnRadiusAt75pct_blocks": 22.64,
+      "turnRadiusAt50pct_blocks": 15.09,
+      "stallSpeed_bpt": 0.6667,
+      "stallSpeed_bps": 13.33,
+      "energyRetention90deg": 1.019,
+      "windSensitivity": 0.000407,
+      "pitchRate_dps": 42.0
+    }
+  },
+  "il2": {
+    "id": "warfare_wings:il2",
+    "displayName": "IL-2 Sturmovik",
+    "ai": {
+      "role": "attacker",
+      "faction": "vvs",
+      "doctrine": "attacker"
+    },
+    "rawProperties": {
+      "engineSpeed": 0.07,
+      "yawSpeed": 4.0,
+      "pitchSpeed": 3.5,
+      "rollFactor": 35.0,
+      "mass": 10.5,
+      "lift": 0.24,
+      "glideFactor": 0.085,
+      "driftDrag": 0.015,
+      "wind": 0.0045,
+      "groundPitch": 11.5,
+      "pushSpeed": 0.05,
+      "fuel": 3.8,
+      "durability": 5.0
+    },
+    "weaponry": {
+      "mountCount": 2,
+      "frontGuns": 4,
+      "dropPoints": 3,
+      "rotatingGuns": 0
+    },
+    "dimensions": {
+      "length_blocks": 8.53,
+      "wingspan_blocks": 13.18,
+      "crew": 3
+    },
+    "theoreticalPerformance": {
+      "maxSpeed_bpt": 1.57127,
+      "maxSpeed_bps": 31.43,
+      "maxSpeed_kmh": 113.1,
+      "accelTo90pct_ticks": 91,
+      "accelTo90pct_sec": 4.5,
+      "turnRate_dps": 80.0,
+      "turnRadiusAtMax_blocks": 22.51,
+      "turnRadiusAt75pct_blocks": 16.88,
+      "turnRadiusAt50pct_blocks": 11.25,
+      "stallSpeed_bpt": 0.6667,
+      "stallSpeed_bps": 13.33,
+      "energyRetention90deg": 0.989,
+      "windSensitivity": 0.000429,
+      "pitchRate_dps": 70.0
+    }
+  },
+  "ju87": {
+    "id": "warfare_wings:ju87",
+    "displayName": "Ju 87 Stuka",
+    "ai": {
+      "role": "attacker",
+      "faction": "luftwaffe",
+      "doctrine": "attacker"
+    },
+    "rawProperties": {
+      "engineSpeed": 0.05,
+      "yawSpeed": 1.8,
+      "pitchSpeed": 1.8,
+      "rollFactor": 25.0,
+      "mass": 8.5,
+      "lift": 0.2,
+      "glideFactor": 0.07,
+      "driftDrag": 0.018,
+      "wind": 0.006,
+      "groundPitch": 11.5,
+      "pushSpeed": 0.05,
+      "fuel": 2.6,
+      "durability": 4.5
+    },
+    "weaponry": {
+      "mountCount": 2,
+      "frontGuns": 4,
+      "dropPoints": 3,
+      "rotatingGuns": 4
+    },
+    "dimensions": {
+      "length_blocks": 8.28,
+      "wingspan_blocks": 11.5,
+      "crew": 3
+    },
+    "theoreticalPerformance": {
+      "maxSpeed_bpt": 1.05352,
+      "maxSpeed_bps": 21.07,
+      "maxSpeed_kmh": 75.9,
+      "accelTo90pct_ticks": 89,
+      "accelTo90pct_sec": 4.5,
+      "turnRate_dps": 36.0,
+      "turnRadiusAtMax_blocks": 33.53,
+      "turnRadiusAt75pct_blocks": 25.15,
+      "turnRadiusAt50pct_blocks": 16.77,
+      "stallSpeed_bpt": 0.6667,
+      "stallSpeed_bps": 13.33,
+      "energyRetention90deg": 0.911,
+      "windSensitivity": 0.000706,
+      "pitchRate_dps": 36.0
+    }
+  },
+  "ki61": {
+    "id": "warfare_wings:ki61",
+    "displayName": "Ki-61 Hien",
+    "ai": {
+      "role": "fighter",
+      "faction": "ija",
+      "doctrine": "energy_fighter"
+    },
+    "rawProperties": {
+      "engineSpeed": 0.09,
+      "yawSpeed": 3.1,
+      "pitchSpeed": 2.9,
+      "rollFactor": 70.0,
+      "mass": 5.9,
+      "lift": 0.145,
+      "glideFactor": 0.06,
+      "driftDrag": 0.01,
+      "wind": 0.0025,
+      "groundPitch": 13.3,
+      "pushSpeed": 0.05,
+      "fuel": 2.4,
+      "durability": 3.0
+    },
+    "weaponry": {
+      "mountCount": 2,
+      "frontGuns": 4,
+      "dropPoints": 3,
+      "rotatingGuns": 0
+    },
+    "dimensions": {
+      "length_blocks": 7.12,
+      "wingspan_blocks": 11.82,
+      "crew": 1
+    },
+    "theoreticalPerformance": {
+      "maxSpeed_bpt": 2.267,
+      "maxSpeed_bps": 45.34,
+      "maxSpeed_kmh": 163.2,
+      "accelTo90pct_ticks": 97,
+      "accelTo90pct_sec": 4.8,
+      "turnRate_dps": 62.0,
+      "turnRadiusAtMax_blocks": 41.9,
+      "turnRadiusAt75pct_blocks": 31.42,
+      "turnRadiusAt50pct_blocks": 20.95,
+      "stallSpeed_bpt": 0.6667,
+      "stallSpeed_bps": 13.33,
+      "energyRetention90deg": 0.856,
+      "windSensitivity": 0.000424,
+      "pitchRate_dps": 58.0
+    }
+  },
+  "ki84": {
+    "id": "warfare_wings:ki84",
+    "displayName": "Ki-84 Hayate",
+    "ai": {
+      "role": "fighter",
+      "faction": "ija",
+      "doctrine": "energy_fighter"
+    },
+    "rawProperties": {
+      "engineSpeed": 0.1,
+      "yawSpeed": 3.3,
+      "pitchSpeed": 3.1,
+      "rollFactor": 74.0,
+      "mass": 6.0,
+      "lift": 0.15,
+      "glideFactor": 0.061,
+      "driftDrag": 0.01,
+      "wind": 0.0025,
+      "groundPitch": 14.2,
+      "pushSpeed": 0.05,
+      "fuel": 2.6,
+      "durability": 3.5
+    },
+    "weaponry": {
+      "mountCount": 2,
+      "frontGuns": 4,
+      "dropPoints": 3,
+      "rotatingGuns": 0
+    },
+    "dimensions": {
+      "length_blocks": 7.64,
+      "wingspan_blocks": 10.2,
+      "crew": 1
+    },
+    "theoreticalPerformance": {
+      "maxSpeed_bpt": 2.51889,
+      "maxSpeed_bps": 50.38,
+      "maxSpeed_kmh": 181.4,
+      "accelTo90pct_ticks": 97,
+      "accelTo90pct_sec": 4.8,
+      "turnRate_dps": 66.0,
+      "turnRadiusAtMax_blocks": 43.73,
+      "turnRadiusAt75pct_blocks": 32.8,
+      "turnRadiusAt50pct_blocks": 21.87,
+      "stallSpeed_bpt": 0.6667,
+      "stallSpeed_bps": 13.33,
+      "energyRetention90deg": 0.868,
+      "windSensitivity": 0.000417,
+      "pitchRate_dps": 62.0
+    }
+  },
+  "mc202": {
+    "id": "warfare_wings:mc202",
+    "displayName": "MC.202 Folgore",
+    "ai": {
+      "role": "fighter",
+      "faction": "regia_aeronautica",
+      "doctrine": "energy_fighter"
+    },
+    "rawProperties": {
+      "engineSpeed": 0.085,
+      "yawSpeed": 3.0,
+      "pitchSpeed": 2.9,
+      "rollFactor": 66.0,
+      "mass": 5.9,
+      "lift": 0.14,
+      "glideFactor": 0.057,
+      "driftDrag": 0.011,
+      "wind": 0.003,
+      "groundPitch": 13.9,
+      "pushSpeed": 0.05,
+      "fuel": 2.2,
+      "durability": 3.0
+    },
+    "weaponry": {
+      "mountCount": 2,
+      "frontGuns": 4,
+      "dropPoints": 4,
+      "rotatingGuns": 0
+    },
+    "dimensions": {
+      "length_blocks": 7.01,
+      "wingspan_blocks": 9.56,
+      "crew": 1
+    },
+    "theoreticalPerformance": {
+      "maxSpeed_bpt": 2.08999,
+      "maxSpeed_bps": 41.8,
+      "maxSpeed_kmh": 150.5,
+      "accelTo90pct_ticks": 96,
+      "accelTo90pct_sec": 4.8,
+      "turnRate_dps": 60.0,
+      "turnRadiusAtMax_blocks": 39.92,
+      "turnRadiusAt75pct_blocks": 29.94,
+      "turnRadiusAt50pct_blocks": 19.96,
+      "stallSpeed_bpt": 0.6667,
+      "stallSpeed_bps": 13.33,
+      "energyRetention90deg": 0.845,
+      "windSensitivity": 0.000508,
+      "pitchRate_dps": 58.0
+    }
+  },
+  "mig3": {
+    "id": "warfare_wings:mig3",
+    "displayName": "MiG-3",
+    "ai": {
+      "role": "fighter",
+      "faction": "vvs",
+      "doctrine": "energy_fighter"
+    },
+    "rawProperties": {
+      "engineSpeed": 0.092,
+      "yawSpeed": 2.7,
+      "pitchSpeed": 2.8,
+      "rollFactor": 68.0,
+      "mass": 6.6,
+      "lift": 0.14,
+      "glideFactor": 0.057,
+      "driftDrag": 0.011,
+      "wind": 0.003,
+      "groundPitch": 14.9,
+      "pushSpeed": 0.05,
+      "fuel": 2.3,
+      "durability": 3.0
+    },
+    "weaponry": {
+      "mountCount": 2,
+      "frontGuns": 4,
+      "dropPoints": 4,
+      "rotatingGuns": 0
+    },
+    "dimensions": {
+      "length_blocks": 6.81,
+      "wingspan_blocks": 10.38,
+      "crew": 1
+    },
+    "theoreticalPerformance": {
+      "maxSpeed_bpt": 2.26211,
+      "maxSpeed_bps": 45.24,
+      "maxSpeed_kmh": 162.9,
+      "accelTo90pct_ticks": 96,
+      "accelTo90pct_sec": 4.8,
+      "turnRate_dps": 54.0,
+      "turnRadiusAtMax_blocks": 48.0,
+      "turnRadiusAt75pct_blocks": 36.0,
+      "turnRadiusAt50pct_blocks": 24.0,
+      "stallSpeed_bpt": 0.6667,
+      "stallSpeed_bps": 13.33,
+      "energyRetention90deg": 0.837,
+      "windSensitivity": 0.000455,
+      "pitchRate_dps": 56.0
+    }
+  },
+  "p40e": {
+    "id": "warfare_wings:p40e",
+    "displayName": "P-40E Warhawk",
+    "ai": {
+      "role": "fighter",
+      "faction": "usaaf",
+      "doctrine": "energy_fighter"
+    },
+    "rawProperties": {
+      "engineSpeed": 0.085,
+      "yawSpeed": 2.7,
+      "pitchSpeed": 2.7,
+      "rollFactor": 65.0,
+      "mass": 6.9,
+      "lift": 0.14,
+      "glideFactor": 0.055,
+      "driftDrag": 0.012,
+      "wind": 0.003,
+      "groundPitch": 13.4,
+      "pushSpeed": 0.05,
+      "fuel": 2.7,
+      "durability": 3.5
+    },
+    "weaponry": {
+      "mountCount": 2,
+      "frontGuns": 6,
+      "dropPoints": 2,
+      "rotatingGuns": 0
+    },
+    "dimensions": {
+      "length_blocks": 6.92,
+      "wingspan_blocks": 10.56,
+      "crew": 1
+    },
+    "theoreticalPerformance": {
+      "maxSpeed_bpt": 2.04131,
+      "maxSpeed_bps": 40.83,
+      "maxSpeed_kmh": 147.0,
+      "accelTo90pct_ticks": 94,
+      "accelTo90pct_sec": 4.7,
+      "turnRate_dps": 54.0,
+      "turnRadiusAtMax_blocks": 43.32,
+      "turnRadiusAt75pct_blocks": 32.49,
+      "turnRadiusAt50pct_blocks": 21.66,
+      "stallSpeed_bpt": 0.6667,
+      "stallSpeed_bps": 13.33,
+      "energyRetention90deg": 0.835,
+      "windSensitivity": 0.000435,
+      "pitchRate_dps": 54.0
+    }
+  },
+  "p47n": {
+    "id": "warfare_wings:p47n",
+    "displayName": "P-47N Thunderbolt",
+    "ai": {
+      "role": "fighter",
+      "faction": "usaaf",
+      "doctrine": "energy_fighter"
+    },
+    "rawProperties": {
+      "engineSpeed": 0.102,
+      "yawSpeed": 2.5,
+      "pitchSpeed": 2.4,
+      "rollFactor": 58.0,
+      "mass": 9.0,
+      "lift": 0.165,
+      "glideFactor": 0.055,
+      "driftDrag": 0.013,
+      "wind": 0.004,
+      "groundPitch": 15.5,
+      "pushSpeed": 0.05,
+      "fuel": 3.4,
+      "durability": 5.0
+    },
+    "weaponry": {
+      "mountCount": 2,
+      "frontGuns": 8,
+      "dropPoints": 3,
+      "rotatingGuns": 0
+    },
+    "dimensions": {
+      "length_blocks": 7.7,
+      "wingspan_blocks": 11.11,
+      "crew": 1
+    },
+    "theoreticalPerformance": {
+      "maxSpeed_bpt": 2.3938,
+      "maxSpeed_bps": 47.88,
+      "maxSpeed_kmh": 172.4,
+      "accelTo90pct_ticks": 93,
+      "accelTo90pct_sec": 4.7,
+      "turnRate_dps": 50.0,
+      "turnRadiusAtMax_blocks": 54.86,
+      "turnRadiusAt75pct_blocks": 41.15,
+      "turnRadiusAt50pct_blocks": 27.43,
+      "stallSpeed_bpt": 0.6667,
+      "stallSpeed_bps": 13.33,
+      "energyRetention90deg": 0.867,
+      "windSensitivity": 0.000444,
+      "pitchRate_dps": 48.0
+    }
+  },
+  "p51d": {
+    "id": "warfare_wings:p51d",
+    "displayName": "P-51D Mustang",
+    "ai": {
+      "role": "fighter",
+      "faction": "usaaf",
+      "doctrine": "energy_fighter"
+    },
+    "rawProperties": {
+      "engineSpeed": 0.1,
+      "yawSpeed": 3.0,
+      "pitchSpeed": 3.0,
+      "rollFactor": 80.0,
+      "mass": 6.5,
+      "lift": 0.15,
+      "glideFactor": 0.06,
+      "driftDrag": 0.01,
+      "wind": 0.002,
+      "groundPitch": 12.5,
+      "pushSpeed": 0.05,
+      "fuel": 3.2,
+      "durability": 4.0
+    },
+    "weaponry": {
+      "mountCount": 2,
+      "frontGuns": 6,
+      "dropPoints": 4,
+      "rotatingGuns": 0
+    },
+    "dimensions": {
+      "length_blocks": 7.2,
+      "wingspan_blocks": 10.14,
+      "crew": 1
+    },
+    "theoreticalPerformance": {
+      "maxSpeed_bpt": 2.51889,
+      "maxSpeed_bps": 50.38,
+      "maxSpeed_kmh": 181.4,
+      "accelTo90pct_ticks": 97,
+      "accelTo90pct_sec": 4.8,
+      "turnRate_dps": 60.0,
+      "turnRadiusAtMax_blocks": 48.11,
+      "turnRadiusAt75pct_blocks": 36.08,
+      "turnRadiusAt50pct_blocks": 24.05,
+      "stallSpeed_bpt": 0.6667,
+      "stallSpeed_bps": 13.33,
+      "energyRetention90deg": 0.861,
+      "windSensitivity": 0.000308,
+      "pitchRate_dps": 60.0
+    }
+  },
+  "sbd": {
+    "id": "warfare_wings:sbd",
+    "displayName": "SBD Dauntless",
+    "ai": {
+      "role": "attacker",
+      "faction": "usn",
+      "doctrine": "attacker"
+    },
+    "rawProperties": {
+      "engineSpeed": 0.06,
+      "yawSpeed": 2.4,
+      "pitchSpeed": 2.2,
+      "rollFactor": 30.0,
+      "mass": 7.2,
+      "lift": 0.22,
+      "glideFactor": 0.09,
+      "driftDrag": 0.017,
+      "wind": 0.0055,
+      "groundPitch": 11.3,
+      "pushSpeed": 0.05,
+      "fuel": 2.8,
+      "durability": 3.8
+    },
+    "weaponry": {
+      "mountCount": 2,
+      "frontGuns": 2,
+      "dropPoints": 3,
+      "rotatingGuns": 0
+    },
+    "dimensions": {
+      "length_blocks": 7.6,
+      "wingspan_blocks": 11.51,
+      "crew": 3
+    },
+    "theoreticalPerformance": {
+      "maxSpeed_bpt": 1.2906,
+      "maxSpeed_bps": 25.81,
+      "maxSpeed_kmh": 92.9,
+      "accelTo90pct_ticks": 90,
+      "accelTo90pct_sec": 4.5,
+      "turnRate_dps": 48.0,
+      "turnRadiusAtMax_blocks": 30.81,
+      "turnRadiusAt75pct_blocks": 23.11,
+      "turnRadiusAt50pct_blocks": 15.41,
+      "stallSpeed_bpt": 0.6667,
+      "stallSpeed_bps": 13.33,
+      "energyRetention90deg": 0.952,
+      "windSensitivity": 0.000764,
+      "pitchRate_dps": 44.0
+    }
+  },
+  "spitfire": {
+    "id": "warfare_wings:spitfire",
+    "displayName": "Spitfire",
+    "ai": {
+      "role": "fighter",
+      "faction": "raf",
+      "doctrine": "turn_fighter"
+    },
+    "rawProperties": {
+      "engineSpeed": 0.095,
+      "yawSpeed": 3.6,
+      "pitchSpeed": 3.4,
+      "rollFactor": 78.0,
+      "mass": 5.8,
+      "lift": 0.148,
+      "glideFactor": 0.064,
+      "driftDrag": 0.009,
+      "wind": 0.002,
+      "groundPitch": 12.4,
+      "pushSpeed": 0.05,
+      "fuel": 2.35,
+      "durability": 3.0
+    },
+    "weaponry": {
+      "mountCount": 2,
+      "frontGuns": 4,
+      "dropPoints": 2,
+      "rotatingGuns": 0
+    },
+    "dimensions": {
+      "length_blocks": 7.67,
+      "wingspan_blocks": 10.66,
+      "crew": 1
+    },
+    "theoreticalPerformance": {
+      "maxSpeed_bpt": 2.45288,
+      "maxSpeed_bps": 49.06,
+      "maxSpeed_kmh": 176.6,
+      "accelTo90pct_ticks": 98,
+      "accelTo90pct_sec": 4.9,
+      "turnRate_dps": 72.0,
+      "turnRadiusAtMax_blocks": 39.04,
+      "turnRadiusAt75pct_blocks": 29.28,
+      "turnRadiusAt50pct_blocks": 19.52,
+      "stallSpeed_bpt": 0.6667,
+      "stallSpeed_bps": 13.33,
+      "energyRetention90deg": 0.873,
+      "windSensitivity": 0.000345,
+      "pitchRate_dps": 68.0
+    }
+  },
+  "yak3": {
+    "id": "warfare_wings:yak3",
+    "displayName": "Yak-3",
+    "ai": {
+      "role": "fighter",
+      "faction": "vvs",
+      "doctrine": "turn_fighter"
+    },
+    "rawProperties": {
+      "engineSpeed": 0.096,
+      "yawSpeed": 3.4,
+      "pitchSpeed": 3.3,
+      "rollFactor": 76.0,
+      "mass": 5.6,
+      "lift": 0.146,
+      "glideFactor": 0.059,
+      "driftDrag": 0.01,
+      "wind": 0.0022,
+      "groundPitch": 12.5,
+      "pushSpeed": 0.05,
+      "fuel": 2.2,
+      "durability": 3.0
+    },
+    "weaponry": {
+      "mountCount": 2,
+      "frontGuns": 4,
+      "dropPoints": 4,
+      "rotatingGuns": 0
+    },
+    "dimensions": {
+      "length_blocks": 7.04,
+      "wingspan_blocks": 8.86,
+      "crew": 1
+    },
+    "theoreticalPerformance": {
+      "maxSpeed_bpt": 2.41814,
+      "maxSpeed_bps": 48.36,
+      "maxSpeed_kmh": 174.1,
+      "accelTo90pct_ticks": 97,
+      "accelTo90pct_sec": 4.8,
+      "turnRate_dps": 68.0,
+      "turnRadiusAtMax_blocks": 40.75,
+      "turnRadiusAt75pct_blocks": 30.56,
+      "turnRadiusAt50pct_blocks": 20.37,
+      "stallSpeed_bpt": 0.6667,
+      "stallSpeed_bps": 13.33,
+      "energyRetention90deg": 0.866,
+      "windSensitivity": 0.000393,
+      "pitchRate_dps": 66.0
+    }
+  }
+}

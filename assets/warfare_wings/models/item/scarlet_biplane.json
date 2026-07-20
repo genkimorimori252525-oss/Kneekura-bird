@@ -1,0 +1,7 @@
+{
+  "parent": "item/generated",
+  "textures": {
+    "layer0": "man_of_many_planes:item/scarlet_biplane_color",
+    "layer1": "man_of_many_planes:item/scarlet_biplane"
+  }
+}

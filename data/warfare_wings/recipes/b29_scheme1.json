@@ -1,0 +1,28 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "HHQ",
+    "HAQ",
+    "HHH"
+  ],
+  "key": {
+    "A": [
+      {
+        "item": "warfare_wings:b29"
+      }
+    ],
+    "H": [
+      {
+        "item": "minecraft:light_gray_wool"
+      }
+    ],
+    "Q": [
+      {
+        "item": "minecraft:black_wool"
+      }
+    ]
+  },
+  "result": {
+    "item": "warfare_wings:b29_scheme1"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "QQQ",
+    "FAF",
+    "YYY"
+  ],
+  "key": {
+    "A": [
+      {
+        "item": "warfare_wings:f4u"
+      }
+    ],
+    "Q": [
+      {
+        "item": "minecraft:blue_wool"
+      }
+    ],
+    "F": [
+      {
+        "item": "minecraft:cyan_wool"
+      }
+    ],
+    "Y": [
+      {
+        "item": "minecraft:light_gray_wool"
+      }
+    ]
+  },
+  "result": {
+    "item": "warfare_wings:f4u_scheme1"
+  }
+}

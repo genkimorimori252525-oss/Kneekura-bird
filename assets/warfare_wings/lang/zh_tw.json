@@ -1,0 +1,460 @@
+{
+  "item.warfare_wings.p40e": "P-40E 戰鷹式戰鬥機",
+  "item.warfare_wings.p40e.description": "由寇帝斯-萊特公司研發的美國戰鬥機。在二戰初期服役於同盟國。",
+  "entity.warfare_wings.p40e": "P-40E 戰鷹式戰鬥機",
+
+  "item.warfare_wings.p40e_scheme1": "P-40E 戰鷹式戰鬥機〔塗裝1〕",
+  "item.warfare_wings.p40e_scheme1.description": "由寇帝斯-萊特公司研發的美國戰鬥機。在二戰初期服役於同盟國。",
+  "entity.warfare_wings.p40e_scheme1": "P-40E 戰鷹式戰鬥機〔塗裝1〕",
+
+  "item.warfare_wings.p40e_scheme2": "P-40E 戰鷹式戰鬥機〔塗裝2〕",
+  "item.warfare_wings.p40e_scheme2.description": "由寇帝斯-萊特公司研發的美國戰鬥機。在二戰初期服役於同盟國。",
+  "entity.warfare_wings.p40e_scheme2": "P-40E 戰鷹式戰鬥機〔塗裝2〕",
+
+  "item.warfare_wings.p40e_scheme3": "P-40E 戰鷹式戰鬥機〔塗裝3〕",
+  "item.warfare_wings.p40e_scheme3.description": "由寇帝斯-萊特公司研發的美國戰鬥機。在二戰初期服役於同盟國。",
+  "entity.warfare_wings.p40e_scheme3": "P-40E 戰鷹式戰鬥機〔塗裝3〕",
+
+
+
+  "item.warfare_wings.p51d": "P-51D 野馬式戰鬥機",
+  "item.warfare_wings.p51d.description": "由北美航空公司研發，被認為是二戰後期最佳戰鬥機。",
+  "entity.warfare_wings.p51d": "P-51D 野馬式戰鬥機",
+
+  "item.warfare_wings.p51d_scheme1": "P-51D 野馬式戰鬥機〔塗裝1〕",
+  "item.warfare_wings.p51d_scheme1.description": "由北美航空公司研發，被認為是二戰後期最佳戰鬥機。",
+  "entity.warfare_wings.p51d_scheme1": "P-51D 野馬式戰鬥機〔塗裝1〕",
+
+  "item.warfare_wings.p51d_scheme2": "P-51D 野馬式戰鬥機〔塗裝2〕",
+  "item.warfare_wings.p51d_scheme2.description": "由北美航空公司研發，被認為是二戰後期最佳戰鬥機。",
+  "entity.warfare_wings.p51d_scheme2": "P-51D 野馬式戰鬥機〔塗裝2〕",
+
+  "item.warfare_wings.p51d_scheme3": "P-51D 野馬式戰鬥機〔塗裝3〕",
+  "item.warfare_wings.p51d_scheme3.description": "由北美航空公司研發，被認為是二戰後期最佳戰鬥機。",
+  "entity.warfare_wings.p51d_scheme3": "P-51D 野馬式戰鬥機〔塗裝3〕",
+
+
+
+  "item.warfare_wings.p47n": "P-47N 雷霆式戰鬥機",
+  "item.warfare_wings.p47n.description": "由美國共和飛機公司研發的戰鬥機。與野馬式並列為二戰後期美軍主力戰鬥機之一。",
+  "entity.warfare_wings.p47n": "P-47N 雷霆式戰鬥機",
+
+  "item.warfare_wings.p47n_scheme1": "P-47N 雷霆式戰鬥機〔塗裝1〕",
+  "item.warfare_wings.p47n_scheme1.description": "由美國共和飛機公司研發的戰鬥機。與野馬式並列為二戰後期美軍主力戰鬥機之一。",
+  "entity.warfare_wings.p47n_scheme1": "P-47N 雷霆式戰鬥機〔塗裝1〕",
+
+  "item.warfare_wings.p47n_scheme2": "P-47N 雷霆式戰鬥機〔塗裝2〕",
+  "item.warfare_wings.p47n_scheme2.description": "由美國共和飛機公司研發的戰鬥機。與野馬式並列為二戰後期美軍主力戰鬥機之一。",
+  "entity.warfare_wings.p47n_scheme2": "P-47N 雷霆式戰鬥機〔塗裝2〕",
+
+  "item.warfare_wings.p47n_scheme3": "P-47N 雷霆式戰鬥機〔塗裝3〕",
+  "item.warfare_wings.p47n_scheme3.description": "由美國共和飛機公司研發的戰鬥機。與野馬式並列為二戰後期美軍主力戰鬥機之一。",
+  "entity.warfare_wings.p47n_scheme3": "P-47N 雷霆式戰鬥機〔塗裝3〕",
+
+
+
+  "item.warfare_wings.f6f": "F6F 地獄貓式戰鬥機",
+  "item.warfare_wings.f6f.description": "由美國格魯曼公司研發的戰鬥機。自二戰中期起服役為美國海軍主力戰鬥機。",
+  "entity.warfare_wings.f6f": "F6F 地獄貓式戰鬥機",
+
+  "item.warfare_wings.f6f_scheme1": "F6F 地獄貓式戰鬥機〔塗裝1〕",
+  "item.warfare_wings.f6f_scheme1.description": "由美國格魯曼公司研發的戰鬥機。自二戰中期起服役為美國海軍主力戰鬥機。",
+  "entity.warfare_wings.f6f_scheme1": "F6F 地獄貓式戰鬥機〔塗裝1〕",
+
+  "item.warfare_wings.f6f_scheme2": "F6F 地獄貓式戰鬥機〔塗裝2〕",
+  "item.warfare_wings.f6f_scheme2.description": "由美國格魯曼公司研發的戰鬥機。自二戰中期起服役為美國海軍主力戰鬥機。",
+  "entity.warfare_wings.f6f_scheme2": "F6F 地獄貓式戰鬥機〔塗裝2〕",
+
+  "item.warfare_wings.f6f_scheme3": "F6F 地獄貓式戰鬥機〔塗裝3〕",
+  "item.warfare_wings.f6f_scheme3.description": "由美國格魯曼公司研發的戰鬥機。自二戰中期起服役為美國海軍主力戰鬥機。",
+  "entity.warfare_wings.f6f_scheme3": "F6F 地獄貓式戰鬥機〔塗裝3〕",
+
+
+
+  "item.warfare_wings.a6m": "A6M 零式艦上戰鬥機",
+  "item.warfare_wings.a6m.description": "日本帝國海軍的戰鬥機。在太平洋戰爭初期擁有壓倒性的實力，成為世界上最傑出的戰鬥機。",
+  "entity.warfare_wings.a6m": "A6M 零式艦上戰鬥機",
+
+  "item.warfare_wings.a6m_scheme1": "A6M 零式艦上戰鬥機〔塗裝1〕",
+  "item.warfare_wings.a6m_scheme1.description": "日本帝國海軍的戰鬥機。在太平洋戰爭初期擁有壓倒性的實力，成為世界上最傑出的戰鬥機。",
+  "entity.warfare_wings.a6m_scheme1": "A6M 零式艦上戰鬥機〔塗裝1〕",
+
+  "item.warfare_wings.a6m_scheme2": "A6M 零式艦上戰鬥機〔塗裝2〕",
+  "item.warfare_wings.a6m_scheme2.description": "日本帝國海軍的戰鬥機。在太平洋戰爭初期擁有壓倒性的實力，成為世界上最傑出的戰鬥機。",
+  "entity.warfare_wings.a6m_scheme2": "A6M 零式艦上戰鬥機〔塗裝2〕",
+
+  "item.warfare_wings.a6m_scheme3": "A6M 零式艦上戰鬥機〔塗裝3〕",
+  "item.warfare_wings.a6m_scheme3.description": "日本帝國海軍的戰鬥機。在太平洋戰爭初期擁有壓倒性的實力，成為世界上最傑出的戰鬥機。",
+  "entity.warfare_wings.a6m_scheme3": "A6M 零式艦上戰鬥機〔塗裝3〕",
+
+
+
+  "item.warfare_wings.ki61": "Ki-61 飛燕戰鬥機",
+  "item.warfare_wings.ki61.description": "由川崎航空機為日本帝國陸軍在二戰期間研發的戰鬥機。它也是當時日本唯一的液冷式戰鬥機。",
+  "entity.warfare_wings.ki61": "Ki-61 飛燕戰鬥機",
+
+  "item.warfare_wings.ki61_scheme1": "Ki-61 飛燕戰鬥機〔塗裝1〕",
+  "item.warfare_wings.ki61_scheme1.description": "由川崎航空機為日本帝國陸軍在二戰期間研發的戰鬥機。它也是當時日本唯一的液冷式戰鬥機。",
+  "entity.warfare_wings.ki61_scheme1": "Ki-61 飛燕戰鬥機〔塗裝1〕",
+
+  "item.warfare_wings.ki61_scheme2": "Ki-61 飛燕戰鬥機〔塗裝2〕",
+  "item.warfare_wings.ki61_scheme2.description": "由川崎航空機為日本帝國陸軍在二戰期間研發的戰鬥機。它也是當時日本唯一的液冷式戰鬥機。",
+  "entity.warfare_wings.ki61_scheme2": "Ki-61 飛燕戰鬥機〔塗裝2〕",
+
+  "item.warfare_wings.ki61_scheme3": "Ki-61 飛燕戰鬥機〔塗裝3〕",
+  "item.warfare_wings.ki61_scheme3.description": "由川崎航空機為日本帝國陸軍在二戰期間研發的戰鬥機。它也是當時日本唯一的液冷式戰鬥機。",
+  "entity.warfare_wings.ki61_scheme3": "Ki-61 飛燕戰鬥機〔塗裝3〕",
+
+
+
+  "item.warfare_wings.ki84": "Ki-84 疾風戰鬥機",
+  "item.warfare_wings.ki84.description": "由中島飛機公司研發，日本帝國陸軍在二戰期間的戰鬥機。被與之交戰的美軍視為日本最佳戰鬥機。",
+  "entity.warfare_wings.ki84": "Ki-84 疾風戰鬥機",
+
+  "item.warfare_wings.ki84_scheme1": "Ki-84 疾風戰鬥機〔塗裝1〕",
+  "item.warfare_wings.ki84_scheme1.description": "由中島飛機公司研發，日本帝國陸軍在二戰期間的戰鬥機。被與之交戰的美軍視為日本最佳戰鬥機。",
+  "entity.warfare_wings.ki84_scheme1": "Ki-84 疾風戰鬥機〔塗裝1〕",
+
+  "item.warfare_wings.ki84_scheme2": "Ki-84 疾風戰鬥機〔塗裝2〕",
+  "item.warfare_wings.ki84_scheme2.description": "由中島飛機公司研發，日本帝國陸軍在二戰期間的戰鬥機。被與之交戰的美軍視為日本最佳戰鬥機。",
+  "entity.warfare_wings.ki84_scheme2": "Ki-84 疾風戰鬥機〔塗裝2〕",
+
+  "item.warfare_wings.ki84_scheme3": "Ki-84 疾風戰鬥機〔塗裝3〕",
+  "item.warfare_wings.ki84_scheme3.description": "由中島飛機公司研發，日本帝國陸軍在二戰期間的戰鬥機。被與之交戰的美軍視為日本最佳戰鬥機。",
+  "entity.warfare_wings.ki84_scheme3": "Ki-84 疾風戰鬥機〔塗裝3〕",
+
+
+
+  "item.warfare_wings.fw190": "Fw 190 鷲式戰鬥機",
+  "item.warfare_wings.fw190.description": "由福克-沃爾夫公司研發的德國戰鬥機。與梅塞施密特 Bf 109 並列為二戰期間德國空軍主力。",
+  "entity.warfare_wings.fw190": "Fw 190 鷲式戰鬥機",
+
+  "item.warfare_wings.fw190_scheme1": "Fw 190 鷲式戰鬥機〔塗裝1〕",
+  "item.warfare_wings.fw190_scheme1.description": "由福克-沃爾夫公司研發的德國戰鬥機。與梅塞施密特 Bf 109 並列為二戰期間德國空軍主力。",
+  "entity.warfare_wings.fw190_scheme1": "Fw 190 鷲式戰鬥機〔塗裝1〕",
+
+  "item.warfare_wings.fw190_scheme2": "Fw 190 鷲式戰鬥機〔塗裝2〕",
+  "item.warfare_wings.fw190_scheme2.description": "由福克-沃爾夫公司研發的德國戰鬥機。與梅塞施密特 Bf 109 並列為二戰期間德國空軍主力。",
+  "entity.warfare_wings.fw190_scheme2": "Fw 190 鷲式戰鬥機〔塗裝2〕",
+
+  "item.warfare_wings.fw190_scheme3": "Fw 190 鷲式戰鬥機〔塗裝3〕",
+  "item.warfare_wings.fw190_scheme3.description": "由福克-沃爾夫公司研發的德國戰鬥機。與梅塞施密特 Bf 109 並列為二戰期間德國空軍主力。",
+  "entity.warfare_wings.fw190_scheme3": "Fw 190 鷲式戰鬥機〔塗裝3〕",
+
+
+
+  "item.warfare_wings.bf109": "Bf 109 戰鬥機",
+  "item.warfare_wings.bf109.description": "二戰期間德國空軍的主力戰鬥機。它是歷史上產量最多的戰鬥機，產量超過 30,000 架。",
+  "entity.warfare_wings.bf109": "Bf 109 戰鬥機",
+
+  "item.warfare_wings.bf109_scheme1": "Bf 109 戰鬥機〔塗裝1〕",
+  "item.warfare_wings.bf109_scheme1.description": "二戰期間德國空軍的主力戰鬥機。它是歷史上產量最多的戰鬥機，產量超過 30,000 架。",
+  "entity.warfare_wings.bf109_scheme1": "Bf 109 戰鬥機〔塗裝1〕",
+
+  "item.warfare_wings.bf109_scheme2": "Bf 109 戰鬥機〔塗裝2〕",
+  "item.warfare_wings.bf109_scheme2.description": "二戰期間德國空軍的主力戰鬥機。它是歷史上產量最多的戰鬥機，產量超過 30,000 架。",
+  "entity.warfare_wings.bf109_scheme2": "Bf 109 戰鬥機〔塗裝2〕",
+
+  "item.warfare_wings.bf109_scheme3": "Bf 109 戰鬥機〔塗裝3〕",
+  "item.warfare_wings.bf109_scheme3.description": "二戰期間德國空軍的主力戰鬥機。它是歷史上產量最多的戰鬥機，產量超過 30,000 架。",
+  "entity.warfare_wings.bf109_scheme3": "Bf 109 戰鬥機〔塗裝3〕",
+
+
+
+  "item.warfare_wings.ju87": "Ju 87 俯衝轟炸機",
+  "item.warfare_wings.ju87.description": "由容克公司研發的德國空軍俯衝轟炸機。在德國閃電戰初期發揮了積極作用，取得了巨大的成果。",
+  "entity.warfare_wings.ju87": "Ju 87 俯衝轟炸機",
+
+  "item.warfare_wings.ju87_scheme1": "Ju 87 俯衝轟炸機〔塗裝1〕",
+  "item.warfare_wings.ju87_scheme1.description": "由容克公司研發的德國空軍俯衝轟炸機。在德國閃電戰初期發揮了積極作用，取得了巨大的成果。",
+  "entity.warfare_wings.ju87_scheme1": "Ju 87 俯衝轟炸機〔塗裝1〕",
+
+  "item.warfare_wings.ju87_scheme2": "Ju 87 俯衝轟炸機〔塗裝2〕",
+  "item.warfare_wings.ju87_scheme2.description": "由容克公司研發的德國空軍俯衝轟炸機。在德國閃電戰初期發揮了積極作用，取得了巨大的成果。",
+  "entity.warfare_wings.ju87_scheme2": "Ju 87 俯衝轟炸機〔塗裝2〕",
+
+  "item.warfare_wings.ju87_scheme3": "Ju 87 俯衝轟炸機〔塗裝3〕",
+  "item.warfare_wings.ju87_scheme3.description": "由容克公司研發的德國空軍俯衝轟炸機。在德國閃電戰初期發揮了積極作用，取得了巨大的成果。",
+  "entity.warfare_wings.ju87_scheme3": "Ju 87 俯衝轟炸機〔塗裝3〕",
+
+
+
+  "item.warfare_wings.yak3": "Yak-3 戰鬥機",
+  "item.warfare_wings.yak3.description": "二戰時期的蘇聯戰鬥機。它比戰爭期間的任何其他戰鬥機都更小更輕，並且表現出優異的性能，有時被稱為實戰中最好的蘇聯戰鬥機。",
+  "entity.warfare_wings.yak3": "Yak-3 戰鬥機",
+
+  "item.warfare_wings.yak3_scheme1": "Yak-3 戰鬥機〔塗裝1〕",
+  "item.warfare_wings.yak3_scheme1.description": "二戰時期的蘇聯戰鬥機。它比戰爭期間的任何其他戰鬥機都更小更輕，並且表現出優異的性能，有時被稱為實戰中最好的蘇聯戰鬥機。",
+  "entity.warfare_wings.yak3_scheme1": "Yak-3 戰鬥機〔塗裝1〕",
+
+  "item.warfare_wings.yak3_scheme2": "Yak-3 戰鬥機〔塗裝2〕",
+  "item.warfare_wings.yak3_scheme2.description": "二戰時期的蘇聯戰鬥機。它比戰爭期間的任何其他戰鬥機都更小更輕，並且表現出優異的性能，有時被稱為實戰中最好的蘇聯戰鬥機。",
+  "entity.warfare_wings.yak3_scheme2": "Yak-3 戰鬥機〔塗裝2〕",
+
+  "item.warfare_wings.yak3_scheme3": "Yak-3 戰鬥機〔塗裝3〕",
+  "item.warfare_wings.yak3_scheme3.description": "二戰時期的蘇聯戰鬥機。它比戰爭期間的任何其他戰鬥機都更小更輕，並且表現出優異的性能，有時被稱為實戰中最好的蘇聯戰鬥機。",
+  "entity.warfare_wings.yak3_scheme3": "Yak-3 戰鬥機〔塗裝3〕",
+
+
+
+  "item.warfare_wings.mig3": "MiG-3 戰鬥機",
+  "item.warfare_wings.mig3.description": "二戰時期的蘇聯戰鬥機。它主要適用於高空攔截任務，但低空性能差是一個問題。它的任務後來改為偵察機。",
+  "entity.warfare_wings.mig3": "MiG-3 戰鬥機",
+
+  "item.warfare_wings.mig3_scheme1": "MiG-3 戰鬥機〔塗裝1〕",
+  "item.warfare_wings.mig3_scheme1.description": "二戰時期的蘇聯戰鬥機。它主要適用於高空攔截任務，但低空性能差是一個問題。它的任務後來改為偵察機。",
+  "entity.warfare_wings.mig3_scheme1": "MiG-3 戰鬥機〔塗裝1〕",
+
+  "item.warfare_wings.mig3_scheme2": "MiG-3 戰鬥機〔塗裝2〕",
+  "item.warfare_wings.mig3_scheme2.description": "二戰時期的蘇聯戰鬥機。它主要適用於高空攔截任務，但低空性能差是一個問題。它的任務後來改為偵察機。",
+  "entity.warfare_wings.mig3_scheme2": "MiG-3 戰鬥機〔塗裝2〕",
+
+  "item.warfare_wings.mig3_scheme3": "MiG-3 戰鬥機〔塗裝3〕",
+  "item.warfare_wings.mig3_scheme3.description": "二戰時期的蘇聯戰鬥機。它主要適用於高空攔截任務，但低空性能差是一個問題。它的任務後來改為偵察機。",
+  "entity.warfare_wings.mig3_scheme3": "MiG-3 戰鬥機〔塗裝3〕",
+
+
+
+  "item.warfare_wings.mc202": "C.202 閃電式戰鬥機",
+  "item.warfare_wings.mc202.description": "二戰期間在義大利研發的戰鬥機。它是二戰期間義大利空軍的主力戰鬥機，並積極參與與盟軍戰鬥機的正面交鋒。",
+  "entity.warfare_wings.mc202": "C.202 閃電式戰鬥機",
+
+  "item.warfare_wings.mc202_scheme1": "C.202 閃電式戰鬥機〔塗裝1〕",
+  "item.warfare_wings.mc202_scheme1.description": "二戰期間在義大利研發的戰鬥機。它是二戰期間義大利空軍的主力戰鬥機，並積極參與與盟軍戰鬥機的正面交鋒。",
+  "entity.warfare_wings.mc202_scheme1": "C.202 閃電式戰鬥機〔塗裝1〕",
+
+  "item.warfare_wings.mc202_scheme2": "C.202 閃電式戰鬥機〔塗裝2〕",
+  "item.warfare_wings.mc202_scheme2.description": "二戰期間在義大利研發的戰鬥機。它是二戰期間義大利空軍的主力戰鬥機，並積極參與與盟軍戰鬥機的正面交鋒。",
+  "entity.warfare_wings.mc202_scheme2": "C.202 閃電式戰鬥機〔塗裝2〕",
+
+  "item.warfare_wings.mc202_scheme3": "C.202 閃電式戰鬥機〔塗裝3〕",
+  "item.warfare_wings.mc202_scheme3.description": "二戰期間在義大利研發的戰鬥機。它是二戰期間義大利空軍的主力戰鬥機，並積極參與與盟軍戰鬥機的正面交鋒。",
+  "entity.warfare_wings.mc202_scheme3": "C.202 閃電式戰鬥機〔塗裝3〕",
+
+
+
+  "item.warfare_wings.spitfire": "超級馬林噴火戰鬥機",
+  "item.warfare_wings.spitfire.description": "由英國超級馬林公司研發的戰鬥機。它在第二次世界大戰的許多前線服役，並在戰後繼續服役至 1950 年代。",
+  "entity.warfare_wings.spitfire": "超級馬林噴火戰鬥機",
+
+  "item.warfare_wings.spitfire_scheme1": "超級馬林噴火戰鬥機〔塗裝1〕",
+  "item.warfare_wings.spitfire_scheme1.description": "由英國超級馬林公司研發的戰鬥機。它在第二次世界大戰的許多前線服役，並在戰後繼續服役至 1950 年代。",
+  "entity.warfare_wings.spitfire_scheme1": "超級馬林噴火戰鬥機〔塗裝1〕",
+
+  "item.warfare_wings.spitfire_scheme2": "超級馬林噴火戰鬥機〔塗裝2〕",
+  "item.warfare_wings.spitfire_scheme2.description": "由英國超級馬林公司研發的戰鬥機。它在第二次世界大戰的許多前線服役，並在戰後繼續服役至 1950 年代。",
+  "entity.warfare_wings.spitfire_scheme2": "超級馬林噴火戰鬥機〔塗裝2〕",
+
+  "item.warfare_wings.spitfire_scheme3": "超級馬林噴火戰鬥機〔塗裝3〕",
+  "item.warfare_wings.spitfire_scheme3.description": "由英國超級馬林公司研發的戰鬥機。它在第二次世界大戰的許多前線服役，並在戰後繼續服役至 1950 年代。",
+  "entity.warfare_wings.spitfire_scheme3": "超級馬林噴火戰鬥機〔塗裝3〕",
+
+
+
+  "item.warfare_wings.b17": "B-17 飛行堡壘",
+  "item.warfare_wings.b17.description": "美國波音公司研發的四引擎重型轟炸機，於1935年首飛。該機專為高空精準轟炸設計，憑藉堅固結構與密集防禦機槍陣列，被譽為「空中堡壘」。最大時速約462公里，航程約3,200公里。戰後部分機體轉作運輸機及偵察機使用。",
+  "entity.warfare_wings.b17": "B-17 飛行堡壘",
+
+  "item.warfare_wings.b17_scheme1": "B-17 飛行堡壘〔塗裝1〕",
+  "item.warfare_wings.b17_scheme1.description": "美國波音公司研發的四引擎重型轟炸機，於1935年首飛。該機專為高空精準轟炸設計，憑藉堅固結構與密集防禦機槍陣列，被譽為「空中堡壘」。最大時速約462公里，航程約3,200公里。戰後部分機體轉作運輸機及偵察機使用。",
+  "entity.warfare_wings.b17_scheme1": "B-17 飛行堡壘〔塗裝1〕",
+
+  "item.warfare_wings.b17_scheme2": "B-17 飛行堡壘〔塗裝2〕",
+  "item.warfare_wings.b17_scheme2.description": "美國波音公司研發的四引擎重型轟炸機，於1935年首飛。該機專為高空精準轟炸設計，憑藉堅固結構與密集防禦機槍陣列，被譽為「空中堡壘」。最大時速約462公里，航程約3,200公里。戰後部分機體轉作運輸機及偵察機使用。",
+  "entity.warfare_wings.b17_scheme2": "B-17 飛行堡壘〔塗裝2〕",
+
+  "item.warfare_wings.b17_scheme3": "B-17 飛行堡壘〔塗裝3〕",
+  "item.warfare_wings.b17_scheme3.description": "美國波音公司研發的四引擎重型轟炸機，於1935年首飛。該機專為高空精準轟炸設計，憑藉堅固結構與密集防禦機槍陣列，被譽為「空中堡壘」。最大時速約462公里，航程約3,200公里。戰後部分機體轉作運輸機及偵察機使用。",
+  "entity.warfare_wings.b17_scheme3": "B-17 飛行堡壘〔塗裝3〕",
+
+
+
+  "item.warfare_wings.b29": "B-29 超級空中堡壘",
+  "item.warfare_wings.b29.description": "B-29是由美國波音公司研發的高性能四引擎重型轟炸機，於1944年投入實戰。配備加壓艙、遙控機槍座、雷達轟炸瞄準器等先進技術，最大時速約574公里，續航距離超過5,230公里。戰後部分機體改裝為空中加油機。",
+  "entity.warfare_wings.b29": "B-29 超級空中堡壘",
+
+  "item.warfare_wings.b29_scheme1": "B-29 超級空中堡壘〔塗裝1〕",
+  "item.warfare_wings.b29_scheme1.description": "B-29是由美國波音公司研發的高性能四引擎重型轟炸機，於1944年投入實戰。配備加壓艙、遙控機槍座、雷達轟炸瞄準器等先進技術，最大時速約574公里，續航距離超過5,230公里。戰後部分機體改裝為空中加油機。",
+  "entity.warfare_wings.b29_scheme1": "B-29 超級空中堡壘〔塗裝1〕",
+
+  "item.warfare_wings.b29_scheme2": "B-29 超級空中堡壘〔塗裝2〕",
+  "item.warfare_wings.b29_scheme2.description": "B-29是由美國波音公司研發的高性能四引擎重型轟炸機，於1944年投入實戰。配備加壓艙、遙控機槍座、雷達轟炸瞄準器等先進技術，最大時速約574公里，續航距離超過5,230公里。戰後部分機體改裝為空中加油機。",
+  "entity.warfare_wings.b29_scheme2": "B-29 超級空中堡壘〔塗裝2〕",
+
+  "item.warfare_wings.b29_scheme3": "B-29 超級空中堡壘〔塗裝3〕",
+  "item.warfare_wings.b29_scheme3.description": "B-29是由美國波音公司研發的高性能四引擎重型轟炸機，於1944年投入實戰。配備加壓艙、遙控機槍座、雷達轟炸瞄準器等先進技術，最大時速約574公里，續航距離超過5,230公里。戰後部分機體改裝為空中加油機。",
+  "entity.warfare_wings.b29_scheme3": "B-29 超級空中堡壘〔塗裝3〕",
+
+
+
+  "item.warfare_wings.f4u": "F4U 海盜式戰鬥機",
+  "item.warfare_wings.f4u.description": "由美國錢斯沃特公司研發的艦載戰鬥機，於1942年投入實戰。其獨特的倒鷗翼設計旨在兼容大型螺旋槳與低腿式佈局，最高時速約達718公里。憑藉強大火力與卓越加速性能，被公認為盟軍最成功的艦載戰鬥機之一。",
+  "entity.warfare_wings.f4u": "F4U 海盜式戰鬥機",
+
+  "item.warfare_wings.f4u_scheme1": "F4U 海盜式戰鬥機〔塗裝1〕",
+  "item.warfare_wings.f4u_scheme1.description": "由美國錢斯沃特公司研發的艦載戰鬥機，於1942年投入實戰。其獨特的倒鷗翼設計旨在兼容大型螺旋槳與低腿式佈局，最高時速約達718公里。憑藉強大火力與卓越加速性能，被公認為盟軍最成功的艦載戰鬥機之一。",
+  "entity.warfare_wings.f4u_scheme1": "F4U 海盜式戰鬥機〔塗裝1〕",
+
+  "item.warfare_wings.f4u_scheme2": "F4U 海盜式戰鬥機〔塗裝2〕",
+  "item.warfare_wings.f4u_scheme2.description": "由美國錢斯沃特公司研發的艦載戰鬥機，於1942年投入實戰。其獨特的倒鷗翼設計旨在兼容大型螺旋槳與低腿式佈局，最高時速約達718公里。憑藉強大火力與卓越加速性能，被公認為盟軍最成功的艦載戰鬥機之一。",
+  "entity.warfare_wings.f4u_scheme2": "F4U 海盜式戰鬥機〔塗裝2〕",
+
+  "item.warfare_wings.f4u_scheme3": "F4U 海盜式戰鬥機〔塗裝3〕",
+  "item.warfare_wings.f4u_scheme3.description": "由美國錢斯沃特公司研發的艦載戰鬥機，於1942年投入實戰。其獨特的倒鷗翼設計旨在兼容大型螺旋槳與低腿式佈局，最高時速約達718公里。憑藉強大火力與卓越加速性能，被公認為盟軍最成功的艦載戰鬥機之一。",
+  "entity.warfare_wings.f4u_scheme3": "F4U 海盜式戰鬥機〔塗裝3〕",
+
+
+
+  "item.warfare_wings.sbd": "SBD 無畏式俯衝轟炸機",
+  "item.warfare_wings.sbd.description": "由美國道格拉斯公司研發的艦載俯衝轟炸機，自1940年起投入實戰。其最大時速約410公里，具備堅固結構與精準轟炸能力。於中途島海戰中擊沉四艘日本航空母艦，此戰果大幅扭轉戰局。",
+  "entity.warfare_wings.sbd": "SBD 無畏式俯衝轟炸機",
+
+  "item.warfare_wings.sbd_scheme1": "SBD 無畏式俯衝轟炸機〔塗裝1〕",
+  "item.warfare_wings.sbd_scheme1.description": "由美國道格拉斯公司研發的艦載俯衝轟炸機，自1940年起投入實戰。其最大時速約410公里，具備堅固結構與精準轟炸能力。於中途島海戰中擊沉四艘日本航空母艦，此戰果大幅扭轉戰局。",
+  "entity.warfare_wings.sbd_scheme1": "SBD 無畏式俯衝轟炸機〔塗裝1〕",
+
+  "item.warfare_wings.sbd_scheme2": "SBD 無畏式俯衝轟炸機〔塗裝2〕",
+  "item.warfare_wings.sbd_scheme2.description": "由美國道格拉斯公司研發的艦載俯衝轟炸機，自1940年起投入實戰。其最大時速約410公里，具備堅固結構與精準轟炸能力。於中途島海戰中擊沉四艘日本航空母艦，此戰果大幅扭轉戰局。",
+  "entity.warfare_wings.sbd_scheme2": "SBD 無畏式俯衝轟炸機〔塗裝2〕",
+
+
+
+  "item.warfare_wings.d4y": "D4Y 彗星艦載轟炸機",
+  "item.warfare_wings.d4y.description": "D4Y「彗星」是日本海軍所使用的艦載轟炸機，由愛知航空機公司開發。初期型搭載源自德國的液冷引擎，具備優異的高速性能與空氣動力學表現，但存在維修便利性與可靠性問題，後期型遂改為採用空冷引擎。",
+  "entity.warfare_wings.d4y": "D4Y 彗星艦載轟炸機",
+
+  "item.warfare_wings.d4y_scheme1": "D4Y 彗星艦載轟炸機〔塗裝1〕",
+  "item.warfare_wings.d4y_scheme1.description": "D4Y「彗星」是日本海軍所使用的艦載轟炸機，由愛知航空機公司開發。初期型搭載源自德國的液冷引擎，具備優異的高速性能與空氣動力學表現，但存在維修便利性與可靠性問題，後期型遂改為採用空冷引擎。",
+  "entity.warfare_wings.d4y_scheme1": "D4Y 彗星艦載轟炸機〔塗裝1〕",
+
+  
+
+  "item.warfare_wings.g4m": "一式陸上攻擊機",
+  "item.warfare_wings.g4m.description": "三菱重工為日本海軍研發的雙發陸基攻擊機，盟軍代號稱之為「貝蒂」。最大時速約437公里。用於雷擊、轟炸及偵察任務，亦因山本五十六搭乘時遭擊墜而聞名。",
+  "entity.warfare_wings.g4m": "一式陸上攻擊機",
+
+  "item.warfare_wings.g4m_scheme1": "一式陸上攻擊機〔塗裝1〕",
+  "item.warfare_wings.g4m_scheme1.description": "三菱重工為日本海軍研發的雙發陸基攻擊機，盟軍代號稱之為「貝蒂」。最大時速約437公里。用於雷擊、轟炸及偵察任務，亦因山本五十六搭乘時遭擊墜而聞名。",
+  "entity.warfare_wings.g4m_scheme1": "一式陸上攻擊機〔塗裝1〕",
+
+  "item.warfare_wings.g4m_scheme2": "一式陸上攻擊機〔塗裝2〕",
+  "item.warfare_wings.g4m_scheme2.description": "三菱重工為日本海軍研發的雙發陸基攻擊機，盟軍代號稱之為「貝蒂」。最大時速約437公里。用於雷擊、轟炸及偵察任務，亦因山本五十六搭乘時遭擊墜而聞名。",
+  "entity.warfare_wings.g4m_scheme2": "一式陸上攻擊機〔塗裝2〕",
+
+
+
+  "item.warfare_wings.g10n1": "G10N 富嶽 [一型]",
+  "item.warfare_wings.g10n1.description": "G10N「富嶽」是中島飛機公司構思的超大型戰略轟炸機，作為以轟炸美國本土為目標的「Z飛行機構構想」核心機體。原規劃全長約45公尺、搭載炸彈20噸、航程達19,400公里，然因戰局惡化與物資短缺，於試作階段中止計畫。富嶽一型為本內容所命名的虛構型號。",
+  "entity.warfare_wings.g10n1": "G10N 富嶽 [一型]",
+
+  "item.warfare_wings.g10n1_scheme1": "G10N 富嶽 [一型]〔塗裝1〕",
+  "item.warfare_wings.g10n1_scheme1.description": "G10N「富嶽」是中島飛機公司構思的超大型戰略轟炸機，作為以轟炸美國本土為目標的「Z飛行機構構想」核心機體。原規劃全長約45公尺、搭載炸彈20噸、航程達19,400公里，然因戰局惡化與物資短缺，於試作階段中止計畫。富嶽一型為本內容所命名的虛構型號。",
+  "entity.warfare_wings.g10n1_scheme1": "G10N 富嶽 [一型]〔塗裝1〕",
+
+  "item.warfare_wings.g10n1_scheme2": "G10N 富嶽 [一型]〔塗裝2〕",
+  "item.warfare_wings.g10n1_scheme2.description": "G10N「富嶽」是中島飛機公司構思的超大型戰略轟炸機，作為以轟炸美國本土為目標的「Z飛行機構構想」核心機體。原規劃全長約45公尺、搭載炸彈20噸、航程達19,400公里，然因戰局惡化與物資短缺，於試作階段中止計畫。富嶽一型為本內容所命名的虛構型號。",
+  "entity.warfare_wings.g10n1_scheme2": "G10N 富嶽 [一型]〔塗裝2〕",
+
+
+
+  "item.warfare_wings.g10n2": "G10N 富嶽 [二型]",
+  "item.warfare_wings.g10n2.description": "G10N「富嶽」是中島飛機公司構思的超大型戰略轟炸機，作為以轟炸美國本土為目標的「Z飛行機構構想」核心機體。原規劃全長約45公尺、搭載炸彈20噸、航程達19,400公里，然因戰局惡化與物資短缺，於試作階段中止計畫。富嶽二型為本內容所命名的虛構型號。",
+  "entity.warfare_wings.g10n2": "G10N 富嶽 [二型]",
+
+  "item.warfare_wings.g10n2_scheme1": "G10N 富嶽 [二型]〔塗裝1〕",
+  "item.warfare_wings.g10n2_scheme1.description": "G10N「富嶽」是中島飛機公司構思的超大型戰略轟炸機，作為以轟炸美國本土為目標的「Z飛行機構構想」核心機體。原規劃全長約45公尺、搭載炸彈20噸、航程達19,400公里，然因戰局惡化與物資短缺，於試作階段中止計畫。富嶽二型為本內容所命名的虛構型號。",
+  "entity.warfare_wings.g10n2_scheme1": "G10N 富嶽 [二型]〔塗裝1〕",
+
+  "item.warfare_wings.g10n2_scheme2": "G10N 富嶽 [二型]〔塗裝2〕",
+  "item.warfare_wings.g10n2_scheme2.description": "G10N「富嶽」是中島飛機公司構思的超大型戰略轟炸機，作為以轟炸美國本土為目標的「Z飛行機構構想」核心機體。原規劃全長約45公尺、搭載炸彈20噸、航程達19,400公里，然因戰局惡化與物資短缺，於試作階段中止計畫。富嶽二型為本內容所命名的虛構型號。",
+  "entity.warfare_wings.g10n2_scheme2": "G10N 富嶽 [二型]〔塗裝2〕",
+
+
+
+  "item.warfare_wings.il2": "伊留申 IL-2",
+  "item.warfare_wings.il2.description": "IL-2是由蘇聯伊留申設計局研發的對地攻擊機，憑藉重裝甲與強大火力被譽為「空中戰車」。最大時速約400公里。在德蘇戰爭中創下顯著戰績，成為步兵與坦克支援不可或缺的戰力。總產量達36,183架，創下軍用飛機史上最高生產紀錄。",
+  "entity.warfare_wings.il2": "伊留申 IL-2",
+
+  "item.warfare_wings.il2_scheme1": "伊留申 IL-2〔塗裝1〕",
+  "item.warfare_wings.il2_scheme1.description": "IL-2是由蘇聯伊留申設計局研發的對地攻擊機，憑藉重裝甲與強大火力被譽為「空中戰車」。最大時速約400公里。在德蘇戰爭中創下顯著戰績，成為步兵與坦克支援不可或缺的戰力。總產量達36,183架，創下軍用飛機史上最高生產紀錄。",
+  "entity.warfare_wings.il2_scheme1": "伊留申 IL-2〔塗裝1〕",
+
+  "item.warfare_wings.il2_scheme2": "伊留申 IL-2〔塗裝2〕",
+  "item.warfare_wings.il2_scheme2.description": "IL-2是由蘇聯伊留申設計局研發的對地攻擊機，憑藉重裝甲與強大火力被譽為「空中戰車」。最大時速約400公里。在德蘇戰爭中創下顯著戰績，成為步兵與坦克支援不可或缺的戰力。總產量達36,183架，創下軍用飛機史上最高生產紀錄。",
+  "entity.warfare_wings.il2_scheme2": "伊留申 IL-2〔塗裝2〕",
+
+  "item.warfare_wings.il2_scheme3": "伊留申 IL-2〔塗裝3〕",
+  "item.warfare_wings.il2_scheme3.description": "IL-2是由蘇聯伊留申設計局研發的對地攻擊機，憑藉重裝甲與強大火力被譽為「空中戰車」。最大時速約400公里。在德蘇戰爭中創下顯著戰績，成為步兵與坦克支援不可或缺的戰力。總產量達36,183架，創下軍用飛機史上最高生產紀錄。",
+  "entity.warfare_wings.il2_scheme3": "伊留申 IL-2〔塗裝3〕",
+
+
+
+  "item.warfare_wings.he111": "He 111 轟炸機",
+  "item.warfare_wings.he111.description": "德國亨克爾公司研發的雙發動機轟炸機。最大時速約440公里，配備橢圓形機翼與獨特的彈艙結構。二戰期間廣泛作為中程轟炸機使用，但戰爭後期其防禦力與速度不足的問題日益顯著。",
+  "entity.warfare_wings.he111": "He 111 轟炸機",
+
+  "item.warfare_wings.he111_scheme1": "He 111 轟炸機〔塗裝1〕",
+  "item.warfare_wings.he111_scheme1.description": "德國亨克爾公司研發的雙發動機轟炸機。最大時速約440公里，配備橢圓形機翼與獨特的彈艙結構。二戰期間廣泛作為中程轟炸機使用，但戰爭後期其防禦力與速度不足的問題日益顯著。",
+  "entity.warfare_wings.he111_scheme1": "He 111 轟炸機〔塗裝1〕",
+
+  "item.warfare_wings.he111_scheme2": "He 111 轟炸機〔塗裝2〕",
+  "item.warfare_wings.he111_scheme2.description": "德國亨克爾公司研發的雙發動機轟炸機。最大時速約440公里，配備橢圓形機翼與獨特的彈艙結構。二戰期間廣泛作為中程轟炸機使用，但戰爭後期其防禦力與速度不足的問題日益顯著。",
+  "entity.warfare_wings.he111_scheme2": "He 111 轟炸機〔塗裝2〕",
+
+  "item.warfare_wings.he111_scheme3": "He 111 轟炸機〔塗裝3〕",
+  "item.warfare_wings.he111_scheme3.description": "德國亨克爾公司研發的雙發動機轟炸機。最大時速約440公里，配備橢圓形機翼與獨特的彈艙結構。二戰期間廣泛作為中程轟炸機使用，但戰爭後期其防禦力與速度不足的問題日益顯著。",
+  "entity.warfare_wings.he111_scheme3": "He 111 轟炸機〔塗裝3〕",
+  
+
+
+  "item.warfare_wings.ww_bomb": "250磅炸彈",
+  "item.warfare_wings.ww_bomb.description":"美軍炸彈",
+  "entity.warfare_wings.ww_bomb": "250磅炸彈",
+
+  "item.warfare_wings.ww_gbomb": "SC250 炸彈",
+  "item.warfare_wings.ww_gbomb.description":"德軍炸彈",
+  "entity.warfare_wings.ww_gbomb": "SC250 炸彈",
+
+  "item.warfare_wings.ww_sbomb": "FAB-250 炸彈",
+  "item.warfare_wings.ww_sbomb.description":"蘇聯紅軍炸彈",
+  "entity.warfare_wings.ww_sbomb": "FAB-250 炸彈",
+
+  "item.warfare_wings.ww_jbomb": "九二式250公斤高爆彈",
+  "item.warfare_wings.ww_jbomb.description":"日軍炸彈",
+  "entity.warfare_wings.ww_jbomb": "九二式250公斤高爆彈",
+
+  "item.warfare_wings.ww_usbomber": "250磅炸彈(轟炸機用)",
+  "item.warfare_wings.ww_usbomber.description":"美軍炸彈",
+  "entity.warfare_wings.ww_usbomber": "250磅炸彈(轟炸機用)",
+
+  "item.warfare_wings.ww_gbomber": "SC250 炸彈(轟炸機用)",
+  "item.warfare_wings.ww_gbomber.description":"德軍炸彈",
+  "entity.warfare_wings.ww_gbomber": "SC250 炸彈(轟炸機用)",
+
+  "item.warfare_wings.ww_sbomber": "FAB-250 炸彈(轟炸機用)",
+  "item.warfare_wings.ww_sbomber.description":"蘇聯紅軍炸彈",
+  "entity.warfare_wings.ww_sbomber": "FAB-250 炸彈(轟炸機用)",
+
+  "item.warfare_wings.ww_jbomber": "九二式250公斤高爆彈(轟炸機用)",
+  "item.warfare_wings.ww_jbomber.description":"日軍炸彈",
+  "entity.warfare_wings.ww_jbomber": "九二式250公斤高爆彈(轟炸機用)",
+
+  "item.warfare_wings.ww_jgbomb": "九一式魚雷",
+  "item.warfare_wings.ww_jgbomb.description":"日軍魚雷",
+  "entity.warfare_wings.ww_jgbomb": "九一式魚雷",
+
+  "item.warfare_wings.ww_usgbomb": "Mk.14魚雷",
+  "item.warfare_wings.ww_usgbomb.description":"美軍魚雷",
+  "entity.warfare_wings.ww_usgbomb": "Mk.14魚雷",
+
+  "item.warfare_wings.wing_mg": "機槍",
+  "item.warfare_wings.wing_mg.description":"通用機槍",
+  "entity.warfare_wings.wing_mg": "機槍",
+
+
+  "item.warfare_wings.iron_frame": "鐵製框架",
+
+  "item.warfare_wings.two_iron_frame": "捆綁的鐵製框架",
+
+  "item.warfare_wings.r_iron_frame": "強化鐵製框架"
+}

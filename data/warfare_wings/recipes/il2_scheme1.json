@@ -1,0 +1,33 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "FQF",
+    "QAQ",
+    "YYY"
+  ],
+  "key": {
+    "A": [
+      {
+        "item": "warfare_wings:il2"
+      }
+    ],
+    "Q": [
+      {
+        "item": "minecraft:green_wool"
+      }
+    ],
+    "F": [
+      {
+        "item": "minecraft:orange_wool"
+      }
+    ],
+    "Y": [
+      {
+        "item": "minecraft:light_blue_wool"
+      }
+    ]
+  },
+  "result": {
+    "item": "warfare_wings:il2_scheme1"
+  }
+}

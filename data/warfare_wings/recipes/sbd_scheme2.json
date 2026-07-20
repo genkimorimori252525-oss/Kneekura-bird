@@ -1,0 +1,28 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "QQQ",
+    "QAQ",
+    "YYY"
+  ],
+  "key": {
+    "A": [
+      {
+        "item": "warfare_wings:sbd"
+      }
+    ],
+    "Q": [
+      {
+        "item": "minecraft:light_blue_wool"
+      }
+    ],
+    "Y": [
+      {
+        "item": "minecraft:light_gray_wool"
+      }
+    ]
+  },
+  "result": {
+    "item": "warfare_wings:sbd_scheme2"
+  }
+}

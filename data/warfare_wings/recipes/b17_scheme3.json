@@ -1,0 +1,28 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "XXW",
+    "XAX",
+    "XXX"
+  ],
+  "key": {
+    "A": [
+      {
+        "item": "warfare_wings:b17"
+      }
+    ],
+    "X": [
+      {
+        "item": "minecraft:black_wool"
+      }
+    ],
+    "W": [
+      {
+        "item": "minecraft:white_wool"
+      }
+    ]
+  },
+  "result": {
+    "item": "warfare_wings:b17_scheme3"
+  }
+}

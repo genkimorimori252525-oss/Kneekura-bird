@@ -1,0 +1,21 @@
+modLoader = "javafml"
+loaderVersion = "[47,)"
+issueTrackerURL = ""
+license = "GPL-3.0-only"
+
+[[mods]]
+modId = "warfare_wings"
+version = "1.1.4"
+displayName = "Warfare Wings"
+displayURL = "https://www.curseforge.com/minecraft/mc-mods/warfare-wings"
+authors = "VellEagle"
+description = "Add a WWII reciprocating fighter to the Immersive Aircraft Mod."
+logoFile = "icon.png"
+itemIcon = ""
+
+[[dependencies.warfare_wings]]
+modId = "immersive_aircraft"
+mandatory = true
+versionRange = "[1.1.0,)"
+ordering = "NONE"
+side = "BOTH"

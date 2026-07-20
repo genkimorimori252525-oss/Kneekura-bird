@@ -1,0 +1,33 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "XYY",
+    "XAW",
+    "XXX"
+  ],
+  "key": {
+    "A": [
+      {
+        "item": "warfare_wings:b17"
+      }
+    ],
+    "Y": [
+      {
+        "item": "minecraft:yellow_wool"
+      }
+    ],
+    "X": [
+      {
+        "item": "minecraft:light_gray_wool"
+      }
+    ],
+    "W": [
+      {
+        "item": "minecraft:green_wool"
+      }
+    ]
+  },
+  "result": {
+    "item": "warfare_wings:b17_scheme1"
+  }
+}

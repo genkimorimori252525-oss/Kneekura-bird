@@ -1,0 +1,23 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    " G ",
+    "GVG",
+    "GVG"
+  ],
+  "key": {
+    "V": [
+      {
+        "item": "minecraft:tnt"
+      }
+    ],
+    "G": [
+      {
+        "item": "minecraft:iron_ingot"
+      }
+    ]
+  },
+  "result": {
+    "item": "warfare_wings:ww_bomb"
+  }
+}

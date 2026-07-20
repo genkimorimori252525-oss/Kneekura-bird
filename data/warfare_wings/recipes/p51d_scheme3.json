@@ -1,0 +1,33 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "WYY",
+    "XAY",
+    "XXX"
+  ],
+  "key": {
+    "A": [
+      {
+        "item": "warfare_wings:p51d"
+      }
+    ],
+    "Y": [
+      {
+        "item": "minecraft:red_wool"
+      }
+    ],
+    "X": [
+      {
+        "item": "minecraft:light_gray_wool"
+      }
+    ],
+    "W": [
+      {
+        "item": "minecraft:black_wool"
+      }
+    ]
+  },
+  "result": {
+    "item": "warfare_wings:p51d_scheme3"
+  }
+}

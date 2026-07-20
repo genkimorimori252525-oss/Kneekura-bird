@@ -1,0 +1,38 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "QZQ",
+    "YAZ",
+    "FFF"
+  ],
+  "key": {
+    "A": [
+      {
+        "item": "warfare_wings:g10n2"
+      }
+    ],
+    "Q": [
+      {
+        "item": "minecraft:green_wool"
+      }
+    ],
+    "F": [
+      {
+        "item": "minecraft:light_gray_wool"
+      }
+    ],
+    "Y": [
+      {
+        "item": "minecraft:red_wool"
+      }
+    ],
+    "Z": [
+      {
+        "item": "minecraft:brown_wool"
+      }
+    ]
+  },
+  "result": {
+    "item": "warfare_wings:g10n2_scheme2"
+  }
+}

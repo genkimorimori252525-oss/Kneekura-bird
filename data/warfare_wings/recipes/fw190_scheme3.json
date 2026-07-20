@@ -1,0 +1,33 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "QFQ",
+    "FAF",
+    "YYY"
+  ],
+  "key": {
+    "A": [
+      {
+        "item": "warfare_wings:fw190"
+      }
+    ],
+    "Q": [
+      {
+        "item": "minecraft:gray_wool"
+      }
+    ],
+    "F": [
+      {
+        "item": "minecraft:green_wool"
+      }
+    ],
+    "Y": [
+      {
+        "item": "minecraft:light_gray_wool"
+      }
+    ]
+  },
+  "result": {
+    "item": "warfare_wings:fw190_scheme3"
+  }
+}

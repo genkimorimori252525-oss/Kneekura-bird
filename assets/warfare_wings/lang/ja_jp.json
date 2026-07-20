@@ -1,0 +1,459 @@
+{
+  "item.warfare_wings.p40e": "P-40E ウォーホーク",
+  "item.warfare_wings.p40e.description": "アメリカのカーチス・ライト社が開発した戦闘機。性能は平凡であったが、実用性と量産体制が優れていたこともあり、第二次世界大戦初期の連合国で活躍した。",
+  "entity.warfare_wings.p40e": "P-40E ウォーホーク",
+
+  "item.warfare_wings.p40e_scheme1": "P-40E ウォーホーク(Scheme1)",
+  "item.warfare_wings.p40e_scheme1.description": "アメリカのカーチス・ライト社が開発した戦闘機。性能は平凡であったが、実用性と量産体制が優れていたこともあり、第二次世界大戦初期の連合国で活躍した。",
+  "entity.warfare_wings.p40e_scheme1": "P-40E ウォーホーク(Scheme1)",
+
+  "item.warfare_wings.p40e_scheme2": "P-40E ウォーホーク(Scheme2)",
+  "item.warfare_wings.p40e_scheme2.description": "アメリカのカーチス・ライト社が開発した戦闘機。性能は平凡であったが、実用性と量産体制が優れていたこともあり、第二次世界大戦初期の連合国で活躍した。",
+  "entity.warfare_wings.p40e_scheme2": "P-40E ウォーホーク(Scheme2)",
+
+  "item.warfare_wings.p40e_scheme3": "P-40E ウォーホーク(Scheme3)",
+  "item.warfare_wings.p40e_scheme3.description": "アメリカのカーチス・ライト社が開発した戦闘機。性能は平凡であったが、実用性と量産体制が優れていたこともあり、第二次世界大戦初期の連合国で活躍した。",
+  "entity.warfare_wings.p40e_scheme3": "P-40E ウォーホーク(Scheme3)",
+
+
+
+  "item.warfare_wings.p51d": "P-51D マスタング",
+  "item.warfare_wings.p51d.description": "アメリカのノースアメリカン社が開発した戦闘機。同世代機として最速の最高速度や長い航続距離、高高度性能を持ち、ロールス・ロイス製マーリンエンジンを搭載した後期型は第二次大戦後期の最優秀戦闘機と評されている。",
+  "entity.warfare_wings.p51d": "P-51D マスタング",
+
+  "item.warfare_wings.p51d_scheme1": "P-51D マスタング(Scheme1)",
+  "item.warfare_wings.p51d_scheme1.description": "アメリカのノースアメリカン社が開発した戦闘機。同世代機として最速の最高速度や長い航続距離、高高度性能を持ち、ロールス・ロイス製マーリンエンジンを搭載した後期型は第二次大戦後期の最優秀戦闘機と評されている。",
+  "entity.warfare_wings.p51d_scheme1": "P-51D マスタング(Scheme1)",
+
+  "item.warfare_wings.p51d_scheme2": "P-51D マスタング(Scheme2)",
+  "item.warfare_wings.p51d_scheme2.description": "アメリカのノースアメリカン社が開発した戦闘機。同世代機として最速の最高速度や長い航続距離、高高度性能を持ち、ロールス・ロイス製マーリンエンジンを搭載した後期型は第二次大戦後期の最優秀戦闘機と評されている。",
+  "entity.warfare_wings.p51d_scheme2": "P-51D マスタング(Scheme2)",
+
+  "item.warfare_wings.p51d_scheme3": "P-51D マスタング(Scheme3)",
+  "item.warfare_wings.p51d_scheme3.description": "アメリカのノースアメリカン社が開発した戦闘機。同世代機として最速の最高速度や長い航続距離、高高度性能を持ち、ロールス・ロイス製マーリンエンジンを搭載した後期型は第二次大戦後期の最優秀戦闘機と評されている。",
+  "entity.warfare_wings.p51d_scheme3": "P-51D マスタング(Scheme3)",
+
+
+
+  "item.warfare_wings.p47n": "P-47N サンダーボルト",
+  "item.warfare_wings.p47n.description": "アメリカのリパブリック社が開発した戦闘機。12.7mm機銃8基や最大3千ポンドのペイロードの重武装と頑丈な構造により、敵機や地上目標に対して強力な攻撃力を発揮。マスタングと共に第二次大戦後期のアメリカの主力戦闘機の一つとして活躍した。",
+  "entity.warfare_wings.p47n": "P-47N サンダーボルト",
+
+  "item.warfare_wings.p47n_scheme1": "P-47N サンダーボルト(Scheme1)",
+  "item.warfare_wings.p47n_scheme1.description": "アメリカのリパブリック社が開発した戦闘機。12.7mm機銃8基や最大3千ポンドのペイロードの重武装と頑丈な構造により、敵機や地上目標に対して強力な攻撃力を発揮。マスタングと共に第二次大戦後期のアメリカの主力戦闘機の一つとして活躍した。",
+  "entity.warfare_wings.p47n_scheme1": "P-47N サンダーボルト(Scheme1)",
+
+  "item.warfare_wings.p47n_scheme2": "P-47N サンダーボルト(Scheme2)",
+  "item.warfare_wings.p47n_scheme2.description": "アメリカのリパブリック社が開発した戦闘機。12.7mm機銃8基や最大3千ポンドのペイロードの重武装と頑丈な構造により、敵機や地上目標に対して強力な攻撃力を発揮。マスタングと共に第二次大戦後期のアメリカの主力戦闘機の一つとして活躍した。",
+  "entity.warfare_wings.p47n_scheme2": "P-47N サンダーボルト(Scheme2)",
+
+  "item.warfare_wings.p47n_scheme3": "P-47N サンダーボルト(Scheme3)",
+  "item.warfare_wings.p47n_scheme3.description": "アメリカのリパブリック社が開発した戦闘機。12.7mm機銃8基や最大3千ポンドのペイロードの重武装と頑丈な構造により、敵機や地上目標に対して強力な攻撃力を発揮。マスタングと共に第二次大戦後期のアメリカの主力戦闘機の一つとして活躍した。",
+  "entity.warfare_wings.p47n_scheme3": "P-47N サンダーボルト(Scheme3)",
+
+
+
+  "item.warfare_wings.f6f": "F6F ヘルキャット",
+  "item.warfare_wings.f6f.description": "アメリカのグラマン社が開発した艦上戦闘機。堅牢な構造と生産性の高さ、優れた運動性と高い生存性を兼ね備え、第二次世界大戦中期以降、アメリカ海軍の主力戦闘機として活躍した。",
+  "entity.warfare_wings.f6f": "F6F ヘルキャット",
+
+  "item.warfare_wings.f6f_scheme1": "F6F ヘルキャット(Scheme1)",
+  "item.warfare_wings.f6f_scheme1.description": "アメリカのグラマン社が開発した艦上戦闘機。堅牢な構造と生産性の高さ、優れた運動性と高い生存性を兼ね備え、第二次世界大戦中期以降、アメリカ海軍の主力戦闘機として活躍した。",
+  "entity.warfare_wings.f6f_scheme1": "F6F ヘルキャット(Scheme1)",
+
+  "item.warfare_wings.f6f_scheme2": "F6F ヘルキャット(Scheme2)",
+  "item.warfare_wings.f6f_scheme2.description": "アメリカのグラマン社が開発した艦上戦闘機。堅牢な構造と生産性の高さ、優れた運動性と高い生存性を兼ね備え、第二次世界大戦中期以降、アメリカ海軍の主力戦闘機として活躍した。",
+  "entity.warfare_wings.f6f_scheme2": "F6F ヘルキャット(Scheme2)",
+
+  "item.warfare_wings.f6f_scheme3": "F6F ヘルキャット(Scheme3)",
+  "item.warfare_wings.f6f_scheme3.description": "アメリカのグラマン社が開発した艦上戦闘機。堅牢な構造と生産性の高さ、優れた運動性と高い生存性を兼ね備え、第二次世界大戦中期以降、アメリカ海軍の主力戦闘機として活躍した。",
+  "entity.warfare_wings.f6f_scheme3": "F6F ヘルキャット(Scheme3)",
+
+
+
+  "item.warfare_wings.a6m": "A6M 零式艦上戦闘機",
+  "item.warfare_wings.a6m.description": "三菱重工業が開発した艦上戦闘機。大日本帝国海軍の主力戦闘機として活躍し、太平洋戦争初期には圧倒的な強さを誇り、当時世界最高峰の戦闘機となった。",
+  "entity.warfare_wings.a6m": "A6M 零式艦上戦闘機",
+
+  "item.warfare_wings.a6m_scheme1": "A6M 零式艦上戦闘機(Scheme1)",
+  "item.warfare_wings.a6m_scheme1.description": "三菱重工業が開発した艦上戦闘機。大日本帝国海軍の主力戦闘機として活躍し、太平洋戦争初期には圧倒的な強さを誇り、当時世界最高峰の戦闘機となった。",
+  "entity.warfare_wings.a6m_scheme1": "A6M 零式艦上戦闘機(Scheme1)",
+
+  "item.warfare_wings.a6m_scheme2": "A6M 零式艦上戦闘機(Scheme2)",
+  "item.warfare_wings.a6m_scheme2.description": "三菱重工業が開発した艦上戦闘機。大日本帝国海軍の主力戦闘機として活躍し、太平洋戦争初期には圧倒的な強さを誇り、当時世界最高峰の戦闘機となった。",
+  "entity.warfare_wings.a6m_scheme2": "A6M 零式艦上戦闘機(Scheme2)",
+
+  "item.warfare_wings.a6m_scheme3": "A6M 零式艦上戦闘機(Scheme3)",
+  "item.warfare_wings.a6m_scheme3.description": "三菱重工業が開発した艦上戦闘機。大日本帝国海軍の主力戦闘機として活躍し、太平洋戦争初期には圧倒的な強さを誇り、当時世界最高峰の戦闘機となった。",
+  "entity.warfare_wings.a6m_scheme3": "A6M 零式艦上戦闘機(Scheme3)",
+
+
+
+  "item.warfare_wings.ki61": "川崎 三式戦闘機 飛燕",
+  "item.warfare_wings.ki61.description": "川崎航空機が開発した大日本帝国陸軍の戦闘機。液冷エンジンを搭載した日本唯一の量産戦闘機でもある。細身の機体設計により優れた空力性能を実現。最高速度は約590km/hに達し、「和製メッサー」とも呼ばれることもあった。",
+  "entity.warfare_wings.ki61": "川崎 三式戦闘機 飛燕",
+
+  "item.warfare_wings.ki61_scheme1": "川崎 三式戦闘機 飛燕(Scheme1)",
+  "item.warfare_wings.ki61_scheme1.description": "川崎航空機が開発した大日本帝国陸軍の戦闘機。液冷エンジンを搭載した日本唯一の量産戦闘機でもある。細身の機体設計により優れた空力性能を実現。最高速度は約590km/hに達し、「和製メッサー」とも呼ばれることもあった。",
+  "entity.warfare_wings.ki61_scheme1": "川崎 三式戦闘機 飛燕(Scheme1)",
+
+  "item.warfare_wings.ki61_scheme2": "川崎 三式戦闘機 飛燕(Scheme2)",
+  "item.warfare_wings.ki61_scheme2.description": "川崎航空機が開発した大日本帝国陸軍の戦闘機。液冷エンジンを搭載した日本唯一の量産戦闘機でもある。細身の機体設計により優れた空力性能を実現。最高速度は約590km/hに達し、「和製メッサー」とも呼ばれることもあった。",
+  "entity.warfare_wings.ki61_scheme2": "川崎 三式戦闘機 飛燕(Scheme2)",
+
+  "item.warfare_wings.ki61_scheme3": "川崎 三式戦闘機 飛燕(Scheme3)",
+  "item.warfare_wings.ki61_scheme3.description": "川崎航空機が開発した大日本帝国陸軍の戦闘機。液冷エンジンを搭載した日本唯一の量産戦闘機でもある。細身の機体設計により優れた空力性能を実現。最高速度は約590km/hに達し、「和製メッサー」とも呼ばれることもあった。",
+  "entity.warfare_wings.ki61_scheme3": "川崎 三式戦闘機 飛燕(Scheme3)",
+
+
+
+  "item.warfare_wings.ki84": "中島 四式戦闘機 疾風",
+  "item.warfare_wings.ki84.description": "中島飛行機が開発した大日本帝国陸軍の戦闘機。 最高速度は日本製戦闘機の中で最速の660km/hを記録し、速度、武装、防弾、航続距離、運動性をバランス良く備えた機体だった。大戦後期の主力戦闘機として活躍し、連合軍からは「日本最優秀戦闘機」と評された。",
+  "entity.warfare_wings.ki84": "中島 四式戦闘機 疾風",
+
+  "item.warfare_wings.ki84_scheme1": "中島 四式戦闘機 疾風(Scheme1)",
+  "item.warfare_wings.ki84_scheme1.description": "中島飛行機が開発した大日本帝国陸軍の戦闘機。 最高速度は日本製戦闘機の中で最速の660km/hを記録し、速度、武装、防弾、航続距離、運動性をバランス良く備えた機体だった。大戦後期の主力戦闘機として活躍し、連合軍からは「日本最優秀戦闘機」と評された。",
+  "entity.warfare_wings.ki84_scheme1": "中島 四式戦闘機 疾風(Scheme1)",
+
+  "item.warfare_wings.ki84_scheme2": "中島 四式戦闘機 疾風(Scheme2)",
+  "item.warfare_wings.ki84_scheme2.description": "中島飛行機が開発した大日本帝国陸軍の戦闘機。 最高速度は日本製戦闘機の中で最速の660km/hを記録し、速度、武装、防弾、航続距離、運動性をバランス良く備えた機体だった。大戦後期の主力戦闘機として活躍し、連合軍からは「日本最優秀戦闘機」と評された。",
+  "entity.warfare_wings.ki84_scheme2": "中島 四式戦闘機 疾風(Scheme2)",
+
+  "item.warfare_wings.ki84_scheme3": "中島 四式戦闘機 疾風(Scheme3)",
+  "item.warfare_wings.ki84_scheme3.description": "中島飛行機が開発した大日本帝国陸軍の戦闘機。 最高速度は日本製戦闘機の中で最速の660km/hを記録し、速度、武装、防弾、航続距離、運動性をバランス良く備えた機体だった。大戦後期の主力戦闘機として活躍し、連合軍からは「日本最優秀戦闘機」と評された。",
+  "entity.warfare_wings.ki84_scheme3": "中島 四式戦闘機 疾風(Scheme3)",
+
+
+
+  "item.warfare_wings.fw190": "Fw190 ヴュルガー",
+  "item.warfare_wings.fw190.description": "フォッケウルフ社が開発したドイツの戦闘機。頑丈な構造と高い運動性能を持ち、低高度での性能に優れていた。メッサーシュミットBf109と共に第二次大戦中のドイツ航空戦力の主力として活躍した。",
+  "entity.warfare_wings.fw190": "Fw190 ヴュルガー",
+
+  "item.warfare_wings.fw190_scheme1": "Fw190 ヴュルガー(Scheme1)",
+  "item.warfare_wings.fw190_scheme1.description": "フォッケウルフ社が開発したドイツの戦闘機。頑丈な構造と高い運動性能を持ち、低高度での性能に優れていた。メッサーシュミットBf109と共に第二次大戦中のドイツ航空戦力の主力として活躍した。",
+  "entity.warfare_wings.fw190_scheme1": "Fw190 ヴュルガー(Scheme1)",
+
+  "item.warfare_wings.fw190_scheme2": "Fw190 ヴュルガー(Scheme2)",
+  "item.warfare_wings.fw190_scheme2.description": "フォッケウルフ社が開発したドイツの戦闘機。頑丈な構造と高い運動性能を持ち、低高度での性能に優れていた。メッサーシュミットBf109と共に第二次大戦中のドイツ航空戦力の主力として活躍した。",
+  "entity.warfare_wings.fw190_scheme2": "Fw190 ヴュルガー(Scheme2)",
+
+  "item.warfare_wings.fw190_scheme3": "Fw190 ヴュルガー(Scheme3)",
+  "item.warfare_wings.fw190_scheme3.description": "フォッケウルフ社が開発したドイツの戦闘機。頑丈な構造と高い運動性能を持ち、低高度での性能に優れていた。メッサーシュミットBf109と共に第二次大戦中のドイツ航空戦力の主力として活躍した。",
+  "entity.warfare_wings.fw190_scheme3": "Fw190 ヴュルガー(Scheme3)",
+
+
+
+  "item.warfare_wings.bf109": "メッサーシュミット Bf109",
+  "item.warfare_wings.bf109.description": "メッサーシュミット社が開発したドイツ空軍の戦闘機。総生産数は約3万機を超え、歴史上最も多く生産された戦闘機である。小型で軽量な設計により、優れた加速力と上昇力を持ち第二次大戦中のドイツ空軍の主力戦闘機として活躍した。",
+  "entity.warfare_wings.bf109": "メッサーシュミット Bf109",
+
+  "item.warfare_wings.bf109_scheme1": "メッサーシュミット Bf109(Scheme1)",
+  "item.warfare_wings.bf109_scheme1.description": "メッサーシュミット社が開発したドイツ空軍の戦闘機。総生産数は約3万機を超え、歴史上最も多く生産された戦闘機である。小型で軽量な設計により、優れた加速力と上昇力を持ち第二次大戦中のドイツ空軍の主力戦闘機として活躍した。",
+  "entity.warfare_wings.bf109_scheme1": "メッサーシュミット Bf109(Scheme1)",
+
+  "item.warfare_wings.bf109_scheme2": "メッサーシュミット Bf109(Scheme2)",
+  "item.warfare_wings.bf109_scheme2.description": "メッサーシュミット社が開発したドイツ空軍の戦闘機。総生産数は約3万機を超え、歴史上最も多く生産された戦闘機である。小型で軽量な設計により、優れた加速力と上昇力を持ち第二次大戦中のドイツ空軍の主力戦闘機として活躍した。",
+  "entity.warfare_wings.bf109_scheme2": "メッサーシュミット Bf109(Scheme2)",
+
+  "item.warfare_wings.bf109_scheme3": "メッサーシュミット Bf109(Scheme3)",
+  "item.warfare_wings.bf109_scheme3.description": "メッサーシュミット社が開発したドイツ空軍の戦闘機。総生産数は約3万機を超え、歴史上最も多く生産された戦闘機である。小型で軽量な設計により、優れた加速力と上昇力を持ち第二次大戦中のドイツ空軍の主力戦闘機として活躍した。",
+  "entity.warfare_wings.bf109_scheme3": "メッサーシュミット Bf109(Scheme3)",
+
+
+
+  "item.warfare_wings.ju87": "Ju87 シュトゥーカ",
+  "item.warfare_wings.ju87.description": "ユンカース社が開発したドイツ空軍の急降下爆撃機。特徴的な逆ガル翼と固定脚を持ち、急降下時の精密爆撃能力に優れていた。第二次大戦初期の電撃戦では大きな戦果を挙げたが、低速で防弾性能が低いため、制空権がない状況では脆弱だった。",
+  "entity.warfare_wings.ju87": "Ju87 シュトゥーカ",
+
+  "item.warfare_wings.ju87_scheme1": "Ju87 シュトゥーカ(Scheme1)",
+  "item.warfare_wings.ju87_scheme1.description": "ユンカース社が開発したドイツ空軍の急降下爆撃機。特徴的な逆ガル翼と固定脚を持ち、急降下時の精密爆撃能力に優れていた。第二次大戦初期の電撃戦では大きな戦果を挙げたが、低速で防弾性能が低いため、制空権がない状況では脆弱だった。",
+  "entity.warfare_wings.ju87_scheme1": "Ju87 シュトゥーカ(Scheme1)",
+
+  "item.warfare_wings.ju87_scheme2": "Ju87 シュトゥーカ(Scheme2)",
+  "item.warfare_wings.ju87_scheme2.description": "ユンカース社が開発したドイツ空軍の急降下爆撃機。特徴的な逆ガル翼と固定脚を持ち、急降下時の精密爆撃能力に優れていた。第二次大戦初期の電撃戦では大きな戦果を挙げたが、低速で防弾性能が低いため、制空権がない状況では脆弱だった。",
+  "entity.warfare_wings.ju87_scheme2": "Ju87 シュトゥーカ(Scheme2)",
+
+  "item.warfare_wings.ju87_scheme3": "Ju87 シュトゥーカ(Scheme3)",
+  "item.warfare_wings.ju87_scheme3.description": "ユンカース社が開発したドイツ空軍の急降下爆撃機。特徴的な逆ガル翼と固定脚を持ち、急降下時の精密爆撃能力に優れていた。第二次大戦初期の電撃戦では大きな戦果を挙げたが、低速で防弾性能が低いため、制空権がない状況では脆弱だった。",
+  "entity.warfare_wings.ju87_scheme3": "Ju87 シュトゥーカ(Scheme3)",
+
+
+
+  "item.warfare_wings.yak3": "Yak-3",
+  "item.warfare_wings.yak3.description": "第二次大戦時のソ連の戦闘機。操縦が容易で、新米パイロットでも扱いやすい設計を特徴とし、低高度での上昇力や加速性能に優れ、実戦においては最も優れたソ連戦闘機とも言われた。",
+  "entity.warfare_wings.yak3": "Yak-3",
+
+  "item.warfare_wings.yak3_scheme1": "Yak-3(Scheme1)",
+  "item.warfare_wings.yak3_scheme1.description": "第二次大戦時のソ連の戦闘機。操縦が容易で、新米パイロットでも扱いやすい設計を特徴とし、低高度での上昇力や加速性能に優れ、実戦においては最も優れたソ連戦闘機とも言われた。",
+  "entity.warfare_wings.yak3_scheme1": "Yak-3(Scheme1)",
+
+  "item.warfare_wings.yak3_scheme2": "Yak-3(Scheme2)",
+  "item.warfare_wings.yak3_scheme2.description": "第二次大戦時のソ連の戦闘機。操縦が容易で、新米パイロットでも扱いやすい設計を特徴とし、低高度での上昇力や加速性能に優れ、実戦においては最も優れたソ連戦闘機とも言われた。",
+  "entity.warfare_wings.yak3_scheme2": "Yak-3(Scheme2)",
+
+  "item.warfare_wings.yak3_scheme3": "Yak-3(Scheme3)",
+  "item.warfare_wings.yak3_scheme3.description": "第二次大戦時のソ連の戦闘機。操縦が容易で、新米パイロットでも扱いやすい設計を特徴とし、低高度での上昇力や加速性能に優れ、実戦においては最も優れたソ連戦闘機とも言われた。",
+  "entity.warfare_wings.yak3_scheme3": "Yak-3(Scheme3)",
+
+
+
+  "item.warfare_wings.mig3": "MiG-3",
+  "item.warfare_wings.mig3.description": "第二次大戦時のソ連の戦闘機。高高度での性能に優れ、ドイツ軍機に対抗可能だったが、低高度では低速で操縦性も劣るという課題があった。後に偵察機に任務が変更された。",
+  "entity.warfare_wings.mig3": "MiG-3",
+
+  "item.warfare_wings.mig3_scheme1": "MiG-3(Scheme1)",
+  "item.warfare_wings.mig3_scheme1.description": "第二次大戦時のソ連の戦闘機。高高度での性能に優れ、ドイツ軍機に対抗可能だったが、低高度では低速で操縦性も劣るという課題があった。後に偵察機に任務が変更された。",
+  "entity.warfare_wings.mig3_scheme1": "MiG-3(Scheme1)",
+
+  "item.warfare_wings.mig3_scheme2": "MiG-3(Scheme2)",
+  "item.warfare_wings.mig3_scheme2.description": "第二次大戦時のソ連の戦闘機。高高度での性能に優れ、ドイツ軍機に対抗可能だったが、低高度では低速で操縦性も劣るという課題があった。後に偵察機に任務が変更された。",
+  "entity.warfare_wings.mig3_scheme2": "MiG-3(Scheme2)",
+
+  "item.warfare_wings.mig3_scheme3": "MiG-3(Scheme3)",
+  "item.warfare_wings.mig3_scheme3.description": "第二次大戦時のソ連の戦闘機。高高度での性能に優れ、ドイツ軍機に対抗可能だったが、低高度では低速で操縦性も劣るという課題があった。後に偵察機に任務が変更された。",
+  "entity.warfare_wings.mig3_scheme3": "MiG-3(Scheme3)",
+
+
+
+  "item.warfare_wings.mc202": "C.202 フォルゴーレ",
+  "item.warfare_wings.mc202.description": "第二次大戦中にイタリアで開発された戦闘機。最大速度は600km/hを超え、優れた運動性と上昇性能を発揮し、第二次大戦中、イタリア空軍の主力戦闘機として連合軍戦闘機と互角の戦いを見せる活躍した。",
+  "entity.warfare_wings.mc202": "C.202 フォルゴーレ",
+
+  "item.warfare_wings.mc202_scheme1": "C.202 フォルゴーレ(Scheme1)",
+  "item.warfare_wings.mc202_scheme1.description": "第二次大戦中にイタリアで開発された戦闘機。最大速度は600km/hを超え、優れた運動性と上昇性能を発揮し、第二次大戦中、イタリア空軍の主力戦闘機として連合軍戦闘機と互角の戦いを見せる活躍した。",
+  "entity.warfare_wings.mc202_scheme1": "C.202 フォルゴーレ(Scheme1)",
+
+  "item.warfare_wings.mc202_scheme2": "C.202 フォルゴーレ(Scheme2)",
+  "item.warfare_wings.mc202_scheme2.description": "第二次大戦中にイタリアで開発された戦闘機。最大速度は600km/hを超え、優れた運動性と上昇性能を発揮し、第二次大戦中、イタリア空軍の主力戦闘機として連合軍戦闘機と互角の戦いを見せる活躍した。",
+  "entity.warfare_wings.mc202_scheme2": "C.202 フォルゴーレ(Scheme2)",
+
+  "item.warfare_wings.mc202_scheme3": "C.202 フォルゴーレ(Scheme3)",
+  "item.warfare_wings.mc202_scheme3.description": "第二次大戦中にイタリアで開発された戦闘機。最大速度は600km/hを超え、優れた運動性と上昇性能を発揮し、第二次大戦中、イタリア空軍の主力戦闘機として連合軍戦闘機と互角の戦いを見せる活躍した。",
+  "entity.warfare_wings.mc202_scheme3": "C.202 フォルゴーレ(Scheme3)",
+
+
+
+  "item.warfare_wings.spitfire": "スーパーマリン スピットファイア",
+  "item.warfare_wings.spitfire.description": "イギリスのスーパーマリン社が開発した戦闘機。楕円形の主翼を採用した流麗なデザインが特徴で、旋回性能や上昇力に優れていた。第二次世界大戦では多くの戦線で活躍し、戦後も1950年代まで運用された。",
+  "entity.warfare_wings.spitfire": "スーパーマリン スピットファイア",
+
+  "item.warfare_wings.spitfire_scheme1": "スーパーマリン スピットファイア(Scheme1)",
+  "item.warfare_wings.spitfire_scheme1.description": "イギリスのスーパーマリン社が開発した戦闘機。楕円形の主翼を採用した流麗なデザインが特徴で、旋回性能や上昇力に優れていた。第二次世界大戦では多くの戦線で活躍し、戦後も1950年代まで運用された。",
+  "entity.warfare_wings.spitfire_scheme1": "スーパーマリン スピットファイア(Scheme1)",
+
+  "item.warfare_wings.spitfire_scheme2": "スーパーマリン スピットファイア(Scheme2)",
+  "item.warfare_wings.spitfire_scheme2.description": "イギリスのスーパーマリン社が開発した戦闘機。楕円形の主翼を採用した流麗なデザインが特徴で、旋回性能や上昇力に優れていた。第二次世界大戦では多くの戦線で活躍し、戦後も1950年代まで運用された。",
+  "entity.warfare_wings.spitfire_scheme2": "スーパーマリン スピットファイア(Scheme2)",
+
+  "item.warfare_wings.spitfire_scheme3": "スーパーマリン スピットファイア(Scheme3)",
+  "item.warfare_wings.spitfire_scheme3.description": "イギリスのスーパーマリン社が開発した戦闘機。楕円形の主翼を採用した流麗なデザインが特徴で、旋回性能や上昇力に優れていた。第二次世界大戦では多くの戦線で活躍し、戦後も1950年代まで運用された。",
+  "entity.warfare_wings.spitfire_scheme3": "スーパーマリン スピットファイア(Scheme3)",
+
+
+
+  "item.warfare_wings.b17": "B-17 フライングフォートレス",
+  "item.warfare_wings.b17.description": "アメリカのボーイング社が開発した四発重爆撃機で、1935年に初飛行。高高度での精密爆撃を目的とし、頑丈な構造と多数の防御機銃を備えたことから「空飛ぶ要塞」と呼ばれた。最大速度は約462km/h、航続距離は約3,200km。戦後も一部が輸送機や偵察機として使用された。",
+  "entity.warfare_wings.b17": "B-17 フライングフォートレス",
+
+  "item.warfare_wings.b17_scheme1": "B-17 フライングフォートレス(Scheme1)",
+  "item.warfare_wings.b17_scheme1.description": "アメリカのボーイング社が開発した四発重爆撃機で、1935年に初飛行。高高度での精密爆撃を目的とし、頑丈な構造と多数の防御機銃を備えたことから「空飛ぶ要塞」と呼ばれた。最大速度は約462km/h、航続距離は約3,200km。戦後も一部が輸送機や偵察機として使用された。",
+  "entity.warfare_wings.b17_scheme1": "B-17 フライングフォートレス(Scheme1)",
+
+  "item.warfare_wings.b17_scheme2": "B-17 フライングフォートレス(Scheme2)",
+  "item.warfare_wings.b17_scheme2.description": "アメリカのボーイング社が開発した四発重爆撃機で、1935年に初飛行。高高度での精密爆撃を目的とし、頑丈な構造と多数の防御機銃を備えたことから「空飛ぶ要塞」と呼ばれた。最大速度は約462km/h、航続距離は約3,200km。戦後も一部が輸送機や偵察機として使用された。",
+  "entity.warfare_wings.b17_scheme2": "B-17 フライングフォートレス(Scheme2)",
+
+  "item.warfare_wings.b17_scheme3": "B-17 フライングフォートレス(Scheme3)",
+  "item.warfare_wings.b17_scheme3.description": "アメリカのボーイング社が開発した四発重爆撃機で、1935年に初飛行。高高度での精密爆撃を目的とし、頑丈な構造と多数の防御機銃を備えたことから「空飛ぶ要塞」と呼ばれた。最大速度は約462km/h、航続距離は約3,200km。戦後も一部が輸送機や偵察機として使用された。",
+  "entity.warfare_wings.b17_scheme3": "B-17 フライングフォートレス(Scheme3)",
+
+  
+  
+  "item.warfare_wings.b29": "B-29 スーパーフォートレス",
+  "item.warfare_wings.b29.description": "ボーイング社が開発した高性能四発重爆撃機で、1944年に実戦投入。与圧式機内、遠隔操作銃座、レーダー爆撃照準器など先進技術を搭載、最大速度は約574km/h、航続距離は5,230km以上。戦後は空中給油機にも改造された。",
+  "entity.warfare_wings.b29": "B-29 スーパーフォートレス",
+
+  "item.warfare_wings.b29_scheme1": "B-29 スーパーフォートレス(Scheme1)",
+  "item.warfare_wings.b29_scheme1.description": "ボーイング社が開発した高性能四発重爆撃機で、1944年に実戦投入。与圧式機内、遠隔操作銃座、レーダー爆撃照準器など先進技術を搭載、最大速度は約574km/h、航続距離は5,230km以上。戦後は空中給油機にも改造された。",
+  "entity.warfare_wings.b29_scheme1": "B-29 スーパーフォートレス(Scheme1)",
+
+  "item.warfare_wings.b29_scheme2": "B-29 スーパーフォートレス(Scheme2)",
+  "item.warfare_wings.b29_scheme2.description": "ボーイング社が開発した高性能四発重爆撃機で、1944年に実戦投入。与圧式機内、遠隔操作銃座、レーダー爆撃照準器など先進技術を搭載、最大速度は約574km/h、航続距離は5,230km以上。戦後は空中給油機にも改造された。",
+  "entity.warfare_wings.b29_scheme2": "B-29 スーパーフォートレス(Scheme2)",
+
+  "item.warfare_wings.b29_scheme3": "B-29 スーパーフォートレス(Scheme3)",
+  "item.warfare_wings.b29_scheme3.description": "ボーイング社が開発した高性能四発重爆撃機で、1944年に実戦投入。与圧式機内、遠隔操作銃座、レーダー爆撃照準器など先進技術を搭載、最大速度は約574km/h、航続距離は5,230km以上。戦後は空中給油機にも改造された。",
+  "entity.warfare_wings.b29_scheme3": "B-29 スーパーフォートレス(Scheme3)",
+
+
+
+  "item.warfare_wings.f4u": "F4U コルセア",
+  "item.warfare_wings.f4u.description": "アメリカのチャンス・ヴォート社が開発した艦上戦闘機で、1942年に実戦投入。特徴的な逆ガル翼は大型プロペラと低脚配置を両立させるための設計で、最大速度は約718km/h。強力な火力と高い加速性能を持ち、連合軍の中でも最も成功した艦上戦闘機の一つとされる。",
+  "entity.warfare_wings.f4u": "F4U コルセア",
+
+  "item.warfare_wings.f4u_scheme1": "F4U コルセア(Scheme1)",
+  "item.warfare_wings.f4u_scheme1.description": "アメリカのチャンス・ヴォート社が開発した艦上戦闘機で、1942年に実戦投入。特徴的な逆ガル翼は大型プロペラと低脚配置を両立させるための設計で、最大速度は約718km/h。強力な火力と高い加速性能を持ち、連合軍の中でも最も成功した艦上戦闘機の一つとされる。",
+  "entity.warfare_wings.f4u_scheme1": "F4U コルセア(Scheme1)",
+
+  "item.warfare_wings.f4u_scheme2": "F4U コルセア(Scheme2)",
+  "item.warfare_wings.f4u_scheme2.description": "アメリカのチャンス・ヴォート社が開発した艦上戦闘機で、1942年に実戦投入。特徴的な逆ガル翼は大型プロペラと低脚配置を両立させるための設計で、最大速度は約718km/h。強力な火力と高い加速性能を持ち、連合軍の中でも最も成功した艦上戦闘機の一つとされる。",
+  "entity.warfare_wings.f4u_scheme2": "F4U コルセア(Scheme2)",
+
+  "item.warfare_wings.f4u_scheme3": "F4U コルセア(Scheme3)",
+  "item.warfare_wings.f4u_scheme3.description": "アメリカのチャンス・ヴォート社が開発した艦上戦闘機で、1942年に実戦投入。特徴的な逆ガル翼は大型プロペラと低脚配置を両立させるための設計で、最大速度は約718km/h。強力な火力と高い加速性能を持ち、連合軍の中でも最も成功した艦上戦闘機の一つとされる。",
+  "entity.warfare_wings.f4u_scheme3": "F4U コルセア(Scheme3)",
+
+
+
+  "item.warfare_wings.sbd": "SBD ドーントレス",
+  "item.warfare_wings.sbd.description": "アメリカのダグラス社が開発した艦上急降下爆撃機で、1940年から運用開始。最大速度は約410km/hで、頑丈な構造と精密な爆撃能力を持つ。ミッドウェー海戦では日本空母4隻を撃沈する戦果を挙げ、戦局を大きく転換させた。",
+  "entity.warfare_wings.sbd": "SBD ドーントレス",
+
+  "item.warfare_wings.sbd_scheme1": "SBD ドーントレス(Scheme1)",
+  "item.warfare_wings.sbd_scheme1.description": "アメリカのダグラス社が開発した艦上急降下爆撃機で、1940年から運用開始。最大速度は約410km/hで、頑丈な構造と精密な爆撃能力を持つ。ミッドウェー海戦では日本空母4隻を撃沈する戦果を挙げ、戦局を大きく転換させた。",
+  "entity.warfare_wings.sbd_scheme1": "SBD ドーントレス(Scheme1)",
+
+  "item.warfare_wings.sbd_scheme2": "SBD ドーントレス(Scheme2)",
+  "item.warfare_wings.sbd_scheme2.description": "アメリカのダグラス社が開発した艦上急降下爆撃機で、1940年から運用開始。最大速度は約410km/hで、頑丈な構造と精密な爆撃能力を持つ。ミッドウェー海戦では日本空母4隻を撃沈する戦果を挙げ、戦局を大きく転換させた。",
+  "entity.warfare_wings.sbd_scheme2": "SBD ドーントレス(Scheme2)",
+
+
+
+  "item.warfare_wings.d4y": "空技廠 D4Y 彗星",
+  "item.warfare_wings.d4y.description": "D4Y「彗星」は日本海軍が運用した艦上爆撃機で、愛知航空機が開発。初期型はドイツ由来の液冷エンジンを搭載し、高速性と空力性能に優れていたが、整備性や信頼性に課題があり、後期型では空冷エンジンに変更された。",
+  "entity.warfare_wings.d4y": "空技廠 D4Y 彗星",
+
+  "item.warfare_wings.d4y_scheme1": "空技廠 D4Y 彗星(Scheme1)",
+  "item.warfare_wings.d4y_scheme1.description": "D4Y「彗星」は日本海軍が運用した艦上爆撃機で、愛知航空機が開発。初期型はドイツ由来の液冷エンジンを搭載し、高速性と空力性能に優れていたが、整備性や信頼性に課題があり、後期型では空冷エンジンに変更された。",
+  "entity.warfare_wings.d4y_scheme1": "空技廠 D4Y 彗星(Scheme1)",
+
+
+
+  "item.warfare_wings.g4m": "三菱 G4M 一式陸上攻撃機",
+  "item.warfare_wings.g4m.description": "三菱重工が開発した日本海軍の双発陸上攻撃機で、連合軍からは「ベティ」のコードネームで呼ばれた。最大速度は約437km/h。雷撃・爆撃・偵察任務に使用され、山本五十六元帥が搭乗中に撃墜された機体としても知られる。",
+  "entity.warfare_wings.g4m": "三菱 G4M 一式陸上攻撃機",
+
+  "item.warfare_wings.g4m_scheme1": "三菱 G4M 一式陸上攻撃機(Scheme1)",
+  "item.warfare_wings.g4m_scheme1.description": "三菱重工が開発した日本海軍の双発陸上攻撃機で、連合軍からは「ベティ」のコードネームで呼ばれた。最大速度は約437km/h。雷撃・爆撃・偵察任務に使用され、山本五十六元帥が搭乗中に撃墜された機体としても知られる。",
+  "entity.warfare_wings.g4m_scheme1": "三菱 G4M 一式陸上攻撃機(Scheme1)",
+
+  "item.warfare_wings.g4m_scheme2": "三菱 G4M 一式陸上攻撃機(Scheme2)",
+  "item.warfare_wings.g4m_scheme2.description": "三菱重工が開発した日本海軍の双発陸上攻撃機で、連合軍からは「ベティ」のコードネームで呼ばれた。最大速度は約437km/h。雷撃・爆撃・偵察任務に使用され、山本五十六元帥が搭乗中に撃墜された機体としても知られる。",
+  "entity.warfare_wings.g4m_scheme2": "三菱 G4M 一式陸上攻撃機(Scheme2)",
+
+
+
+  "item.warfare_wings.g10n1": "G10N 富嶽 [一型]",
+  "item.warfare_wings.g10n1.description": "G10N「富嶽」は中島飛行機が構想した超大型戦略爆撃機で、アメリカ本土爆撃を目的とした「Z飛行機構想」の中心機体。全長約45m、爆弾搭載量20t、航続距離19,400kmを目指したが、戦局の悪化と資材不足により試作段階で計画中止。富嶽一型は当コンテンツが名付けた架空の型式。",
+  "entity.warfare_wings.g10n1": "G10N 富嶽 [一型]",
+
+  "item.warfare_wings.g10n1_scheme1": "G10N 富嶽 [一型](Scheme1)",
+  "item.warfare_wings.g10n1_scheme1.description": "G10N「富嶽」は中島飛行機が構想した超大型戦略爆撃機で、アメリカ本土爆撃を目的とした「Z飛行機構想」の中心機体。全長約45m、爆弾搭載量20t、航続距離19,400kmを目指したが、戦局の悪化と資材不足により試作段階で計画中止。富嶽一型は当コンテンツが名付けた架空の型式。",
+  "entity.warfare_wings.g10n1_scheme1": "G10N 富嶽 [一型](Scheme1)",
+
+  "item.warfare_wings.g10n1_scheme2": "G10N 富嶽 [一型](Scheme2)",
+  "item.warfare_wings.g10n1_scheme2.description": "G10N「富嶽」は中島飛行機が構想した超大型戦略爆撃機で、アメリカ本土爆撃を目的とした「Z飛行機構想」の中心機体。全長約45m、爆弾搭載量20t、航続距離19,400kmを目指したが、戦局の悪化と資材不足により試作段階で計画中止。富嶽一型は当コンテンツが名付けた架空の型式。",
+  "entity.warfare_wings.g10n1_scheme2": "G10N 富嶽 [一型](Scheme2)",
+
+
+  "item.warfare_wings.g10n2": "G10N 富嶽 [二型]",
+  "item.warfare_wings.g10n2.description": "G10N「富嶽」は中島飛行機が構想した超大型戦略爆撃機で、アメリカ本土爆撃を目的とした「Z飛行機構想」の中心機体。全長約45m、爆弾搭載量20t、航続距離19,400kmを目指したが、戦局の悪化と資材不足により試作段階で計画中止。富嶽二型は当コンテンツが名付けた架空の型式。",
+  "entity.warfare_wings.g10n2": "G10N 富嶽 [二型]",
+
+  "item.warfare_wings.g10n2_scheme1": "G10N 富嶽 [二型](Scheme1)",
+  "item.warfare_wings.g10n2_scheme1.description": "G10N「富嶽」は中島飛行機が構想した超大型戦略爆撃機で、アメリカ本土爆撃を目的とした「Z飛行機構想」の中心機体。全長約45m、爆弾搭載量20t、航続距離19,400kmを目指したが、戦局の悪化と資材不足により試作段階で計画中止。富嶽二型は当コンテンツが名付けた架空の型式。",
+  "entity.warfare_wings.g10n2_scheme1": "G10N 富嶽 [二型](Scheme1)",
+
+  "item.warfare_wings.g10n2_scheme2": "G10N 富嶽 [二型](Scheme2)",
+  "item.warfare_wings.g10n2_scheme2.description": "G10N「富嶽」は中島飛行機が構想した超大型戦略爆撃機で、アメリカ本土爆撃を目的とした「Z飛行機構想」の中心機体。全長約45m、爆弾搭載量20t、航続距離19,400kmを目指したが、戦局の悪化と資材不足により試作段階で計画中止。富嶽二型は当コンテンツが名付けた架空の型式。",
+  "entity.warfare_wings.g10n2_scheme2": "G10N 富嶽 [二型](Scheme2)",
+
+
+
+  "item.warfare_wings.il2": "イリューシン IL-2",
+  "item.warfare_wings.il2.description": "ソ連のイリューシン設計局が開発した地上攻撃機で、重装甲と強力な火力を備え「空飛ぶ戦車」と呼ばれた。最大速度は約400km/h。独ソ戦で大きな戦果を挙げ、歩兵・戦車支援に不可欠な存在となった。総生産数は36,183機で、軍用機史上最多の生産数を誇る。",
+  "entity.warfare_wings.il2": "イリューシン IL-2",
+
+  "item.warfare_wings.il2_scheme1": "イリューシン IL-2(Scheme1)",
+  "item.warfare_wings.il2_scheme1.description": "ソ連のイリューシン設計局が開発した地上攻撃機で、重装甲と強力な火力を備え「空飛ぶ戦車」と呼ばれた。最大速度は約400km/h。独ソ戦で大きな戦果を挙げ、歩兵・戦車支援に不可欠な存在となった。総生産数は36,183機で、軍用機史上最多の生産数を誇る。",
+  "entity.warfare_wings.il2_scheme1": "イリューシン IL-2(Scheme1)",
+
+  "item.warfare_wings.il2_scheme2": "イリューシン IL-2(Scheme2)",
+  "item.warfare_wings.il2_scheme2.description": "ソ連のイリューシン設計局が開発した地上攻撃機で、重装甲と強力な火力を備え「空飛ぶ戦車」と呼ばれた。最大速度は約400km/h。独ソ戦で大きな戦果を挙げ、歩兵・戦車支援に不可欠な存在となった。総生産数は36,183機で、軍用機史上最多の生産数を誇る。",
+  "entity.warfare_wings.il2_scheme2": "イリューシン IL-2(Scheme2)",
+
+  "item.warfare_wings.il2_scheme3": "イリューシン IL-2(Scheme3)",
+  "item.warfare_wings.il2_scheme3.description": "ソ連のイリューシン設計局が開発した地上攻撃機で、重装甲と強力な火力を備え「空飛ぶ戦車」と呼ばれた。最大速度は約400km/h。独ソ戦で大きな戦果を挙げ、歩兵・戦車支援に不可欠な存在となった。総生産数は36,183機で、軍用機史上最多の生産数を誇る。",
+  "entity.warfare_wings.il2_scheme3": "イリューシン IL-2(Scheme3)",
+
+
+
+  "item.warfare_wings.he111": "ハインケル He111",
+  "item.warfare_wings.he111.description": "ドイツのハインケル社が開発した双発爆撃機で、1936年から実戦投入。最大速度は約440km/hで、楕円翼と独特な爆弾倉構造を持つ。第二次大戦では中距離爆撃機として広く運用されたが、戦争後期には防御力と速度の不足が目立った。",
+  "entity.warfare_wings.he111": "ハインケル He111",
+
+  "item.warfare_wings.he111_scheme1": "ハインケル He111(Scheme1)",
+  "item.warfare_wings.he111_scheme1.description": "ドイツのハインケル社が開発した双発爆撃機で、1936年から実戦投入。最大速度は約440km/hで、楕円翼と独特な爆弾倉構造を持つ。第二次大戦では中距離爆撃機として広く運用されたが、戦争後期には防御力と速度の不足が目立った。",
+  "entity.warfare_wings.he111_scheme1": "ハインケル He111(Scheme1)",
+
+  "item.warfare_wings.he111_scheme2": "ハインケル He111(Scheme2)",
+  "item.warfare_wings.he111_scheme2.description": "ドイツのハインケル社が開発した双発爆撃機で、1936年から実戦投入。最大速度は約440km/hで、楕円翼と独特な爆弾倉構造を持つ。第二次大戦では中距離爆撃機として広く運用されたが、戦争後期には防御力と速度の不足が目立った。",
+  "entity.warfare_wings.he111_scheme2": "ハインケル He111(Scheme2)",
+
+  "item.warfare_wings.he111_scheme3": "ハインケル He111(Scheme3)",
+  "item.warfare_wings.he111_scheme3.description": "ドイツのハインケル社が開発した双発爆撃機で、1936年から実戦投入。最大速度は約440km/hで、楕円翼と独特な爆弾倉構造を持つ。第二次大戦では中距離爆撃機として広く運用されたが、戦争後期には防御力と速度の不足が目立った。",
+  "entity.warfare_wings.he111_scheme3": "ハインケル　He111(Scheme3)",
+
+  
+
+  "item.warfare_wings.ww_bomb": "250ポンド爆弾",
+  "item.warfare_wings.ww_bomb.description":"アメリカ軍の爆弾",
+  "entity.warfare_wings.ww_bomb": "250ポンド爆弾",
+
+  "item.warfare_wings.ww_gbomb": "SC250爆弾",
+  "item.warfare_wings.ww_gbomb.description":"ドイツ国防軍の爆弾",
+  "entity.warfare_wings.ww_gbomb": "SC250爆弾",
+
+  "item.warfare_wings.ww_sbomb": "FAB-250爆弾",
+  "item.warfare_wings.ww_sbomb.description":"赤軍(ソ連)の爆弾",
+  "entity.warfare_wings.ww_sbomb": "FAB-250爆弾",
+
+  "item.warfare_wings.ww_jbomb": "九二式二百五十瓩爆弾",
+  "item.warfare_wings.ww_jbomb.description":"大日本帝国陸軍の爆弾",
+  "entity.warfare_wings.ww_jbomb": "九二式二百五十瓩爆弾",
+
+  "item.warfare_wings.ww_usbomber": "250ポンド爆弾(爆撃機用)",
+  "item.warfare_wings.ww_usbomber.description":"アメリカ軍の爆弾",
+  "entity.warfare_wings.ww_usbomber": "250ポンド爆弾(爆撃機用)",
+
+  "item.warfare_wings.ww_gbomber": "SC250爆弾(爆撃機用)",
+  "item.warfare_wings.ww_gbomber.description":"ドイツ国防軍の爆弾",
+  "entity.warfare_wings.ww_gbomber": "SC250爆弾(爆撃機用)",
+
+  "item.warfare_wings.ww_sbomber": "FAB-250爆弾(爆撃機用)",
+  "item.warfare_wings.ww_sbomber.description":"赤軍(ソ連)の爆弾",
+  "entity.warfare_wings.ww_sbomber": "FAB-250爆弾(爆撃機用)",
+
+  "item.warfare_wings.ww_jbomber": "九二式二百五十瓩爆弾(爆撃機用)",
+  "item.warfare_wings.ww_jbomber.description":"大日本帝国陸軍の爆弾",
+  "entity.warfare_wings.ww_jbomber": "九二式二百五十瓩爆弾(爆撃機用)",
+
+  "item.warfare_wings.ww_jgbomb": "九一式魚雷",
+  "item.warfare_wings.ww_jgbomb.description":"大日本帝国海軍の魚雷",
+  "entity.warfare_wings.ww_jgbomb": "九一式魚雷",
+
+  "item.warfare_wings.ww_usgbomb": "Mk.14魚雷",
+  "item.warfare_wings.ww_usgbomb.description":"アメリカ海軍の魚雷",
+  "entity.warfare_wings.ww_usgbomb": "Mk.14魚雷",
+
+  "item.warfare_wings.wing_mg": "機関銃",
+  "item.warfare_wings.wing_mg.description":"汎用機関銃",
+  "entity.warfare_wings.wing_mg": "機関銃",
+
+
+  "item.warfare_wings.iron_frame": "鉄フレーム",
+
+  "item.warfare_wings.two_iron_frame": "束ねた鉄フレーム",
+
+  "item.warfare_wings.r_iron_frame": "強化鉄フレーム"
+}

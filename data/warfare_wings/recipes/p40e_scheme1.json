@@ -1,0 +1,33 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "YYY",
+    "WAW",
+    "XXX"
+  ],
+  "key": {
+    "A": [
+      {
+        "item": "warfare_wings:p40e"
+      }
+    ],
+    "Y": [
+      {
+        "item": "minecraft:green_wool"
+      }
+    ],
+    "X": [
+      {
+        "item": "minecraft:light_gray_wool"
+      }
+    ],
+    "W": [
+      {
+        "item": "minecraft:yellow_wool"
+      }
+    ]
+  },
+  "result": {
+    "item": "warfare_wings:p40e_scheme1"
+  }
+}
