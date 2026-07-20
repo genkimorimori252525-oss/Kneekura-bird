@@ -1,0 +1,32 @@
+name: Apply second validation fixes
+
+on:
+  push:
+    branches:
+      - agent/harden-benchmark-from-validation
+    paths:
+      - tools/apply_second_validation_fixes.py
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/harden-benchmark-from-validation
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Apply fixes
+        run: python tools/apply_second_validation_fixes.py
+      - name: Commit fixes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ww-debug-benchmark/src/main/java/com/wwdebug/benchmark/BenchmarkManager.java
+          git commit -m "Refine benchmark baselines from repeated validation"
+          git push
