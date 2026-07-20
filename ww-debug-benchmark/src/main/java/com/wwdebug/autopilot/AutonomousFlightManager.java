@@ -66,7 +66,9 @@ public final class AutonomousFlightManager {
         }
 
         FlightControlOutput output = entry.session.tick(server, aircraft);
-        ReflectiveAircraft.applyControl(aircraft, output.x(), output.y(), output.z(), output.engineTarget());
+        // The controller uses conventional heading-error sign. Immersive Aircraft's lateral input
+        // axis is the opposite sign, so convert only at the final hardware-adapter boundary.
+        ReflectiveAircraft.applyControl(aircraft, -output.x(), output.y(), output.z(), output.engineTarget());
     }
 
     public static void serverTick(MinecraftServer server) {
