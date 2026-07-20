@@ -54,6 +54,11 @@ public final class ReflectiveAircraft {
         invoke(accessors.setEngineTarget, entity, 0.0f);
     }
 
+    public static double enginePower(Entity entity) {
+        Object value = invoke(accessors(entity).getEnginePower, entity);
+        return value instanceof Number number ? number.doubleValue() : Double.NaN;
+    }
+
     public static void setRoll(Entity entity, float roll) {
         invoke(accessors(entity).setZRot, entity, roll);
     }
@@ -125,6 +130,7 @@ public final class ReflectiveAircraft {
         return ACCESSORS.computeIfAbsent(entity.getClass(), type -> new Accessors(
                 findMethod(type, "setInputs", float.class, float.class, float.class),
                 findMethod(type, "setEngineTarget", float.class),
+                findMethod(type, "getEnginePower"),
                 findMethod(type, "setZRot", float.class),
                 findMethod(type, "chill"),
                 findMethod(type, "getPassengerSpace"),
@@ -209,6 +215,7 @@ public final class ReflectiveAircraft {
     private record Accessors(
             Method setInputs,
             Method setEngineTarget,
+            Method getEnginePower,
             Method setZRot,
             Method chill,
             Method getPassengerSpace,

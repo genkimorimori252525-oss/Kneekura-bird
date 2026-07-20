@@ -14,6 +14,7 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.decoration.ArmorStand;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.storage.LevelResource;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.fml.ModList;
@@ -202,7 +203,7 @@ public final class BenchmarkManager {
     }
 
     private enum Phase {
-        PREPARE(40),
+        PREPARE(220),
         STRAIGHT_ACCELERATION(600),
         TURN_WARMUP(160),
         SUSTAINED_TURN(240),
@@ -211,7 +212,7 @@ public final class BenchmarkManager {
         STALL_WARMUP(160),
         STALL_DECELERATION(320),
         BRAKE_WARMUP(160),
-        BRAKE(260),
+        BRAKE(600),
         COMPLETE(0);
 
         private final int maximumTicks;
@@ -310,16 +311,21 @@ public final class BenchmarkManager {
                     + (includeVariants ? "-variants" : "-representatives");
             Path runDirectory = root.resolve(runId);
             Path latestFile = root.resolve("latest.json");
+            Path latestSuccessfulFile = root.resolve("latest_successful.json");
 
             try {
                 Files.createDirectories(runDirectory);
-                List<Map<String, Object>> previous = readPrevious(latestFile);
+                List<Map<String, Object>> previous = readPrevious(latestSuccessfulFile);
                 Files.writeString(runDirectory.resolve("benchmark.json"), GSON.toJson(results), StandardCharsets.UTF_8);
                 Files.writeString(runDirectory.resolve("benchmark.csv"), buildCsv(results), StandardCharsets.UTF_8);
                 Files.writeString(runDirectory.resolve("flight_profiles.json"), GSON.toJson(buildProfiles(results)), StandardCharsets.UTF_8);
                 Files.writeString(runDirectory.resolve("comparison.csv"), buildComparison(previous, results), StandardCharsets.UTF_8);
                 Files.writeString(runDirectory.resolve("run_metadata.json"), GSON.toJson(runMetadata(runId)), StandardCharsets.UTF_8);
                 Files.writeString(latestFile, GSON.toJson(results), StandardCharsets.UTF_8);
+                boolean fullyValid = results.stream().allMatch(row -> "ok".equals(row.get("status")));
+                if (fullyValid) {
+                    Files.writeString(latestSuccessfulFile, GSON.toJson(results), StandardCharsets.UTF_8);
+                }
 
                 source.sendSuccess(() -> Component.literal(
                         "Benchmark complete: " + results.size() + "/" + total
@@ -379,10 +385,14 @@ public final class BenchmarkManager {
         private final Vec3 anchor;
         private final Map<String, Double> effectiveStats;
         private final List<Double> accelerationSpeeds = new ArrayList<>();
+        private final Set<Long> ownedForcedChunks = new HashSet<>();
         private Phase phase = Phase.PREPARE;
         private int phaseTick;
+        private int stablePrepareTicks;
         private boolean finished;
         private String error = "";
+        private double accelerationInitialSpeed = Double.NaN;
+        private double accelerationInitialEnginePower = Double.NaN;
         private double topSpeed;
         private double timeTo50 = Double.NaN;
         private double timeTo90 = Double.NaN;
@@ -391,6 +401,9 @@ public final class BenchmarkManager {
         private float previousPitch;
         private double turnDegrees;
         private double turnSpeedSum;
+        private double turnVerticalSpeedSum;
+        private double turnStartY;
+        private double turnEndY;
         private int turnSamples;
         private double climbRateSum;
         private double climbSpeedSum;
@@ -403,6 +416,7 @@ public final class BenchmarkManager {
         private double brakeDistance;
         private double brakeTime50 = Double.NaN;
         private double brakeTime10 = Double.NaN;
+        private boolean brakeReachedTenPercent;
         private int brakeLowSpeedTicks;
 
         private AircraftTest(Candidate candidate, Entity aircraft, ArmorStand pilot, Vec3 anchor) {
@@ -411,6 +425,7 @@ public final class BenchmarkManager {
             this.pilot = pilot;
             this.anchor = anchor;
             this.effectiveStats = ReflectiveAircraft.effectiveStats(aircraft);
+            keepChunksLoaded();
             CONTROLS.put(aircraft.getUUID(), new ControlInput(0, 0, 0, 0));
         }
 
@@ -464,13 +479,29 @@ public final class BenchmarkManager {
             if (finished) {
                 return;
             }
+            keepChunksLoaded();
             if (aircraft.isRemoved() || pilot.isRemoved() || !pilot.isPassengerOfSameVehicle(aircraft)) {
                 fail("Aircraft or benchmark pilot was removed");
                 return;
             }
-            if (phase == Phase.PREPARE && phaseTick >= 30 && !CONTROL_HEARTBEATS.contains(aircraft.getUUID())) {
-                fail("VehicleEntity.tickPilot control hook was not observed");
-                return;
+            if (phase == Phase.PREPARE) {
+                boolean heartbeat = CONTROL_HEARTBEATS.contains(aircraft.getUUID());
+                double speed = aircraft.getDeltaMovement().length() * 20.0;
+                double enginePower = ReflectiveAircraft.enginePower(aircraft);
+                boolean engineSettled = !Double.isFinite(enginePower) || enginePower <= 0.02;
+                if (heartbeat && speed <= 0.25 && engineSettled) {
+                    stablePrepareTicks++;
+                } else {
+                    stablePrepareTicks = 0;
+                }
+                if (phaseTick >= 180 && !heartbeat) {
+                    fail("VehicleEntity.tickPilot control hook was not observed");
+                    return;
+                }
+                if (phaseTick >= phase.maximumTicks && stablePrepareTicks < 20) {
+                    fail("Aircraft did not settle before acceleration sampling");
+                    return;
+                }
             }
 
             ReflectiveAircraft.fillFuel(aircraft);
@@ -497,6 +528,7 @@ public final class BenchmarkManager {
                     if (phaseTick >= 60) {
                         turnDegrees += Math.abs(Mth.wrapDegrees(aircraft.getYRot() - previousYaw));
                         turnSpeedSum += horizontalSpeed;
+                        turnVerticalSpeedSum += velocity.y * 20.0;
                         turnSamples++;
                     }
                     previousYaw = aircraft.getYRot();
@@ -534,6 +566,7 @@ public final class BenchmarkManager {
                         }
                         if (Double.isNaN(brakeTime10) && horizontalSpeed <= brakeInitialSpeed * 0.1) {
                             brakeTime10 = phaseTick / 20.0;
+                            brakeReachedTenPercent = true;
                         }
                         if (horizontalSpeed <= brakeInitialSpeed * 0.1) {
                             brakeLowSpeedTicks++;
@@ -548,6 +581,9 @@ public final class BenchmarkManager {
         }
 
         private boolean shouldAdvance() {
+            if (phase == Phase.PREPARE && stablePrepareTicks >= 20) {
+                return true;
+            }
             if (phase == Phase.STRAIGHT_ACCELERATION && phaseTick >= 240 && accelerationSpeeds.size() >= 160) {
                 double oldAverage = averageTail(accelerationSpeeds, 160, 80);
                 double newAverage = averageTail(accelerationSpeeds, 80, 0);
@@ -594,6 +630,8 @@ public final class BenchmarkManager {
             phaseTick = 0;
             phase = switch (phase) {
                 case PREPARE -> {
+                    accelerationInitialSpeed = aircraft.getDeltaMovement().horizontalDistance() * 20.0;
+                    accelerationInitialEnginePower = ReflectiveAircraft.enginePower(aircraft);
                     resetFlight();
                     yield Phase.STRAIGHT_ACCELERATION;
                 }
@@ -603,9 +641,11 @@ public final class BenchmarkManager {
                 }
                 case TURN_WARMUP -> {
                     previousYaw = aircraft.getYRot();
+                    turnStartY = aircraft.getY();
                     yield Phase.SUSTAINED_TURN;
                 }
                 case SUSTAINED_TURN -> {
+                    turnEndY = aircraft.getY();
                     resetFlight();
                     yield Phase.CLIMB_WARMUP;
                 }
@@ -675,6 +715,31 @@ public final class BenchmarkManager {
             return candidate.metadata().declaredProperties().getOrDefault(key, fallback);
         }
 
+        private void keepChunksLoaded() {
+            ServerLevel serverLevel = (ServerLevel) aircraft.level();
+            ChunkPos center = aircraft.chunkPosition();
+            for (int dx = -2; dx <= 2; dx++) {
+                for (int dz = -2; dz <= 2; dz++) {
+                    int chunkX = center.x + dx;
+                    int chunkZ = center.z + dz;
+                    long key = ChunkPos.asLong(chunkX, chunkZ);
+                    if (!serverLevel.getForcedChunks().contains(key)) {
+                        serverLevel.setChunkForced(chunkX, chunkZ, true);
+                        ownedForcedChunks.add(key);
+                    }
+                }
+            }
+        }
+
+        private void releaseOwnedChunks() {
+            ServerLevel serverLevel = (ServerLevel) aircraft.level();
+            for (long key : ownedForcedChunks) {
+                ChunkPos chunk = new ChunkPos(key);
+                serverLevel.setChunkForced(chunk.x, chunk.z, false);
+            }
+            ownedForcedChunks.clear();
+        }
+
         private void fail(String message) {
             error = message;
             finished = true;
@@ -692,6 +757,7 @@ public final class BenchmarkManager {
         }
 
         private void cleanup() {
+            releaseOwnedChunks();
             CONTROLS.remove(aircraft.getUUID());
             CONTROL_HEARTBEATS.remove(aircraft.getUUID());
             if (!pilot.isRemoved()) {
@@ -725,7 +791,24 @@ public final class BenchmarkManager {
             double climbSpeed = climbSamples == 0 ? Double.NaN : climbSpeedSum / climbSamples;
             double pitchResponse = pitchSamples == 0 ? Double.NaN : pitchDegrees / pitchSamples * 20.0;
             double turnRetention = topSpeed <= 0.0 ? Double.NaN : turnSpeed / topSpeed;
+            double turnVerticalRate = turnSamples == 0 ? Double.NaN : turnVerticalSpeedSum / turnSamples;
+            boolean cleanAccelerationStart = accelerationInitialSpeed <= 0.50
+                    && (!Double.isFinite(accelerationInitialEnginePower) || accelerationInitialEnginePower <= 0.021);
+            List<String> qualityFlags = new ArrayList<>();
+            if (!cleanAccelerationStart) {
+                qualityFlags.add("contaminated_acceleration_start");
+            }
+            if (!brakeReachedTenPercent) {
+                qualityFlags.add("brake_10_percent_not_reached");
+            }
+            if (Double.isFinite(turnRetention) && turnRetention > 1.02) {
+                qualityFlags.add("turn_speed_exceeded_straight_speed");
+            }
 
+            values.put("profile_eligible", error.isEmpty() && cleanAccelerationStart);
+            values.put("quality_flags", String.join("|", qualityFlags));
+            values.put("accel_initial_speed_bps", finite(accelerationInitialSpeed));
+            values.put("accel_initial_engine_power", finite(accelerationInitialEnginePower));
             values.put("top_speed_bps", finite(topSpeed));
             values.put("accel_time_50_s", finite(timeTo50));
             values.put("accel_time_90_s", finite(timeTo90));
@@ -734,6 +817,8 @@ public final class BenchmarkManager {
             values.put("turn_radius_blocks", finite(turnRadius));
             values.put("turn_speed_bps", finite(turnSpeed));
             values.put("turn_speed_retention", finite(turnRetention));
+            values.put("turn_vertical_rate_bps", finite(turnVerticalRate));
+            values.put("turn_altitude_change_blocks", finite(turnEndY - turnStartY));
             values.put("climb_rate_bps", finite(climbRate));
             values.put("climb_speed_bps", finite(climbSpeed));
             values.put("pitch_response_deg_s", finite(pitchResponse));
@@ -742,6 +827,7 @@ public final class BenchmarkManager {
             values.put("brake_distance_blocks", finite(brakeDistance));
             values.put("brake_time_50_s", finite(brakeTime50));
             values.put("brake_time_10_s", finite(brakeTime10));
+            values.put("brake_reached_10_percent", brakeReachedTenPercent);
             return values;
         }
     }
@@ -800,14 +886,17 @@ public final class BenchmarkManager {
     private static String buildCsv(List<Map<String, Object>> results) {
         List<String> columns = List.of(
                 "entity_id", "variant_group", "category", "role", "faction", "doctrine", "status", "error",
-                "width", "height", "passenger_space",
+                "profile_eligible", "quality_flags", "width", "height", "passenger_space",
                 "effective_engineSpeed", "effective_acceleration", "effective_yawSpeed", "effective_pitchSpeed",
                 "effective_lift", "effective_friction", "effective_glideFactor", "effective_mass",
                 "effective_brakeFactor", "effective_stabilizer",
+                "accel_initial_speed_bps", "accel_initial_engine_power",
                 "top_speed_bps", "accel_time_50_s", "accel_time_90_s", "accel_time_95_s",
                 "turn_rate_deg_s", "turn_radius_blocks", "turn_speed_bps", "turn_speed_retention",
+                "turn_vertical_rate_bps", "turn_altitude_change_blocks",
                 "climb_rate_bps", "climb_speed_bps", "pitch_response_deg_s", "stall_proxy_speed_bps",
-                "brake_initial_speed_bps", "brake_distance_blocks", "brake_time_50_s", "brake_time_10_s"
+                "brake_initial_speed_bps", "brake_distance_blocks", "brake_time_50_s", "brake_time_10_s",
+                "brake_reached_10_percent"
         );
         StringBuilder csv = new StringBuilder(String.join(",", columns)).append('\n');
         for (Map<String, Object> result : results) {
@@ -828,12 +917,21 @@ public final class BenchmarkManager {
         );
         StringBuilder csv = new StringBuilder("entity_id,metric,previous,current,delta,delta_percent\n");
         for (Map<String, Object> row : current) {
+            if (!"ok".equals(row.get("status")) || !Boolean.TRUE.equals(row.get("profile_eligible"))) {
+                continue;
+            }
             String id = String.valueOf(row.get("entity_id"));
             Map<String, Object> old = oldById.get(id);
-            if (old == null) {
+            if (old == null || !"ok".equals(old.get("status"))
+                    || !Boolean.TRUE.equals(old.get("profile_eligible"))) {
                 continue;
             }
             for (String metric : metrics) {
+                if ("brake_distance_blocks".equals(metric)
+                        && (!Boolean.TRUE.equals(row.get("brake_reached_10_percent"))
+                        || !Boolean.TRUE.equals(old.get("brake_reached_10_percent")))) {
+                    continue;
+                }
                 Double oldValue = number(old.get(metric));
                 Double newValue = number(row.get(metric));
                 if (oldValue == null || newValue == null) {
@@ -858,7 +956,7 @@ public final class BenchmarkManager {
     private static Map<String, Object> buildProfiles(List<Map<String, Object>> results) {
         Map<String, Object> profiles = new LinkedHashMap<>();
         for (Map<String, Object> row : results) {
-            if (!"ok".equals(row.get("status"))) {
+            if (!"ok".equals(row.get("status")) || !Boolean.TRUE.equals(row.get("profile_eligible"))) {
                 continue;
             }
             Double top = number(row.get("top_speed_bps"));
@@ -866,6 +964,7 @@ public final class BenchmarkManager {
             Double turnSpeed = number(row.get("turn_speed_bps"));
             Double climbSpeed = number(row.get("climb_speed_bps"));
             Double brakeDistance = number(row.get("brake_distance_blocks"));
+            boolean brakeComplete = Boolean.TRUE.equals(row.get("brake_reached_10_percent"));
             if (top == null || top <= 0.0) {
                 continue;
             }
@@ -883,7 +982,9 @@ public final class BenchmarkManager {
                     : Math.max(stallGuard * 1.18, top * 0.62));
             profile.put("turn_speed_floor_bps", turnSpeed != null && turnSpeed > 0.0
                     ? turnSpeed * 0.85 : stallGuard * 1.10);
-            profile.put("brake_lead_blocks", brakeDistance != null ? brakeDistance * 1.25 : null);
+            profile.put("brake_lead_blocks", brakeComplete && brakeDistance != null
+                    ? brakeDistance * 1.25 : null);
+            profile.put("brake_distance_lower_bound_blocks", !brakeComplete ? brakeDistance : null);
             profile.put("measured_top_speed_bps", top);
             profiles.put(String.valueOf(row.get("variant_group")), profile);
         }
