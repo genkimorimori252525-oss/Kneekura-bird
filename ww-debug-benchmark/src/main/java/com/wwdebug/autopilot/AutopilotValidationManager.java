@@ -12,13 +12,11 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.level.ChunkPos;
-import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.storage.LevelResource;
 import net.minecraft.world.phys.Vec3;
 
@@ -184,6 +182,8 @@ public final class AutopilotValidationManager {
                 return null;
             }
             return new Candidate(type, id, metadata.variantGroup(), metadata.doctrine());
+        } catch (Throwable ignored) {
+            return null;
         } finally {
             if (entity != null) {
                 entity.discard();
@@ -267,11 +267,7 @@ public final class AutopilotValidationManager {
             Entity aircraft = null;
             Villager pilot = null;
             try {
-                int x = Mth.floor(requestedAnchor.x);
-                int z = Mth.floor(requestedAnchor.z);
-                double groundY = Math.max(requestedAnchor.y,
-                        level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z) + 1.0);
-                Vec3 anchor = new Vec3(requestedAnchor.x, groundY, requestedAnchor.z);
+                Vec3 anchor = requestedAnchor;
 
                 aircraft = candidate.type().create(level);
                 if (aircraft == null || !ReflectiveAircraft.isAirplane(aircraft)) {
