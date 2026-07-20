@@ -15,6 +15,7 @@ import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.storage.LevelResource;
 import net.minecraft.world.phys.Vec2;
 import net.minecraft.world.phys.Vec3;
@@ -47,9 +48,10 @@ import java.util.stream.Stream;
 @PrefixGameTestTemplate(false)
 public final class AutonomousFlightGameTests {
     private static final Gson GSON = new Gson();
-    private static final int RUNWAY_HALF_WIDTH = 14;
-    private static final int RUNWAY_BEHIND = 210;
-    private static final int RUNWAY_AHEAD = 720;
+    private static final int RUNWAY_HALF_WIDTH = 40;
+    private static final int RUNWAY_BEHIND = 260;
+    private static final int RUNWAY_AHEAD = 800;
+    private static final int CLEAR_HEIGHT = 4;
 
     private AutonomousFlightGameTests() {
     }
@@ -59,8 +61,17 @@ public final class AutonomousFlightGameTests {
         ServerLevel level = helper.getLevel();
         MinecraftServer server = level.getServer();
         BlockPos templateOrigin = helper.absolutePos(BlockPos.ZERO);
-        BlockPos runwaySurface = templateOrigin.offset(0, -1, 0);
+        int surfaceY = level.getHeight(
+                Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+                templateOrigin.getX(),
+                templateOrigin.getZ()
+        ) - 1;
+        BlockPos runwaySurface = new BlockPos(templateOrigin.getX(), surfaceY, templateOrigin.getZ());
         buildRunway(level, runwaySurface);
+        WWDebugBenchmarkMod.LOGGER.info(
+                "Headless autonomous-flight runway surface={} natural_height={} width={} length={}",
+                runwaySurface, surfaceY, RUNWAY_HALF_WIDTH * 2 + 1,
+                RUNWAY_BEHIND + RUNWAY_AHEAD + 1);
 
         Vec3 aircraftAnchor = Vec3.atBottomCenterOf(runwaySurface.above());
         CommandSourceStack source = server.createCommandSourceStack()
@@ -86,7 +97,7 @@ public final class AutonomousFlightGameTests {
         } else {
             int benchmarkCount = BenchmarkManager.start(source, BenchmarkCategory.FIGHTER, false);
             if (benchmarkCount <= 0) {
-                throw new GameTestAssertException("Could not start measured fighter benchmark");
+                throw new IllegalStateException("Could not start measured fighter benchmark");
             }
         }
 
@@ -106,11 +117,11 @@ public final class AutonomousFlightGameTests {
                             "Autonomous-flight validation is still running for " + target));
             Summary result = readSummary(summary);
             if (!"complete".equals(result.state())) {
-                throw new GameTestAssertException("Autonomous-flight validation ended as "
+                throw new IllegalStateException("Autonomous-flight validation ended as "
                         + result.state() + "; summary=" + summary.toAbsolutePath());
             }
             if (result.passed() != result.total()) {
-                throw new GameTestAssertException("Autonomous-flight validation failed: "
+                throw new IllegalStateException("Autonomous-flight validation failed: "
                         + result.passed() + "/" + result.total() + " passed; first failure="
                         + result.firstFailure() + "; summary=" + summary.toAbsolutePath());
             }
@@ -124,7 +135,7 @@ public final class AutonomousFlightGameTests {
                 ? AutopilotValidationManager.startAll(source)
                 : AutopilotValidationManager.startOne(source, target);
         if (count <= 0) {
-            throw new GameTestAssertException("Could not start autonomous-flight validation for " + target);
+            throw new IllegalStateException("Could not start autonomous-flight validation for " + target);
         }
         startedAt.set(System.currentTimeMillis());
         started.set(true);
@@ -135,8 +146,8 @@ public final class AutonomousFlightGameTests {
             Files.createDirectories(configured.getParent());
             Files.copy(generated, configured, StandardCopyOption.REPLACE_EXISTING);
         } catch (IOException exception) {
-            throw new GameTestAssertException("Could not install measured flight profiles: "
-                    + exception.getMessage());
+            throw new IllegalStateException("Could not install measured flight profiles: "
+                    + exception.getMessage(), exception);
         }
     }
 
@@ -144,9 +155,9 @@ public final class AutonomousFlightGameTests {
         for (int z = -RUNWAY_BEHIND; z <= RUNWAY_AHEAD; z++) {
             for (int x = -RUNWAY_HALF_WIDTH; x <= RUNWAY_HALF_WIDTH; x++) {
                 BlockPos surface = surfaceOrigin.offset(x, 0, z);
-                level.setBlockAndUpdate(surface, Blocks.SMOOTH_STONE.defaultBlockState());
-                for (int y = 1; y <= 8; y++) {
-                    level.setBlockAndUpdate(surface.above(y), Blocks.AIR.defaultBlockState());
+                level.setBlock(surface, Blocks.SMOOTH_STONE.defaultBlockState(), 2);
+                for (int y = 1; y <= CLEAR_HEIGHT; y++) {
+                    level.setBlock(surface.above(y), Blocks.AIR.defaultBlockState(), 2);
                 }
             }
         }
@@ -163,8 +174,8 @@ public final class AutonomousFlightGameTests {
                     .filter(path -> modified(path).toMillis() >= startedAt)
                     .max(Comparator.comparing(AutonomousFlightGameTests::modified));
         } catch (IOException exception) {
-            throw new GameTestAssertException("Could not scan measured benchmark profiles: "
-                    + exception.getMessage());
+            throw new IllegalStateException("Could not scan measured benchmark profiles: "
+                    + exception.getMessage(), exception);
         }
     }
 
@@ -179,8 +190,8 @@ public final class AutonomousFlightGameTests {
                     .filter(path -> modified(path).toMillis() >= startedAt)
                     .max(Comparator.comparing(AutonomousFlightGameTests::modified));
         } catch (IOException exception) {
-            throw new GameTestAssertException("Could not scan autonomous-flight summaries: "
-                    + exception.getMessage());
+            throw new IllegalStateException("Could not scan autonomous-flight summaries: "
+                    + exception.getMessage(), exception);
         }
     }
 
@@ -217,15 +228,15 @@ public final class AutonomousFlightGameTests {
             }
             return new Summary(state, total, passed, firstFailure, results);
         } catch (IOException | RuntimeException exception) {
-            throw new GameTestAssertException("Could not read autonomous-flight summary " + path
-                    + ": " + exception.getMessage());
+            throw new IllegalStateException("Could not read autonomous-flight summary " + path
+                    + ": " + exception.getMessage(), exception);
         }
     }
 
     private static void verifyRunwayStops(MinecraftServer server, JsonArray results) {
         String directoryText = AutopilotLogManager.currentDirectory(server);
         if ("not-opened".equals(directoryText)) {
-            throw new GameTestAssertException("Autonomous-flight telemetry directory was not opened");
+            throw new IllegalStateException("Autonomous-flight telemetry directory was not opened");
         }
         Path aircraftDirectory = Path.of(directoryText).resolve("aircraft");
         for (JsonElement element : results) {
@@ -238,7 +249,7 @@ public final class AutonomousFlightGameTests {
             }
             String uuid = string(row, "aircraft_uuid", "none");
             Path logFile = findAircraftLog(aircraftDirectory, uuid)
-                    .orElseThrow(() -> new GameTestAssertException(
+                    .orElseThrow(() -> new IllegalStateException(
                             "Missing per-aircraft telemetry for " + uuid));
             JsonObject frame = lastFrame(logFile);
             JsonObject position = object(frame, "position");
@@ -257,7 +268,7 @@ public final class AutonomousFlightGameTests {
                     || lateral > RUNWAY_HALF_WIDTH
                     || longitudinal < -RUNWAY_BEHIND
                     || longitudinal > RUNWAY_AHEAD) {
-                throw new GameTestAssertException("Aircraft stopped outside the runway corridor: uuid="
+                throw new IllegalStateException("Aircraft stopped outside the runway corridor: uuid="
                         + uuid + ", phase=" + phase + ", lateral=" + lateral
                         + ", longitudinal=" + longitudinal + ", log=" + logFile.toAbsolutePath());
             }
@@ -274,8 +285,8 @@ public final class AutonomousFlightGameTests {
                     .filter(path -> path.getFileName().toString().contains(uuid))
                     .findFirst();
         } catch (IOException exception) {
-            throw new GameTestAssertException("Could not scan per-aircraft telemetry: "
-                    + exception.getMessage());
+            throw new IllegalStateException("Could not scan per-aircraft telemetry: "
+                    + exception.getMessage(), exception);
         }
     }
 
@@ -284,18 +295,18 @@ public final class AutonomousFlightGameTests {
             String line = lines
                     .filter(value -> value.contains("\"event\":\"frame\""))
                     .reduce((first, second) -> second)
-                    .orElseThrow(() -> new GameTestAssertException(
+                    .orElseThrow(() -> new IllegalStateException(
                             "No telemetry frame found in " + path.toAbsolutePath()));
             return GSON.fromJson(line, JsonObject.class);
         } catch (IOException | RuntimeException exception) {
-            throw new GameTestAssertException("Could not read final telemetry frame " + path
-                    + ": " + exception.getMessage());
+            throw new IllegalStateException("Could not read final telemetry frame " + path
+                    + ": " + exception.getMessage(), exception);
         }
     }
 
     private static JsonObject object(JsonObject object, String key) {
         if (!object.has(key) || !object.get(key).isJsonObject()) {
-            throw new GameTestAssertException("Telemetry frame is missing object field " + key);
+            throw new IllegalStateException("Telemetry frame is missing object field " + key);
         }
         return object.getAsJsonObject(key);
     }
@@ -303,7 +314,7 @@ public final class AutonomousFlightGameTests {
     private static double number(JsonObject object, String key) {
         if (!object.has(key) || !object.get(key).isJsonPrimitive()
                 || !object.get(key).getAsJsonPrimitive().isNumber()) {
-            throw new GameTestAssertException("Telemetry frame is missing numeric field " + key);
+            throw new IllegalStateException("Telemetry frame is missing numeric field " + key);
         }
         return object.get(key).getAsDouble();
     }
