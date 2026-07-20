@@ -25,7 +25,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.8'
-      - name: Build benchmark mod
+      - name: Build benchmark mod and run deterministic flight simulation
         id: benchmark-build
         continue-on-error: true
         run: gradle --no-daemon --console=plain build > build.log 2>&1
@@ -35,14 +35,21 @@ jobs:
         with:
           name: ww-debug-benchmark-build-log
           path: ww-debug-benchmark/build.log
+      - name: Upload deterministic flight simulation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ww-autonomous-flight-simulation
+          path: ww-debug-benchmark/build/reports/flight-simulation/report.json
+          if-no-files-found: warn
       - name: Upload benchmark jar
         if: steps.benchmark-build.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: ww-debug-benchmark
           path: ww-debug-benchmark/build/libs/*.jar
-      - name: Fail after preserving log
+      - name: Fail after preserving diagnostics
         if: steps.benchmark-build.outcome == 'failure'
         run: |
-          tail -n 160 build.log
+          tail -n 220 build.log
           exit 1
