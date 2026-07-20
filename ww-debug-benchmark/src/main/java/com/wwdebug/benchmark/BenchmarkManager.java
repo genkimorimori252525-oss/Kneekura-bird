@@ -719,14 +719,15 @@ public final class BenchmarkManager {
         }
 
         private void keepChunksLoaded() {
+            ServerLevel serverLevel = (ServerLevel) aircraft.level();
             ChunkPos center = aircraft.chunkPosition();
             for (int dx = -2; dx <= 2; dx++) {
                 for (int dz = -2; dz <= 2; dz++) {
                     int chunkX = center.x + dx;
                     int chunkZ = center.z + dz;
                     long key = ChunkPos.asLong(chunkX, chunkZ);
-                    if (!level.getForcedChunks().contains(key)) {
-                        level.setChunkForced(chunkX, chunkZ, true);
+                    if (!serverLevel.getForcedChunks().contains(key)) {
+                        serverLevel.setChunkForced(chunkX, chunkZ, true);
                         ownedForcedChunks.add(key);
                     }
                 }
@@ -734,9 +735,10 @@ public final class BenchmarkManager {
         }
 
         private void releaseOwnedChunks() {
+            ServerLevel serverLevel = (ServerLevel) aircraft.level();
             for (long key : ownedForcedChunks) {
                 ChunkPos chunk = new ChunkPos(key);
-                level.setChunkForced(chunk.x, chunk.z, false);
+                serverLevel.setChunkForced(chunk.x, chunk.z, false);
             }
             ownedForcedChunks.clear();
         }
