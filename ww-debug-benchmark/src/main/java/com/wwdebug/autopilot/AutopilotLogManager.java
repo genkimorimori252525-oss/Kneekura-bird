@@ -251,6 +251,34 @@ public final class AutopilotLogManager {
         }
     }
 
+    private static final class AircraftWriter {
+        private final BufferedWriter writer;
+        private int pending;
+
+        private AircraftWriter(BufferedWriter writer) {
+            this.writer = writer;
+        }
+
+        private void write(String line) throws IOException {
+            writer.write(line);
+            writer.newLine();
+            pending++;
+            if (pending >= 20) {
+                writer.flush();
+                pending = 0;
+            }
+        }
+
+        private void close() {
+            try {
+                writer.flush();
+                writer.close();
+            } catch (IOException exception) {
+                WWDebugBenchmarkMod.LOGGER.warn("Could not close autonomous-flight aircraft log", exception);
+            }
+        }
+    }
+
     private static void addVector(JsonObject root, String name, Vec3 value) {
         JsonObject vector = new JsonObject();
         vector.addProperty("x", value.x);
