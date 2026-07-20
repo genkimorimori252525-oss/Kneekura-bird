@@ -30,11 +30,9 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Deque;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -55,7 +53,7 @@ public final class AutopilotValidationManager {
         AutopilotProfileRegistry.reload(server);
         List<Candidate> candidates = discoverFighters(source.getLevel());
         if (candidates.isEmpty()) {
-            String reason = "No fighter entity had both registry metadata and a measured flight profile. profile_source="
+            String reason = "No registered aircraft matched a measured fighter profile. profile_source="
                     + AutopilotProfileRegistry.sourceDescription();
             WWDebugBenchmarkMod.LOGGER.error("Could not start all-fighter autonomous-flight validation: {}", reason);
             source.sendFailure(Component.literal(reason));
@@ -152,25 +150,22 @@ public final class AutopilotValidationManager {
 
     private static List<Candidate> discoverFighters(ServerLevel level) {
         List<Candidate> candidates = new ArrayList<>();
-        Set<String> variantGroups = new HashSet<>();
         MinecraftServer server = level.getServer();
 
-        for (EntityType<?> type : BuiltInRegistries.ENTITY_TYPE) {
-            ResourceLocation id = BuiltInRegistries.ENTITY_TYPE.getKey(type);
+        for (FlightProfile profile : AutopilotProfileRegistry.fighterProfiles(server)) {
+            ResourceLocation id = profile.profileId();
+            EntityType<?> type = BuiltInRegistries.ENTITY_TYPE.getOptional(id).orElse(null);
+            if (type == null) {
+                WWDebugBenchmarkMod.LOGGER.warn(
+                        "Skipping measured fighter profile {} because its entity type is not registered", id);
+                continue;
+            }
             AircraftMetadata metadata = AircraftMetadataResolver.resolve(server.getResourceManager(), id);
-            if (!"fighter".equalsIgnoreCase(metadata.role())) {
-                continue;
-            }
-            FlightProfile profile = AutopilotProfileRegistry.resolve(server, id).orElse(null);
-            if (profile == null) {
-                WWDebugBenchmarkMod.LOGGER.warn("Skipping fighter {} because no measured profile resolved: {}",
-                        id, AutopilotProfileRegistry.resolutionDiagnostics(server, id));
-                continue;
-            }
-            if (!variantGroups.add(metadata.variantGroup())) {
-                continue;
-            }
-            candidates.add(new Candidate(type, id, metadata.variantGroup(), metadata.doctrine(), profile.profileId()));
+            String variantGroup = "unknown".equalsIgnoreCase(metadata.role())
+                    ? profile.profileId().toString() : metadata.variantGroup();
+            String doctrine = "unknown".equalsIgnoreCase(metadata.doctrine())
+                    ? profile.doctrine() : metadata.doctrine();
+            candidates.add(new Candidate(type, id, variantGroup, doctrine, profile.profileId()));
         }
 
         candidates.sort(Comparator.comparing(candidate -> candidate.id().toString()));
@@ -184,11 +179,6 @@ public final class AutopilotValidationManager {
         }
 
         MinecraftServer server = level.getServer();
-        AircraftMetadata metadata = AircraftMetadataResolver.resolve(server.getResourceManager(), id);
-        if (!"fighter".equalsIgnoreCase(metadata.role())) {
-            return new CandidateLookup(null, "metadata_role_is_" + metadata.role());
-        }
-
         FlightProfile profile = AutopilotProfileRegistry.resolve(server, id).orElse(null);
         if (profile == null) {
             return new CandidateLookup(null, "measured_profile_not_resolved");
@@ -197,8 +187,14 @@ public final class AutopilotValidationManager {
             return new CandidateLookup(null, "profile_role_is_" + profile.role());
         }
 
+        AircraftMetadata metadata = AircraftMetadataResolver.resolve(server.getResourceManager(), id);
+        String variantGroup = "unknown".equalsIgnoreCase(metadata.role())
+                ? profile.profileId().toString() : metadata.variantGroup();
+        String doctrine = "unknown".equalsIgnoreCase(metadata.doctrine())
+                ? profile.doctrine() : metadata.doctrine();
+
         return new CandidateLookup(
-                new Candidate(type, id, metadata.variantGroup(), metadata.doctrine(), profile.profileId()),
+                new Candidate(type, id, variantGroup, doctrine, profile.profileId()),
                 "accepted"
         );
     }
@@ -219,7 +215,7 @@ public final class AutopilotValidationManager {
         private final Deque<Candidate> pending;
         private final List<Map<String, Object>> results = new ArrayList<>();
         private final int total;
-        private final Set<Long> ownedForcedChunks = new HashSet<>();
+        private final java.util.Set<Long> ownedForcedChunks = new java.util.HashSet<>();
 
         private Candidate activeCandidate;
         private Entity activeAircraft;
