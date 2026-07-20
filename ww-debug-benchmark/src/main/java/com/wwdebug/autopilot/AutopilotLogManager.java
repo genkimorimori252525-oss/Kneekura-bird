@@ -42,6 +42,7 @@ public final class AutopilotLogManager {
             frame.addProperty("run_id", run.runId);
             frame.addProperty("event", "frame");
             frame.addProperty("server_tick", server.overworld().getGameTime());
+            normalizeControlAxes(frame);
             addIdentity(frame, aircraft);
             addReflectiveState(frame, aircraft);
             run.enrichMotion(server, aircraft, frame);
@@ -101,6 +102,16 @@ public final class AutopilotLogManager {
             return new RunLog(runId, directory);
         } catch (IOException exception) {
             throw new IllegalStateException("Could not create autonomous-flight log directory", exception);
+        }
+    }
+
+    private static void normalizeControlAxes(JsonObject frame) {
+        if (frame.has("control_x") && frame.get("control_x").isJsonPrimitive()
+                && frame.getAsJsonPrimitive("control_x").isNumber()) {
+            double logical = frame.get("control_x").getAsDouble();
+            frame.addProperty("control_x_logical", logical);
+            frame.addProperty("control_x", -logical);
+            frame.addProperty("control_x_mapping", "immersive_aircraft_native_axis_is_inverted");
         }
     }
 
@@ -256,33 +267,5 @@ public final class AutopilotLogManager {
             float pitchDeg,
             double rollDeg
     ) {
-    }
-
-    private static final class AircraftWriter {
-        private final BufferedWriter writer;
-        private int pending;
-
-        private AircraftWriter(BufferedWriter writer) {
-            this.writer = writer;
-        }
-
-        private void write(String line) throws IOException {
-            writer.write(line);
-            writer.newLine();
-            pending++;
-            if (pending >= 20) {
-                writer.flush();
-                pending = 0;
-            }
-        }
-
-        private void close() {
-            try {
-                writer.flush();
-                writer.close();
-            } catch (IOException exception) {
-                WWDebugBenchmarkMod.LOGGER.warn("Could not close autonomous-flight aircraft log", exception);
-            }
-        }
     }
 }
