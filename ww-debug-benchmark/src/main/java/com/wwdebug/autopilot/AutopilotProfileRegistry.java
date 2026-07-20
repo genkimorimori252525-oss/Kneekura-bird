@@ -30,6 +30,7 @@ public final class AutopilotProfileRegistry {
     private static final Object LOCK = new Object();
     private static volatile Map<String, FlightProfile> profiles = Map.of();
     private static volatile Path loadedPath;
+    private static volatile boolean loadAttempted;
 
     private AutopilotProfileRegistry() {
     }
@@ -58,6 +59,7 @@ public final class AutopilotProfileRegistry {
 
     public static int reload(MinecraftServer server) {
         synchronized (LOCK) {
+            loadAttempted = true;
             Path source = locateProfileFile(server);
             if (source == null) {
                 profiles = Map.of();
@@ -107,7 +109,7 @@ public final class AutopilotProfileRegistry {
     }
 
     private static void ensureLoaded(MinecraftServer server) {
-        if (loadedPath == null && profiles.isEmpty()) {
+        if (!loadAttempted) {
             reload(server);
         }
     }
@@ -159,10 +161,9 @@ public final class AutopilotProfileRegistry {
             return null;
         }
 
-        ResourceLocation id = ResourceLocation.tryParse(key);
-        if (id == null) {
-            id = ResourceLocation.tryParse("warfare_wings:" + key);
-        }
+        ResourceLocation id = key.contains(":")
+                ? ResourceLocation.tryParse(key)
+                : ResourceLocation.tryParse("warfare_wings:" + key);
         if (id == null) {
             return null;
         }
