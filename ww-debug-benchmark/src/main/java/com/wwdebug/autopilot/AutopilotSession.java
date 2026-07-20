@@ -26,6 +26,7 @@ final class AutopilotSession {
     private int fallingTicks;
     private float phaseTargetYaw;
     private Vec3 phaseDirection;
+    private boolean recoveryPullOut;
     private String transitionReason = "mob_pilot_session_started";
     private FlightControlOutput lastOutput;
 
@@ -292,17 +293,19 @@ final class AutopilotSession {
                     "stall_recovery_ground_contact");
             return terminalOutput(aircraft, snapshot);
         }
-        if (phaseTicks > 900) {
+        if (phaseTicks > 1200) {
             transition(server, aircraft, snapshot, FlightPhase.ABORTED,
                     "stall_recovery_timeout");
             return terminalOutput(aircraft, snapshot);
         }
 
         double recoverySpeed = profile.recoverySpeedBps();
-        boolean pullOut = snapshot.speedBps() >= recoverySpeed * 0.92
-                || snapshot.altitudeAboveGround() < 70.0;
+        if (!recoveryPullOut && (snapshot.speedBps() >= recoverySpeed * 0.92
+                || snapshot.altitudeAboveGround() < 70.0)) {
+            recoveryPullOut = true;
+        }
 
-        if (snapshot.speedBps() >= recoverySpeed
+        if (snapshot.speedBps() >= recoverySpeed * 0.98
                 && snapshot.verticalSpeedBps() >= -0.5 && phaseTicks > 20) {
             stableTicks++;
             if (stableTicks >= 20) {
@@ -313,14 +316,23 @@ final class AutopilotSession {
             stableTicks = 0;
         }
 
-        double desiredPitch = pullOut ? -7.0 : 8.0;
-        double targetAltitude = pullOut
-                ? Math.max(homePoint.y + SAFE_ALTITUDE, snapshot.position().y + 30.0)
-                : Math.max(homePoint.y + SAFE_ALTITUDE, snapshot.position().y - 20.0);
-        String reason = pullOut
-                ? "pull_out_after_recovery_speed_margin"
-                : "lower_nose_level_wings_and_accelerate";
-        String override = pullOut ? "stall_recovery_pull_out" : "stall_recovery_acceleration";
+        double desiredPitch;
+        double targetAltitude;
+        String reason;
+        String override;
+        if (recoveryPullOut) {
+            desiredPitch = snapshot.verticalSpeedBps() < -0.5 ? -7.0 : 0.0;
+            targetAltitude = Math.max(homePoint.y + SAFE_ALTITUDE, snapshot.position().y + 20.0);
+            reason = snapshot.verticalSpeedBps() < -0.5
+                    ? "pull_out_after_recovery_speed_margin"
+                    : "stabilize_after_stall_pull_out";
+            override = "stall_recovery_pull_out";
+        } else {
+            desiredPitch = 8.0;
+            targetAltitude = Math.max(homePoint.y + SAFE_ALTITUDE, snapshot.position().y - 20.0);
+            reason = "lower_nose_level_wings_and_accelerate";
+            override = "stall_recovery_acceleration";
+        }
 
         FlightControlOutput output = control(aircraft, snapshot, phaseDirection,
                 targetAltitude, recoverySpeed, 1.0f, desiredPitch, false, reason, override);
@@ -571,6 +583,7 @@ final class AutopilotSession {
         phaseTicks = 0;
         stableTicks = 0;
         fallingTicks = 0;
+        recoveryPullOut = next == FlightPhase.STALL_RECOVERY ? false : recoveryPullOut;
         transitionReason = reason;
         phaseDirection = snapshot.horizontalForward();
         if (next == FlightPhase.TURN_LEFT) {
