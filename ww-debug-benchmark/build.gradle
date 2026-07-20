@@ -15,6 +15,11 @@ base {
 
 java.toolchain.languageVersion = JavaLanguageVersion.of(17)
 
+def gameTestRunDirectory = project.file('run-gametest')
+def generatedGameTestResources = layout.buildDirectory.dir('generated/gametest-resources')
+
+sourceSets.main.resources.srcDir(generatedGameTestResources)
+
 minecraft {
     mappings channel: 'official', version: minecraft_version
 
@@ -38,6 +43,13 @@ minecraft {
             property 'forge.enabledGameTestNamespaces', mod_id
             args '--nogui'
         }
+
+        gameTestServer {
+            workingDirectory gameTestRunDirectory
+            property 'forge.enabledGameTestNamespaces', mod_id
+            property 'wwdebug.flightGameTestAircraft',
+                    (project.findProperty('flightTestAircraft') ?: 'warfare_wings:a6m').toString()
+        }
     }
 }
 
@@ -56,7 +68,137 @@ dependencies {
     annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
 }
 
+tasks.register('generateEmptyGameTestStructure') {
+    def output = generatedGameTestResources.map {
+        it.file("data/${mod_id}/structures/empty.nbt").asFile
+    }
+    outputs.file(output)
+
+    doLast {
+        File target = output.get()
+        target.parentFile.mkdirs()
+        new java.io.DataOutputStream(new java.io.BufferedOutputStream(
+                new java.io.FileOutputStream(target))).withCloseable { out ->
+            // Root TAG_Compound.
+            out.writeByte(10)
+            out.writeUTF('')
+
+            out.writeByte(3)
+            out.writeUTF('DataVersion')
+            out.writeInt(3465)
+
+            out.writeByte(9)
+            out.writeUTF('size')
+            out.writeByte(3)
+            out.writeInt(3)
+            out.writeInt(1)
+            out.writeInt(1)
+            out.writeInt(1)
+
+            out.writeByte(9)
+            out.writeUTF('palette')
+            out.writeByte(10)
+            out.writeInt(1)
+            out.writeByte(8)
+            out.writeUTF('Name')
+            out.writeUTF('minecraft:air')
+            out.writeByte(0)
+
+            out.writeByte(9)
+            out.writeUTF('blocks')
+            out.writeByte(10)
+            out.writeInt(0)
+
+            out.writeByte(9)
+            out.writeUTF('entities')
+            out.writeByte(10)
+            out.writeInt(0)
+
+            out.writeByte(0)
+        }
+    }
+}
+
+tasks.register('prepareFlightGameTestRuntime') {
+    group = 'verification'
+    description = 'Stages measured profiles and runtime aircraft mods for runGameTestServer.'
+    dependsOn tasks.named('generateEmptyGameTestStructure')
+
+    doLast {
+        gameTestRunDirectory.mkdirs()
+        new File(gameTestRunDirectory, 'eula.txt').text = 'eula=true\n'
+
+        File modsDirectory = new File(gameTestRunDirectory, 'mods')
+        project.delete(modsDirectory)
+        modsDirectory.mkdirs()
+
+        List<File> runtimeJars = []
+        File conventionalDirectory = project.file('flight-test-mods')
+        if (conventionalDirectory.isDirectory()) {
+            runtimeJars.addAll(project.fileTree(conventionalDirectory) { include '*.jar' }.files)
+        }
+
+        String environmentMods = System.getenv('WW_FLIGHT_TEST_MODS')
+        if (environmentMods != null && !environmentMods.isBlank()) {
+            environmentMods.split(java.util.regex.Pattern.quote(File.pathSeparator)).each { value ->
+                File supplied = project.file(value)
+                if (supplied.isDirectory()) {
+                    runtimeJars.addAll(project.fileTree(supplied) { include '*.jar' }.files)
+                } else if (supplied.isFile() && supplied.name.endsWith('.jar')) {
+                    runtimeJars.add(supplied)
+                }
+            }
+        }
+
+        runtimeJars = runtimeJars.unique { it.canonicalPath }
+        if (runtimeJars.isEmpty()) {
+            throw new GradleException('No flight-test runtime jars found. Put Immersive Aircraft and Warfare Wings jars in ww-debug-benchmark/flight-test-mods, or set WW_FLIGHT_TEST_MODS.')
+        }
+        project.copy {
+            from runtimeJars
+            into modsDirectory
+        }
+
+        String profileValue = project.findProperty('flightProfiles')?.toString()
+        if (profileValue == null || profileValue.isBlank()) {
+            profileValue = System.getenv('WW_FLIGHT_PROFILES')
+        }
+        if (profileValue == null || profileValue.isBlank()) {
+            throw new GradleException('No measured flight_profiles.json supplied. Use -PflightProfiles=<path> or WW_FLIGHT_PROFILES.')
+        }
+        File profileFile = project.file(profileValue)
+        if (!profileFile.isFile()) {
+            throw new GradleException("Measured profile file does not exist: ${profileFile}")
+        }
+        File profileDirectory = new File(gameTestRunDirectory, 'config/warfare_wings')
+        profileDirectory.mkdirs()
+        project.copy {
+            from profileFile
+            into profileDirectory
+            rename { 'flight_profiles.json' }
+        }
+    }
+}
+
+tasks.register('runFlightSimulation', JavaExec) {
+    group = 'verification'
+    description = 'Runs the deterministic autonomous-flight pre-flight simulator.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.wwdebug.simulation.FlightSimulationMain'
+
+    String profileValue = project.findProperty('flightProfiles')?.toString()
+    if (profileValue == null || profileValue.isBlank()) {
+        profileValue = System.getenv('WW_FLIGHT_PROFILES')
+    }
+    if (profileValue != null && !profileValue.isBlank()) {
+        args '--profiles', profileValue
+    }
+    args '--output', layout.buildDirectory.file('reports/flight-simulation/report.json').get().asFile.absolutePath
+}
+
 tasks.named('processResources', ProcessResources).configure {
+    dependsOn tasks.named('generateEmptyGameTestStructure')
     def replaceProperties = [
             minecraft_version: minecraft_version,
             forge_version: forge_version,
@@ -68,6 +210,14 @@ tasks.named('processResources', ProcessResources).configure {
     filesMatching(['META-INF/mods.toml', 'pack.mcmeta']) {
         expand replaceProperties + [project: project]
     }
+}
+
+tasks.named('check').configure {
+    dependsOn tasks.named('runFlightSimulation')
+}
+
+tasks.named('runGameTestServer').configure {
+    dependsOn tasks.named('prepareFlightGameTestRuntime')
 }
 
 tasks.named('jar', Jar).configure {
