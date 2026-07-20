@@ -21,9 +21,12 @@ public record FlightSnapshot(
         boolean onGround,
         float yawDeg,
         float pitchDeg,
+        double rollDeg,
         double movementYawDeg,
         String movementDirection,
-        double enginePower
+        double enginePower,
+        double engineTarget,
+        double fuelUtilization
 ) {
     public static FlightSnapshot capture(Entity aircraft) {
         Vec3 position = aircraft.position();
@@ -59,9 +62,12 @@ public record FlightSnapshot(
                 aircraft.onGround(),
                 Mth.wrapDegrees(aircraft.getYRot()),
                 Mth.wrapDegrees(aircraft.getXRot()),
+                ReflectiveAircraft.rollDegrees(aircraft),
                 Mth.wrapDegrees((float) movementYaw),
                 cardinal(movementYaw),
-                ReflectiveAircraft.enginePower(aircraft)
+                ReflectiveAircraft.enginePower(aircraft),
+                ReflectiveAircraft.engineTarget(aircraft),
+                ReflectiveAircraft.fuelUtilization(aircraft)
         );
     }
 
