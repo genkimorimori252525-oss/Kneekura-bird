@@ -51,17 +51,24 @@ public final class AutopilotValidationManager {
             source.sendFailure(Component.literal("An autonomous-flight validation is already running."));
             return 0;
         }
+
+        AutopilotProfileRegistry.reload(server);
         List<Candidate> candidates = discoverFighters(source.getLevel());
         if (candidates.isEmpty()) {
-            source.sendFailure(Component.literal("No compatible fighter aircraft were found."));
+            String reason = "No fighter entity had both registry metadata and a measured flight profile. profile_source="
+                    + AutopilotProfileRegistry.sourceDescription();
+            WWDebugBenchmarkMod.LOGGER.error("Could not start all-fighter autonomous-flight validation: {}", reason);
+            source.sendFailure(Component.literal(reason));
             return 0;
         }
-        AutopilotProfileRegistry.reload(server);
+
         ValidationRun run = new ValidationRun(source, candidates);
         RUNS.put(server, run);
         source.sendSuccess(() -> Component.literal(
                 "Autonomous-flight validation started for " + candidates.size()
                         + " fighters. Aircraft run sequentially from your current runway heading."), false);
+        WWDebugBenchmarkMod.LOGGER.info("Autonomous-flight validation accepted {} fighter candidates: {}",
+                candidates.size(), candidates.stream().map(value -> value.id().toString()).toList());
         return candidates.size();
     }
 
@@ -71,21 +78,29 @@ public final class AutopilotValidationManager {
             source.sendFailure(Component.literal("An autonomous-flight validation is already running."));
             return 0;
         }
+
         ResourceLocation id = ResourceLocation.tryParse(idText);
         if (id == null) {
             source.sendFailure(Component.literal("Invalid aircraft id: " + idText));
             return 0;
         }
-        Candidate candidate = candidate(source.getLevel(), id);
-        if (candidate == null) {
-            source.sendFailure(Component.literal("No compatible fighter found for " + id));
+
+        AutopilotProfileRegistry.reload(server);
+        CandidateLookup lookup = candidate(source.getLevel(), id);
+        if (lookup.candidate() == null) {
+            String message = "No compatible fighter found for " + id + ": " + lookup.reason();
+            WWDebugBenchmarkMod.LOGGER.error("{}; {}", message,
+                    AutopilotProfileRegistry.resolutionDiagnostics(server, id));
+            source.sendFailure(Component.literal(message));
             return 0;
         }
-        AutopilotProfileRegistry.reload(server);
-        ValidationRun run = new ValidationRun(source, List.of(candidate));
+
+        ValidationRun run = new ValidationRun(source, List.of(lookup.candidate()));
         RUNS.put(server, run);
         source.sendSuccess(() -> Component.literal(
                 "Autonomous-flight validation started for " + id + "."), false);
+        WWDebugBenchmarkMod.LOGGER.info("Autonomous-flight validation accepted {} using profile {}",
+                id, lookup.candidate().profileId());
         return 1;
     }
 
@@ -138,60 +153,61 @@ public final class AutopilotValidationManager {
     private static List<Candidate> discoverFighters(ServerLevel level) {
         List<Candidate> candidates = new ArrayList<>();
         Set<String> variantGroups = new HashSet<>();
+        MinecraftServer server = level.getServer();
+
         for (EntityType<?> type : BuiltInRegistries.ENTITY_TYPE) {
-            Entity entity = null;
-            try {
-                entity = type.create(level);
-                if (entity == null || !ReflectiveAircraft.isAirplane(entity)
-                        || !ReflectiveAircraft.isControllable(entity)) {
-                    continue;
-                }
-                ResourceLocation id = BuiltInRegistries.ENTITY_TYPE.getKey(type);
-                AircraftMetadata metadata = AircraftMetadataResolver.resolve(level.getServer().getResourceManager(), id);
-                if (!"fighter".equalsIgnoreCase(metadata.role()) || !variantGroups.add(metadata.variantGroup())) {
-                    continue;
-                }
-                candidates.add(new Candidate(type, id, metadata.variantGroup(), metadata.doctrine()));
-            } catch (Throwable ignored) {
-                // A registry may contain entities that cannot be safely created without world context.
-            } finally {
-                if (entity != null) {
-                    entity.discard();
-                }
+            ResourceLocation id = BuiltInRegistries.ENTITY_TYPE.getKey(type);
+            AircraftMetadata metadata = AircraftMetadataResolver.resolve(server.getResourceManager(), id);
+            if (!"fighter".equalsIgnoreCase(metadata.role())) {
+                continue;
             }
+            FlightProfile profile = AutopilotProfileRegistry.resolve(server, id).orElse(null);
+            if (profile == null) {
+                WWDebugBenchmarkMod.LOGGER.warn("Skipping fighter {} because no measured profile resolved: {}",
+                        id, AutopilotProfileRegistry.resolutionDiagnostics(server, id));
+                continue;
+            }
+            if (!variantGroups.add(metadata.variantGroup())) {
+                continue;
+            }
+            candidates.add(new Candidate(type, id, metadata.variantGroup(), metadata.doctrine(), profile.profileId()));
         }
+
         candidates.sort(Comparator.comparing(candidate -> candidate.id().toString()));
         return candidates;
     }
 
-    @Nullable
-    private static Candidate candidate(ServerLevel level, ResourceLocation id) {
+    private static CandidateLookup candidate(ServerLevel level, ResourceLocation id) {
         EntityType<?> type = BuiltInRegistries.ENTITY_TYPE.getOptional(id).orElse(null);
         if (type == null) {
-            return null;
+            return new CandidateLookup(null, "entity_type_not_registered");
         }
-        Entity entity = null;
-        try {
-            entity = type.create(level);
-            if (entity == null || !ReflectiveAircraft.isAirplane(entity)
-                    || !ReflectiveAircraft.isControllable(entity)) {
-                return null;
-            }
-            AircraftMetadata metadata = AircraftMetadataResolver.resolve(level.getServer().getResourceManager(), id);
-            if (!"fighter".equalsIgnoreCase(metadata.role())) {
-                return null;
-            }
-            return new Candidate(type, id, metadata.variantGroup(), metadata.doctrine());
-        } catch (Throwable ignored) {
-            return null;
-        } finally {
-            if (entity != null) {
-                entity.discard();
-            }
+
+        MinecraftServer server = level.getServer();
+        AircraftMetadata metadata = AircraftMetadataResolver.resolve(server.getResourceManager(), id);
+        if (!"fighter".equalsIgnoreCase(metadata.role())) {
+            return new CandidateLookup(null, "metadata_role_is_" + metadata.role());
         }
+
+        FlightProfile profile = AutopilotProfileRegistry.resolve(server, id).orElse(null);
+        if (profile == null) {
+            return new CandidateLookup(null, "measured_profile_not_resolved");
+        }
+        if (!profile.isFighter()) {
+            return new CandidateLookup(null, "profile_role_is_" + profile.role());
+        }
+
+        return new CandidateLookup(
+                new Candidate(type, id, metadata.variantGroup(), metadata.doctrine(), profile.profileId()),
+                "accepted"
+        );
     }
 
-    private record Candidate(EntityType<?> type, ResourceLocation id, String variantGroup, String doctrine) {
+    private record Candidate(EntityType<?> type, ResourceLocation id, String variantGroup,
+                             String doctrine, ResourceLocation profileId) {
+    }
+
+    private record CandidateLookup(@Nullable Candidate candidate, String reason) {
     }
 
     private static final class ValidationRun {
@@ -240,7 +256,15 @@ public final class AutopilotValidationManager {
             var status = AutonomousFlightManager.status(activeAircraft.getUUID());
             if (status.isEmpty()) {
                 if (activeTicks > 240) {
-                    record(false, "autopilot_session_not_started", null);
+                    String diagnostics = "autopilot_session_not_started:class="
+                            + activeAircraft.getClass().getName()
+                            + ",airplane=" + ReflectiveAircraft.isAirplane(activeAircraft)
+                            + ",controllable=" + ReflectiveAircraft.isControllable(activeAircraft)
+                            + ",pilot=" + activePilot.getType()
+                            + ",profile=" + AutopilotProfileRegistry.resolve(server, activeAircraft)
+                            .map(value -> value.profileId().toString()).orElse("none");
+                    WWDebugBenchmarkMod.LOGGER.error("{}", diagnostics);
+                    record(false, diagnostics, null);
                     cleanupActive();
                 }
                 return;
@@ -270,10 +294,36 @@ public final class AutopilotValidationManager {
                 Vec3 anchor = requestedAnchor;
 
                 aircraft = candidate.type().create(level);
-                if (aircraft == null || !ReflectiveAircraft.isAirplane(aircraft)) {
-                    results.add(failedBeforeSpawn(candidate, "could_not_create_aircraft"));
+                if (aircraft == null) {
+                    results.add(failedBeforeSpawn(candidate, "entity_type_create_returned_null"));
+                    WWDebugBenchmarkMod.LOGGER.error("Could not create validation aircraft {}", candidate.id());
                     return;
                 }
+                if (!ReflectiveAircraft.isAirplane(aircraft)) {
+                    String reason = "created_entity_is_not_airplane:class=" + aircraft.getClass().getName();
+                    results.add(failedBeforeSpawn(candidate, reason));
+                    WWDebugBenchmarkMod.LOGGER.error("Rejected validation aircraft {}: {}", candidate.id(), reason);
+                    aircraft.discard();
+                    return;
+                }
+                if (!ReflectiveAircraft.isControllable(aircraft)) {
+                    String reason = "created_airplane_missing_control_surface:class=" + aircraft.getClass().getName();
+                    results.add(failedBeforeSpawn(candidate, reason));
+                    WWDebugBenchmarkMod.LOGGER.error("Rejected validation aircraft {}: {}", candidate.id(), reason);
+                    aircraft.discard();
+                    return;
+                }
+
+                FlightProfile resolvedProfile = AutopilotProfileRegistry.resolve(server, aircraft).orElse(null);
+                if (resolvedProfile == null) {
+                    String reason = "spawned_aircraft_profile_not_resolved:"
+                            + AutopilotProfileRegistry.resolutionDiagnostics(server, candidate.id());
+                    results.add(failedBeforeSpawn(candidate, reason));
+                    WWDebugBenchmarkMod.LOGGER.error("Rejected validation aircraft {}: {}", candidate.id(), reason);
+                    aircraft.discard();
+                    return;
+                }
+
                 aircraft.moveTo(anchor.x, anchor.y, anchor.z, runwayYaw, 0.0f);
                 aircraft.setInvulnerable(true);
                 aircraft.setCustomName(Component.literal("AUTOPILOT TEST " + candidate.id()));
@@ -306,6 +356,10 @@ public final class AutopilotValidationManager {
                 this.activePilot = pilot;
                 this.activeTicks = 0;
                 keepChunksLoaded();
+                WWDebugBenchmarkMod.LOGGER.info(
+                        "Spawned autonomous-flight validation aircraft {} uuid={} class={} profile={} pilot_uuid={}",
+                        candidate.id(), aircraft.getUUID(), aircraft.getClass().getName(),
+                        resolvedProfile.profileId(), pilot.getUUID());
                 source.sendSuccess(() -> Component.literal(
                         "Testing " + candidate.id() + " (" + (results.size() + 1) + "/" + total + ")"), false);
             } catch (Throwable throwable) {
@@ -315,8 +369,9 @@ public final class AutopilotValidationManager {
                 if (aircraft != null) {
                     aircraft.discard();
                 }
-                results.add(failedBeforeSpawn(candidate,
-                        "spawn_exception:" + throwable.getClass().getSimpleName()));
+                String reason = "spawn_exception:" + throwable.getClass().getName() + ":" + throwable.getMessage();
+                results.add(failedBeforeSpawn(candidate, reason));
+                WWDebugBenchmarkMod.LOGGER.error("Validation aircraft spawn failed for {}", candidate.id(), throwable);
             }
         }
 
@@ -326,6 +381,7 @@ public final class AutopilotValidationManager {
             result.put("entity_id", activeCandidate.id().toString());
             result.put("variant_group", activeCandidate.variantGroup());
             result.put("doctrine", activeCandidate.doctrine());
+            result.put("profile_id", activeCandidate.profileId().toString());
             result.put("passed", passed);
             result.put("reason", reason);
             result.put("elapsed_ticks", activeTicks);
@@ -341,6 +397,7 @@ public final class AutopilotValidationManager {
             result.put("entity_id", candidate.id().toString());
             result.put("variant_group", candidate.variantGroup());
             result.put("doctrine", candidate.doctrine());
+            result.put("profile_id", candidate.profileId().toString());
             result.put("passed", false);
             result.put("reason", reason);
             result.put("elapsed_ticks", 0);
@@ -422,6 +479,8 @@ public final class AutopilotValidationManager {
             source.sendSuccess(() -> Component.literal(
                     "Autonomous-flight validation complete: " + passed + "/" + total
                             + " passed. Summary: " + output.toAbsolutePath()), false);
+            WWDebugBenchmarkMod.LOGGER.info("Autonomous-flight validation complete: {}/{} passed; summary={}",
+                    passed, total, output.toAbsolutePath());
         }
 
         private void abort(String reason) {
