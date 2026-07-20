@@ -322,8 +322,7 @@ public final class BenchmarkManager {
                 Files.writeString(runDirectory.resolve("comparison.csv"), buildComparison(previous, results), StandardCharsets.UTF_8);
                 Files.writeString(runDirectory.resolve("run_metadata.json"), GSON.toJson(runMetadata(runId)), StandardCharsets.UTF_8);
                 Files.writeString(latestFile, GSON.toJson(results), StandardCharsets.UTF_8);
-                boolean fullyValid = results.stream().allMatch(row -> "ok".equals(row.get("status"))
-                        && Boolean.TRUE.equals(row.get("profile_eligible")));
+                boolean fullyValid = results.stream().allMatch(row -> "ok".equals(row.get("status")));
                 if (fullyValid) {
                     Files.writeString(latestSuccessfulFile, GSON.toJson(results), StandardCharsets.UTF_8);
                 }
@@ -522,10 +521,6 @@ public final class BenchmarkManager {
 
             switch (phase) {
                 case STRAIGHT_ACCELERATION -> {
-                    if (phaseTick == 0) {
-                        accelerationInitialSpeed = horizontalSpeed;
-                        accelerationInitialEnginePower = ReflectiveAircraft.enginePower(aircraft);
-                    }
                     accelerationSpeeds.add(horizontalSpeed);
                     topSpeed = Math.max(topSpeed, horizontalSpeed);
                 }
@@ -635,6 +630,8 @@ public final class BenchmarkManager {
             phaseTick = 0;
             phase = switch (phase) {
                 case PREPARE -> {
+                    accelerationInitialSpeed = aircraft.getDeltaMovement().horizontalDistance() * 20.0;
+                    accelerationInitialEnginePower = ReflectiveAircraft.enginePower(aircraft);
                     resetFlight();
                     yield Phase.STRAIGHT_ACCELERATION;
                 }
@@ -796,7 +793,7 @@ public final class BenchmarkManager {
             double turnRetention = topSpeed <= 0.0 ? Double.NaN : turnSpeed / topSpeed;
             double turnVerticalRate = turnSamples == 0 ? Double.NaN : turnVerticalSpeedSum / turnSamples;
             boolean cleanAccelerationStart = accelerationInitialSpeed <= 0.50
-                    && (!Double.isFinite(accelerationInitialEnginePower) || accelerationInitialEnginePower <= 0.05);
+                    && (!Double.isFinite(accelerationInitialEnginePower) || accelerationInitialEnginePower <= 0.021);
             List<String> qualityFlags = new ArrayList<>();
             if (!cleanAccelerationStart) {
                 qualityFlags.add("contaminated_acceleration_start");
@@ -930,6 +927,11 @@ public final class BenchmarkManager {
                 continue;
             }
             for (String metric : metrics) {
+                if ("brake_distance_blocks".equals(metric)
+                        && (!Boolean.TRUE.equals(row.get("brake_reached_10_percent"))
+                        || !Boolean.TRUE.equals(old.get("brake_reached_10_percent")))) {
+                    continue;
+                }
                 Double oldValue = number(old.get(metric));
                 Double newValue = number(row.get(metric));
                 if (oldValue == null || newValue == null) {
@@ -962,6 +964,7 @@ public final class BenchmarkManager {
             Double turnSpeed = number(row.get("turn_speed_bps"));
             Double climbSpeed = number(row.get("climb_speed_bps"));
             Double brakeDistance = number(row.get("brake_distance_blocks"));
+            boolean brakeComplete = Boolean.TRUE.equals(row.get("brake_reached_10_percent"));
             if (top == null || top <= 0.0) {
                 continue;
             }
@@ -979,7 +982,9 @@ public final class BenchmarkManager {
                     : Math.max(stallGuard * 1.18, top * 0.62));
             profile.put("turn_speed_floor_bps", turnSpeed != null && turnSpeed > 0.0
                     ? turnSpeed * 0.85 : stallGuard * 1.10);
-            profile.put("brake_lead_blocks", brakeDistance != null ? brakeDistance * 1.25 : null);
+            profile.put("brake_lead_blocks", brakeComplete && brakeDistance != null
+                    ? brakeDistance * 1.25 : null);
+            profile.put("brake_distance_lower_bound_blocks", !brakeComplete ? brakeDistance : null);
             profile.put("measured_top_speed_bps", top);
             profiles.put(String.valueOf(row.get("variant_group")), profile);
         }
