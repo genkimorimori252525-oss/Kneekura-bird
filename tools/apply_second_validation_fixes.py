@@ -79,3 +79,4 @@ for old, new, label in replacements:
     text = text.replace(old, new, 1)
 
 path.write_text(text, encoding='utf-8')
+# Triggered after the workflow file was present on the branch.
