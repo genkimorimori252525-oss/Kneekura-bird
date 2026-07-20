@@ -46,6 +46,19 @@ public final class AutopilotProfileRegistry {
         return resolveLoaded(entityId, metadata);
     }
 
+    public static List<FlightProfile> fighterProfiles(MinecraftServer server) {
+        ensureLoaded(server);
+        Map<ResourceLocation, FlightProfile> unique = new LinkedHashMap<>();
+        for (FlightProfile profile : profiles.values()) {
+            if (profile.isFighter()) {
+                unique.put(profile.profileId(), profile);
+            }
+        }
+        List<FlightProfile> result = new ArrayList<>(unique.values());
+        result.sort(Comparator.comparing(profile -> profile.profileId().toString()));
+        return List.copyOf(result);
+    }
+
     public static int reload(MinecraftServer server) {
         synchronized (LOCK) {
             loadAttempted = true;
@@ -102,10 +115,13 @@ public final class AutopilotProfileRegistry {
         AircraftMetadata metadata = AircraftMetadataResolver.resolve(server.getResourceManager(), entityId);
         ResourceLocation baseId = AircraftMetadataResolver.baseEntityId(entityId);
         List<String> keys = resolutionKeys(entityId, metadata, baseId);
+        Optional<FlightProfile> resolved = resolveLoaded(entityId, metadata);
         return "entity=" + entityId
-                + ", role=" + metadata.role()
+                + ", metadata_role=" + metadata.role()
                 + ", variant_group=" + metadata.variantGroup()
                 + ", base=" + baseId
+                + ", resolved_profile=" + resolved.map(value -> value.profileId().toString()).orElse("none")
+                + ", resolved_profile_role=" + resolved.map(FlightProfile::role).orElse("none")
                 + ", attempted_keys=" + keys
                 + ", loaded_key_count=" + profiles.size()
                 + ", source=" + sourceDescription();
