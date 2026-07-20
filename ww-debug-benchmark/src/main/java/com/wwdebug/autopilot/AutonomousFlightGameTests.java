@@ -51,7 +51,8 @@ public final class AutonomousFlightGameTests {
     private static final int RUNWAY_HALF_WIDTH = 40;
     private static final int RUNWAY_BEHIND = 260;
     private static final int RUNWAY_AHEAD = 800;
-    private static final int CLEAR_HEIGHT = 4;
+    private static final int RUNWAY_TERRAIN_MARGIN = 3;
+    private static final int CLEAR_HEIGHT = 5;
 
     private AutonomousFlightGameTests() {
     }
@@ -61,16 +62,14 @@ public final class AutonomousFlightGameTests {
         ServerLevel level = helper.getLevel();
         MinecraftServer server = level.getServer();
         BlockPos templateOrigin = helper.absolutePos(BlockPos.ZERO);
-        int surfaceY = level.getHeight(
-                Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
-                templateOrigin.getX(),
-                templateOrigin.getZ()
-        ) - 1;
-        BlockPos runwaySurface = new BlockPos(templateOrigin.getX(), surfaceY, templateOrigin.getZ());
+        int highestTerrainY = highestTerrainInRunwayCorridor(level, templateOrigin);
+        int runwayY = Math.min(level.getMaxBuildHeight() - CLEAR_HEIGHT - 2,
+                highestTerrainY + RUNWAY_TERRAIN_MARGIN);
+        BlockPos runwaySurface = new BlockPos(templateOrigin.getX(), runwayY, templateOrigin.getZ());
         buildRunway(level, runwaySurface);
         WWDebugBenchmarkMod.LOGGER.info(
-                "Headless autonomous-flight runway surface={} natural_height={} width={} length={}",
-                runwaySurface, surfaceY, RUNWAY_HALF_WIDTH * 2 + 1,
+                "Headless autonomous-flight runway surface={} highest_terrain_y={} width={} length={}",
+                runwaySurface, highestTerrainY, RUNWAY_HALF_WIDTH * 2 + 1,
                 RUNWAY_BEHIND + RUNWAY_AHEAD + 1);
 
         Vec3 aircraftAnchor = Vec3.atBottomCenterOf(runwaySurface.above());
@@ -149,6 +148,19 @@ public final class AutonomousFlightGameTests {
             throw new IllegalStateException("Could not install measured flight profiles: "
                     + exception.getMessage(), exception);
         }
+    }
+
+    private static int highestTerrainInRunwayCorridor(ServerLevel level, BlockPos origin) {
+        int highest = level.getMinBuildHeight();
+        for (int z = -RUNWAY_BEHIND; z <= RUNWAY_AHEAD; z++) {
+            int worldZ = origin.getZ() + z;
+            for (int x = -RUNWAY_HALF_WIDTH; x <= RUNWAY_HALF_WIDTH; x++) {
+                int worldX = origin.getX() + x;
+                int surfaceY = level.getHeight(Heightmap.Types.MOTION_BLOCKING, worldX, worldZ) - 1;
+                highest = Math.max(highest, surfaceY);
+            }
+        }
+        return highest;
     }
 
     private static void buildRunway(ServerLevel level, BlockPos surfaceOrigin) {
