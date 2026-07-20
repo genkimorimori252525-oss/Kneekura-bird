@@ -90,8 +90,8 @@ tasks.register('generateEmptyGameTestStructure') {
     doLast {
         File target = output.get()
         target.parentFile.mkdirs()
-        new java.io.DataOutputStream(new java.io.BufferedOutputStream(
-                new java.io.FileOutputStream(target))).withCloseable { out ->
+        new java.io.DataOutputStream(new java.util.zip.GZIPOutputStream(
+                new java.io.BufferedOutputStream(new java.io.FileOutputStream(target)))).withCloseable { out ->
             out.writeByte(10)
             out.writeUTF('')
 
