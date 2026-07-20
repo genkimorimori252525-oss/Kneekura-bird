@@ -51,6 +51,8 @@ ww-debug-benchmark/flight-test-mods/
 └─ warfare_wings-1.1.4-1.20.1-forge.jar
 ```
 
+These are production-obfuscated mod jars. The build loads them as ForgeGradle `fg.deobf` dependencies so they are remapped for the GameTest development runtime. They must not be copied directly into `run-gametest/mods`.
+
 Run the A6M smoke test:
 
 ```powershell
@@ -84,7 +86,13 @@ The GameTest automatically:
 7. requires `PARKED`, full mission completion, and a final stop inside the runway corridor;
 8. returns a non-zero process exit code on failure.
 
-Runtime jars can alternatively be supplied through `WW_FLIGHT_TEST_MODS`, using the operating system path separator between entries. A measured profile can be supplied through `WW_FLIGHT_PROFILES`.
+A headless CI run is considered successful only when all of the following exist and agree:
+
+- no crash report;
+- a completed `validation-summary-*.json`;
+- every requested aircraft marked passed;
+- a measured or staged `flight_profiles.json`;
+- per-aircraft autonomous-flight JSONL telemetry.
 
 GitHub Actions runs the A6M headless smoke test on pull requests. The `WW Headless Flight GameTest` workflow can be started manually with `aircraft=all` for the complete fighter suite. Runtime mods are downloaded transiently from their exact official Modrinth versions and are not uploaded as workflow artifacts.
 
