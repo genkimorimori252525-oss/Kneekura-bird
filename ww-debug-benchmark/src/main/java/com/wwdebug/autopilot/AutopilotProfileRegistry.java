@@ -36,25 +36,14 @@ public final class AutopilotProfileRegistry {
     }
 
     public static Optional<FlightProfile> resolve(MinecraftServer server, Entity aircraft) {
-        ensureLoaded(server);
         ResourceLocation entityId = BuiltInRegistries.ENTITY_TYPE.getKey(aircraft.getType());
-        AircraftMetadata metadata = AircraftMetadataResolver.resolve(server.getResourceManager(), entityId);
-        ResourceLocation baseId = AircraftMetadataResolver.baseEntityId(entityId);
+        return resolve(server, entityId);
+    }
 
-        List<String> keys = List.of(
-                metadata.variantGroup(),
-                entityId.toString(),
-                entityId.getPath(),
-                baseId.toString(),
-                baseId.getPath()
-        );
-        for (String key : keys) {
-            FlightProfile profile = profiles.get(key);
-            if (profile != null) {
-                return Optional.of(profile);
-            }
-        }
-        return Optional.empty();
+    public static Optional<FlightProfile> resolve(MinecraftServer server, ResourceLocation entityId) {
+        ensureLoaded(server);
+        AircraftMetadata metadata = AircraftMetadataResolver.resolve(server.getResourceManager(), entityId);
+        return resolveLoaded(entityId, metadata);
     }
 
     public static int reload(MinecraftServer server) {
@@ -106,6 +95,42 @@ public final class AutopilotProfileRegistry {
 
     public static int profileKeyCount() {
         return profiles.size();
+    }
+
+    public static String resolutionDiagnostics(MinecraftServer server, ResourceLocation entityId) {
+        ensureLoaded(server);
+        AircraftMetadata metadata = AircraftMetadataResolver.resolve(server.getResourceManager(), entityId);
+        ResourceLocation baseId = AircraftMetadataResolver.baseEntityId(entityId);
+        List<String> keys = resolutionKeys(entityId, metadata, baseId);
+        return "entity=" + entityId
+                + ", role=" + metadata.role()
+                + ", variant_group=" + metadata.variantGroup()
+                + ", base=" + baseId
+                + ", attempted_keys=" + keys
+                + ", loaded_key_count=" + profiles.size()
+                + ", source=" + sourceDescription();
+    }
+
+    private static Optional<FlightProfile> resolveLoaded(ResourceLocation entityId, AircraftMetadata metadata) {
+        ResourceLocation baseId = AircraftMetadataResolver.baseEntityId(entityId);
+        for (String key : resolutionKeys(entityId, metadata, baseId)) {
+            FlightProfile profile = profiles.get(key);
+            if (profile != null) {
+                return Optional.of(profile);
+            }
+        }
+        return Optional.empty();
+    }
+
+    private static List<String> resolutionKeys(ResourceLocation entityId, AircraftMetadata metadata,
+                                               ResourceLocation baseId) {
+        return List.of(
+                metadata.variantGroup(),
+                entityId.toString(),
+                entityId.getPath(),
+                baseId.toString(),
+                baseId.getPath()
+        );
     }
 
     private static void ensureLoaded(MinecraftServer server) {
