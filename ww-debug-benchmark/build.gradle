@@ -17,6 +17,8 @@ java.toolchain.languageVersion = JavaLanguageVersion.of(17)
 
 def gameTestRunDirectory = project.file('run-gametest')
 def flightTestModsDirectory = project.file('flight-test-mods')
+def validatedFlightProfileFixture = project.file(
+        'src/main/resources/data/wwdebug_benchmark/ai/validated_fighter_profiles-20260720-141003.json')
 def generatedGameTestResources = layout.buildDirectory.dir('generated/gametest-resources')
 
 sourceSets.main.resources.srcDir(generatedGameTestResources)
@@ -133,7 +135,7 @@ tasks.register('generateEmptyGameTestStructure') {
 
 tasks.register('prepareFlightGameTestRuntime') {
     group = 'verification'
-    description = 'Validates deobfuscated runtime aircraft mods and stages optional measured profiles.'
+    description = 'Validates deobfuscated runtime aircraft mods and stages measured profiles.'
     dependsOn tasks.named('generateEmptyGameTestStructure')
 
     doLast {
@@ -159,20 +161,19 @@ tasks.register('prepareFlightGameTestRuntime') {
         if (profileValue == null || profileValue.isBlank()) {
             profileValue = System.getenv('WW_FLIGHT_PROFILES')
         }
-        if (profileValue != null && !profileValue.isBlank()) {
-            File profileFile = project.file(profileValue)
-            if (!profileFile.isFile()) {
-                throw new GradleException("Measured profile file does not exist: ${profileFile}")
-            }
-            profileDirectory.mkdirs()
-            project.copy {
-                from profileFile
-                into profileDirectory
-                rename { 'flight_profiles.json' }
-            }
-        } else {
-            logger.lifecycle('No measured profile supplied; the headless GameTest will run the real fighter benchmark first.')
+        File profileFile = profileValue == null || profileValue.isBlank()
+                ? validatedFlightProfileFixture
+                : project.file(profileValue)
+        if (!profileFile.isFile()) {
+            throw new GradleException("Measured profile file does not exist: ${profileFile}")
         }
+        profileDirectory.mkdirs()
+        project.copy {
+            from profileFile
+            into profileDirectory
+            rename { 'flight_profiles.json' }
+        }
+        logger.lifecycle('Headless GameTest profile source: {}', profileFile)
     }
 }
 
