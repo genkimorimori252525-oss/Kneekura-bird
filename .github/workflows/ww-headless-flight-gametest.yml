@@ -73,11 +73,21 @@ jobs:
         id: gametest
         continue-on-error: true
         run: |
+          run_gametest() {
+            gradle --no-daemon --console=plain runGameTestServer \
+              -PflightTestAircraft="$FLIGHT_TEST_TARGET" \
+              > headless-flight.log 2>&1
+          }
+
           set +e
-          gradle --no-daemon --console=plain runGameTestServer \
-            -PflightTestAircraft="$FLIGHT_TEST_TARGET" \
-            > headless-flight.log 2>&1
+          run_gametest
           gradle_status=$?
+          if [ "$gradle_status" -ne 0 ] && grep -qE 'downloadAssets FAILED|Failed to get asset|SocketTimeoutException' headless-flight.log; then
+            echo 'Retrying once after a transient Minecraft asset download failure.'
+            mv headless-flight.log headless-flight-first-attempt.log
+            run_gametest
+            gradle_status=$?
+          fi
           set -e
 
           GRADLE_STATUS="$gradle_status" python - <<'PY'
@@ -136,7 +146,7 @@ jobs:
         with:
           name: ww-headless-flight-server-log
           path: |
-            ww-debug-benchmark/headless-flight.log
+            ww-debug-benchmark/headless-flight*.log
             ww-debug-benchmark/run-gametest/logs/**
             ww-debug-benchmark/run-gametest/crash-reports/**
           if-no-files-found: warn
