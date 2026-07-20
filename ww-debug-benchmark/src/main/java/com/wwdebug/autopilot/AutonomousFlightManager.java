@@ -86,21 +86,29 @@ public final class AutonomousFlightManager {
         if (session.phase() == FlightPhase.FLARE && !snapshot.onGround()
                 && snapshot.altitudeAboveGround() > 7.0) {
             double desiredPitch = Mth.clamp(
-                    (snapshot.altitudeAboveGround() - 5.0) * 0.30,
-                    1.5,
-                    9.0
+                    (snapshot.altitudeAboveGround() - 3.0) * 0.36,
+                    4.5,
+                    10.0
             );
             float z = (float) Mth.clamp(
                     (desiredPitch - snapshot.pitchDeg()) / 18.0,
                     -0.78,
                     0.78
             );
-            double lowSpeedGate = session.profile().approachSpeedBps() * 0.82;
-            float engine = snapshot.speedBps() < lowSpeedGate ? 0.45f : 0.12f;
+            double approachSpeed = session.profile().approachSpeedBps();
+            double stallEnergyGate = session.profile().stallGuardSpeedBps() * 1.35;
+            float engine;
+            if (snapshot.speedBps() < stallEnergyGate) {
+                engine = 1.0f;
+            } else if (snapshot.speedBps() < approachSpeed * 0.95) {
+                engine = 0.72f;
+            } else {
+                engine = 0.25f;
+            }
             return new AdaptedControl(copyWith(planned, z, engine,
-                    "native_flare_continue_descent_above_flare_gate",
+                    "native_flare_continue_descent_with_energy_margin",
                     "native_landing_descent_adapter"), true,
-                    "flare_above_7_blocks_continue_controlled_descent");
+                    "flare_above_7_blocks_preserve_energy_and_continue_descent");
         }
 
         if (session.phase() == FlightPhase.GO_AROUND && !snapshot.onGround()) {
