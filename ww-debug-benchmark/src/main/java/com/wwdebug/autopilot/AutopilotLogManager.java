@@ -43,6 +43,7 @@ public final class AutopilotLogManager {
             frame.addProperty("event", "frame");
             frame.addProperty("server_tick", server.overworld().getGameTime());
             addIdentity(frame, aircraft);
+            addReflectiveState(frame, aircraft);
             run.enrichMotion(server, aircraft, frame);
             run.write(aircraft, GSON.toJson(frame));
         } catch (RuntimeException | IOException exception) {
@@ -114,6 +115,21 @@ public final class AutopilotLogManager {
         row.addProperty("pilot_uuid", pilot == null ? "none" : pilot.getUUID().toString());
     }
 
+    private static void addReflectiveState(JsonObject row, Entity aircraft) {
+        addFinite(row, "roll_deg", ReflectiveAircraft.rollDegrees(aircraft));
+        addFinite(row, "engine_target_actual", ReflectiveAircraft.engineTarget(aircraft));
+        addFinite(row, "fuel_utilization", ReflectiveAircraft.fuelUtilization(aircraft));
+    }
+
+    private static void addFinite(JsonObject row, String key, double value) {
+        if (Double.isFinite(value)) {
+            row.addProperty(key, value);
+            row.addProperty(key + "_available", true);
+        } else {
+            row.addProperty(key + "_available", false);
+        }
+    }
+
     private static final class RunLog {
         private final String runId;
         private final Path directory;
@@ -169,6 +185,8 @@ public final class AutopilotLogManager {
             if (Double.isFinite(current.rollDeg()) && Double.isFinite(previous.rollDeg())) {
                 frame.addProperty("roll_rate_deg_s",
                         Mth.wrapDegrees((float) (current.rollDeg() - previous.rollDeg())) / seconds);
+            } else {
+                frame.addProperty("roll_rate_deg_s_available", false);
             }
         }
 
