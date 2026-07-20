@@ -4,6 +4,7 @@ import com.wwdebug.benchmark.ReflectiveAircraft;
 import com.wwdebug.benchmark.WWDebugBenchmarkMod;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.player.Player;
@@ -65,10 +66,89 @@ public final class AutonomousFlightManager {
                     "mob_controlling_passenger_and_measured_fighter_profile", FlightPhase.STARTUP);
         }
 
-        FlightControlOutput output = entry.session.tick(server, aircraft);
+        FlightControlOutput planned = entry.session.tick(server, aircraft);
+        FlightSnapshot snapshot = FlightSnapshot.capture(aircraft);
+        AdaptedControl adapted = adaptForNativeFlight(entry.session, snapshot, planned);
+        if (adapted.overridden()) {
+            AutopilotLogManager.writeControlAdapter(server, aircraft, entry.session.phase(),
+                    adapted.reason(), snapshot, planned, adapted.output());
+        }
+        FlightControlOutput applied = adapted.output();
         // The controller uses conventional heading-error sign. Immersive Aircraft's lateral input
         // axis is the opposite sign, so convert only at the final hardware-adapter boundary.
-        ReflectiveAircraft.applyControl(aircraft, -output.x(), output.y(), output.z(), output.engineTarget());
+        ReflectiveAircraft.applyControl(aircraft, -applied.x(), applied.y(), applied.z(),
+                applied.engineTarget());
+    }
+
+    private static AdaptedControl adaptForNativeFlight(AutopilotSession session,
+                                                        FlightSnapshot snapshot,
+                                                        FlightControlOutput planned) {
+        if (session.phase() == FlightPhase.FLARE && !snapshot.onGround()
+                && snapshot.altitudeAboveGround() > 7.0) {
+            double desiredPitch = Mth.clamp(
+                    (snapshot.altitudeAboveGround() - 5.0) * 0.30,
+                    1.5,
+                    9.0
+            );
+            float z = (float) Mth.clamp(
+                    (desiredPitch - snapshot.pitchDeg()) / 18.0,
+                    -0.78,
+                    0.78
+            );
+            double lowSpeedGate = session.profile().approachSpeedBps() * 0.82;
+            float engine = snapshot.speedBps() < lowSpeedGate ? 0.45f : 0.12f;
+            return new AdaptedControl(copyWith(planned, z, engine,
+                    "native_flare_continue_descent_above_flare_gate",
+                    "native_landing_descent_adapter"), true,
+                    "flare_above_7_blocks_continue_controlled_descent");
+        }
+
+        if (session.phase() == FlightPhase.GO_AROUND && !snapshot.onGround()) {
+            double altitudeError = planned.targetAltitude() - snapshot.position().y;
+            double desiredPitch = Mth.clamp(
+                    -altitudeError * 0.16 + snapshot.verticalSpeedBps() * 0.30,
+                    -8.0,
+                    6.0
+            );
+            if (snapshot.speedBps() < planned.targetSpeedBps() * 0.90) {
+                desiredPitch = Math.max(desiredPitch, -4.0);
+            }
+            if (altitudeError < -12.0) {
+                desiredPitch = Math.max(desiredPitch, 2.5);
+            }
+            float z = (float) Mth.clamp(
+                    (desiredPitch - snapshot.pitchDeg()) / 18.0,
+                    -0.78,
+                    0.78
+            );
+            return new AdaptedControl(copyWith(planned, z, 1.0f,
+                    "native_go_around_balance_speed_and_target_altitude",
+                    "native_go_around_energy_adapter"), true,
+                    "go_around_pitch_limited_for_speed_and_altitude_capture");
+        }
+
+        return new AdaptedControl(planned, false, "none");
+    }
+
+    private static FlightControlOutput copyWith(FlightControlOutput original, float z,
+                                                float engineTarget, String reason,
+                                                String safetyOverride) {
+        return new FlightControlOutput(
+                original.x(),
+                original.y(),
+                z,
+                engineTarget,
+                original.desiredDirection(),
+                original.targetAltitude(),
+                original.targetSpeedBps(),
+                original.headingErrorDeg(),
+                original.altitudeError(),
+                original.speedErrorBps(),
+                original.stallRisk(),
+                original.terrainRisk(),
+                reason,
+                safetyOverride
+        );
     }
 
     public static void serverTick(MinecraftServer server) {
@@ -140,6 +220,9 @@ public final class AutonomousFlightManager {
     }
 
     private record SessionEntry(Entity aircraft, AutopilotSession session) {
+    }
+
+    private record AdaptedControl(FlightControlOutput output, boolean overridden, String reason) {
     }
 
     public record SessionStatus(
