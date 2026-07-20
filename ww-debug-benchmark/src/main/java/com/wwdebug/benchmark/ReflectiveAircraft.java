@@ -59,6 +59,21 @@ public final class ReflectiveAircraft {
         return value instanceof Number number ? number.doubleValue() : Double.NaN;
     }
 
+    public static double engineTarget(Entity entity) {
+        Object value = invoke(accessors(entity).getEngineTarget, entity);
+        return value instanceof Number number ? number.doubleValue() : Double.NaN;
+    }
+
+    public static double rollDegrees(Entity entity) {
+        Object value = invoke(accessors(entity).getZRot, entity);
+        return value instanceof Number number ? number.doubleValue() : Double.NaN;
+    }
+
+    public static double fuelUtilization(Entity entity) {
+        Object value = invoke(accessors(entity).getFuelUtilization, entity);
+        return value instanceof Number number ? number.doubleValue() : Double.NaN;
+    }
+
     public static void setRoll(Entity entity, float roll) {
         invoke(accessors(entity).setZRot, entity, roll);
     }
@@ -131,6 +146,9 @@ public final class ReflectiveAircraft {
                 findMethod(type, "setInputs", float.class, float.class, float.class),
                 findMethod(type, "setEngineTarget", float.class),
                 findMethod(type, "getEnginePower"),
+                findMethod(type, "getEngineTarget"),
+                findMethod(type, "getZRot"),
+                findMethod(type, "getFuelUtilization"),
                 findMethod(type, "setZRot", float.class),
                 findMethod(type, "chill"),
                 findMethod(type, "getPassengerSpace"),
@@ -216,6 +234,9 @@ public final class ReflectiveAircraft {
             Method setInputs,
             Method setEngineTarget,
             Method getEnginePower,
+            Method getEngineTarget,
+            Method getZRot,
+            Method getFuelUtilization,
             Method setZRot,
             Method chill,
             Method getPassengerSpace,
