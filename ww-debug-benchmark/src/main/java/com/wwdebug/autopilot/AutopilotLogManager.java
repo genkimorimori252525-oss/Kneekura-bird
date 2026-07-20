@@ -69,6 +69,44 @@ public final class AutopilotLogManager {
         }
     }
 
+    public static synchronized void writeControlAdapter(MinecraftServer server, Entity aircraft,
+                                                        FlightPhase phase, String reason,
+                                                        FlightSnapshot snapshot,
+                                                        FlightControlOutput planned,
+                                                        FlightControlOutput applied) {
+        JsonObject row = new JsonObject();
+        row.addProperty("event", "control_adapter");
+        row.addProperty("phase", phase.name());
+        row.addProperty("reason", reason);
+        row.addProperty("server_tick", server.overworld().getGameTime());
+        row.addProperty("speed_bps", snapshot.speedBps());
+        row.addProperty("vertical_speed_bps", snapshot.verticalSpeedBps());
+        row.addProperty("altitude_above_ground", snapshot.altitudeAboveGround());
+        row.addProperty("pitch_deg", snapshot.pitchDeg());
+        row.addProperty("target_altitude", applied.targetAltitude());
+        row.addProperty("target_speed_bps", applied.targetSpeedBps());
+        row.addProperty("planned_control_x_logical", planned.x());
+        row.addProperty("planned_control_y", planned.y());
+        row.addProperty("planned_control_z", planned.z());
+        row.addProperty("planned_engine_target", planned.engineTarget());
+        row.addProperty("applied_control_x_logical", applied.x());
+        row.addProperty("applied_control_x_native", -applied.x());
+        row.addProperty("applied_control_y", applied.y());
+        row.addProperty("applied_control_z", applied.z());
+        row.addProperty("applied_engine_target", applied.engineTarget());
+        row.addProperty("applied_action_reason", applied.reason());
+        row.addProperty("applied_safety_override", applied.safetyOverride());
+        addIdentity(row, aircraft);
+        addReflectiveState(row, aircraft);
+        try {
+            RunLog run = RUNS.computeIfAbsent(server, AutopilotLogManager::openRun);
+            row.addProperty("run_id", run.runId);
+            run.write(aircraft, GSON.toJson(row));
+        } catch (RuntimeException | IOException exception) {
+            WWDebugBenchmarkMod.LOGGER.error("Could not write native control-adapter telemetry", exception);
+        }
+    }
+
     public static synchronized void closeAircraft(MinecraftServer server, Entity aircraft,
                                                    FlightPhase finalPhase, String reason) {
         RunLog run = RUNS.get(server);
