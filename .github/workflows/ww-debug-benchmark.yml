@@ -1,0 +1,48 @@
+name: WW Debug Benchmark build
+
+on:
+  push:
+    paths:
+      - 'ww-debug-benchmark/**'
+      - '.github/workflows/ww-debug-benchmark.yml'
+  pull_request:
+    paths:
+      - 'ww-debug-benchmark/**'
+      - '.github/workflows/ww-debug-benchmark.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ww-debug-benchmark
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.8'
+      - name: Build benchmark mod
+        id: benchmark-build
+        continue-on-error: true
+        run: gradle --no-daemon --console=plain build > build.log 2>&1
+      - name: Upload benchmark build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ww-debug-benchmark-build-log
+          path: ww-debug-benchmark/build.log
+      - name: Upload benchmark jar
+        if: steps.benchmark-build.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ww-debug-benchmark
+          path: ww-debug-benchmark/build/libs/*.jar
+      - name: Fail after preserving log
+        if: steps.benchmark-build.outcome == 'failure'
+        run: |
+          tail -n 160 build.log
+          exit 1

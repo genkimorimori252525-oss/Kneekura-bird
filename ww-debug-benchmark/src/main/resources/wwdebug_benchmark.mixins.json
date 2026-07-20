@@ -1,0 +1,13 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "com.wwdebug.benchmark.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "refmap": "wwdebug_benchmark.refmap.json",
+  "mixins": [
+    "VehicleEntityBenchmarkMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}
