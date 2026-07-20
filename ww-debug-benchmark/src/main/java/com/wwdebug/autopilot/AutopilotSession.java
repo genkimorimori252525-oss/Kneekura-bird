@@ -59,20 +59,22 @@ final class AutopilotSession {
         }
 
         if (shouldRecoverFromUnexpectedStall(snapshot)) {
-            transition(server, aircraft, snapshot, FlightPhase.STALL_RECOVERY, "unexpected_stall_guard_breach");
+            transition(server, aircraft, snapshot, FlightPhase.STALL_RECOVERY,
+                    "unexpected_stall_guard_breach");
         }
 
         if ((phase == FlightPhase.FINAL || phase == FlightPhase.FLARE)
                 && snapshot.altitudeAboveGround() > 8.0
                 && snapshot.speedBps() < profile.stallGuardSpeedBps() * 0.95) {
-            transition(server, aircraft, snapshot, FlightPhase.GO_AROUND, "approach_speed_below_stall_guard");
+            transition(server, aircraft, snapshot, FlightPhase.GO_AROUND,
+                    "approach_speed_below_stall_guard");
         }
 
         FlightControlOutput output = plan(server, aircraft, snapshot);
         if (phase.isAirborneMissionPhase() && !phase.isLandingPhase()
                 && phase != FlightPhase.STALL_ENTRY && phase != FlightPhase.STALL_RECOVERY
                 && snapshot.altitudeAboveGround() < 24.0) {
-            output = control(aircraft, snapshot, snapshot.horizontalForward(),
+            output = control(aircraft, snapshot, output.desiredDirection(),
                     homePoint.y + SAFE_ALTITUDE, profile.climbTargetSpeedBps(), 1.0f,
                     -12.0, false, "terrain_clearance_emergency_climb", "terrain_recovery");
         }
@@ -122,7 +124,8 @@ final class AutopilotSession {
     private FlightControlOutput takeoffRoll(MinecraftServer server, Entity aircraft, FlightSnapshot snapshot) {
         if (snapshot.speedBps() >= profile.rotateSpeedBps() && phaseTicks > 20) {
             transition(server, aircraft, snapshot, FlightPhase.ROTATE, "measured_rotate_speed_reached");
-        } else if (!snapshot.onGround() && snapshot.speedBps() >= profile.stallGuardSpeedBps() * 1.05) {
+        } else if (!snapshot.onGround()
+                && snapshot.speedBps() >= profile.stallGuardSpeedBps() * 1.05) {
             transition(server, aircraft, snapshot, FlightPhase.ROTATE, "airborne_with_safe_speed");
         } else if (phaseTicks > 500) {
             transition(server, aircraft, snapshot, FlightPhase.ABORTED, "takeoff_roll_timeout");
@@ -155,6 +158,9 @@ final class AutopilotSession {
         } else {
             stableTicks = 0;
         }
+        if (phaseTicks > 1400) {
+            transition(server, aircraft, snapshot, FlightPhase.ABORTED, "climb_timeout");
+        }
         double desiredPitch = altitudePitch(snapshot, targetAltitude, 11.0, 6.0);
         if (snapshot.speedBps() < profile.climbTargetSpeedBps() * 0.90) {
             desiredPitch = Math.max(desiredPitch, -5.0);
@@ -164,7 +170,8 @@ final class AutopilotSession {
                 "climb_to_common_safe_altitude_without_crossing_stall_guard", "none");
     }
 
-    private FlightControlOutput cruiseOutbound(MinecraftServer server, Entity aircraft, FlightSnapshot snapshot) {
+    private FlightControlOutput cruiseOutbound(MinecraftServer server, Entity aircraft,
+                                                FlightSnapshot snapshot) {
         if (phaseTicks >= 240) {
             transition(server, aircraft, snapshot, FlightPhase.TURN_LEFT,
                     "outbound_cruise_sample_complete");
@@ -176,7 +183,8 @@ final class AutopilotSession {
                 "hold_measured_cruise_speed_and_altitude", "none");
     }
 
-    private FlightControlOutput turn(MinecraftServer server, Entity aircraft, FlightSnapshot snapshot, boolean left) {
+    private FlightControlOutput turn(MinecraftServer server, Entity aircraft,
+                                     FlightSnapshot snapshot, boolean left) {
         Vec3 desired = Vec3.directionFromRotation(0.0f, phaseTargetYaw);
         double headingError = Math.abs(Mth.wrapDegrees(phaseTargetYaw - snapshot.yawDeg()));
         if (headingError <= 10.0 && phaseTicks > 45) {
@@ -216,7 +224,8 @@ final class AutopilotSession {
         return output;
     }
 
-    private FlightControlOutput cruiseCross(MinecraftServer server, Entity aircraft, FlightSnapshot snapshot) {
+    private FlightControlOutput cruiseCross(MinecraftServer server, Entity aircraft,
+                                             FlightSnapshot snapshot) {
         if (phaseTicks >= 120) {
             transition(server, aircraft, snapshot, FlightPhase.TURN_RIGHT,
                     "between_turns_stabilization_complete");
@@ -228,7 +237,8 @@ final class AutopilotSession {
                 "stabilize_speed_and_altitude_between_turns", "none");
     }
 
-    private FlightControlOutput stallSetup(MinecraftServer server, Entity aircraft, FlightSnapshot snapshot) {
+    private FlightControlOutput stallSetup(MinecraftServer server, Entity aircraft,
+                                            FlightSnapshot snapshot) {
         double targetAltitude = homePoint.y + STALL_TEST_ALTITUDE;
         if (snapshot.altitudeAboveGround() >= STALL_TEST_ALTITUDE - 10.0
                 && snapshot.speedBps() >= profile.climbTargetSpeedBps()) {
@@ -240,13 +250,17 @@ final class AutopilotSession {
         } else {
             stableTicks = 0;
         }
+        if (phaseTicks > 1000) {
+            transition(server, aircraft, snapshot, FlightPhase.ABORTED, "stall_setup_timeout");
+        }
         return control(aircraft, snapshot, phaseDirection, targetAltitude,
                 profile.climbTargetSpeedBps(), 1.0f,
                 altitudePitch(snapshot, targetAltitude, 9.0, 6.0), false,
                 "gain_safety_margin_before_controlled_stall_test", "none");
     }
 
-    private FlightControlOutput stallEntry(MinecraftServer server, Entity aircraft, FlightSnapshot snapshot) {
+    private FlightControlOutput stallEntry(MinecraftServer server, Entity aircraft,
+                                            FlightSnapshot snapshot) {
         if (snapshot.verticalSpeedBps() < -1.0) {
             fallingTicks++;
         } else {
@@ -267,11 +281,28 @@ final class AutopilotSession {
         }
         return control(aircraft, snapshot, phaseDirection, homePoint.y + STALL_TEST_ALTITUDE,
                 profile.stallGuardSpeedBps(), 0.0f, -7.0, false,
-                "reduce_power_until_measured_stall_guard_or_descent_is_detected", "controlled_stall_entry");
+                "reduce_power_until_measured_stall_guard_or_descent_is_detected",
+                "controlled_stall_entry");
     }
 
-    private FlightControlOutput stallRecovery(MinecraftServer server, Entity aircraft, FlightSnapshot snapshot) {
-        if (snapshot.speedBps() >= profile.recoverySpeedBps()
+    private FlightControlOutput stallRecovery(MinecraftServer server, Entity aircraft,
+                                               FlightSnapshot snapshot) {
+        if (snapshot.onGround() && phaseTicks > 40) {
+            transition(server, aircraft, snapshot, FlightPhase.ABORTED,
+                    "stall_recovery_ground_contact");
+            return terminalOutput(aircraft, snapshot);
+        }
+        if (phaseTicks > 900) {
+            transition(server, aircraft, snapshot, FlightPhase.ABORTED,
+                    "stall_recovery_timeout");
+            return terminalOutput(aircraft, snapshot);
+        }
+
+        double recoverySpeed = profile.recoverySpeedBps();
+        boolean pullOut = snapshot.speedBps() >= recoverySpeed * 0.92
+                || snapshot.altitudeAboveGround() < 70.0;
+
+        if (snapshot.speedBps() >= recoverySpeed
                 && snapshot.verticalSpeedBps() >= -0.5 && phaseTicks > 20) {
             stableTicks++;
             if (stableTicks >= 20) {
@@ -281,10 +312,18 @@ final class AutopilotSession {
         } else {
             stableTicks = 0;
         }
+
+        double desiredPitch = pullOut ? -7.0 : 8.0;
+        double targetAltitude = pullOut
+                ? Math.max(homePoint.y + SAFE_ALTITUDE, snapshot.position().y + 30.0)
+                : Math.max(homePoint.y + SAFE_ALTITUDE, snapshot.position().y - 20.0);
+        String reason = pullOut
+                ? "pull_out_after_recovery_speed_margin"
+                : "lower_nose_level_wings_and_accelerate";
+        String override = pullOut ? "stall_recovery_pull_out" : "stall_recovery_acceleration";
+
         FlightControlOutput output = control(aircraft, snapshot, phaseDirection,
-                Math.max(homePoint.y + SAFE_ALTITUDE, snapshot.position().y - 20.0),
-                profile.recoverySpeedBps(), 1.0f, 9.0, false,
-                "lower_nose_level_wings_and_apply_full_power", "stall_recovery");
+                targetAltitude, recoverySpeed, 1.0f, desiredPitch, false, reason, override);
         return new FlightControlOutput(
                 output.x() * 0.40f,
                 output.y(),
@@ -303,40 +342,52 @@ final class AutopilotSession {
         );
     }
 
-    private FlightControlOutput returnToPattern(MinecraftServer server, Entity aircraft, FlightSnapshot snapshot) {
+    private FlightControlOutput returnToPattern(MinecraftServer server, Entity aircraft,
+                                                FlightSnapshot snapshot) {
         Vec3 waypoint = downwindPoint();
         if (horizontalDistance(snapshot.position(), waypoint) < 30.0) {
             transition(server, aircraft, snapshot, FlightPhase.DOWNWIND,
                     "downwind_entry_waypoint_reached");
+        } else if (phaseTicks > 1800) {
+            transition(server, aircraft, snapshot, FlightPhase.ABORTED,
+                    "return_to_pattern_timeout");
         }
         return waypointControl(aircraft, snapshot, waypoint,
                 Math.max(profile.approachSpeedBps() * 1.25, profile.climbTargetSpeedBps()),
                 "return_to_home_landing_pattern");
     }
 
-    private FlightControlOutput downwind(MinecraftServer server, Entity aircraft, FlightSnapshot snapshot) {
+    private FlightControlOutput downwind(MinecraftServer server, Entity aircraft,
+                                         FlightSnapshot snapshot) {
         Vec3 waypoint = basePoint();
         if (horizontalDistance(snapshot.position(), waypoint) < 26.0) {
             transition(server, aircraft, snapshot, FlightPhase.BASE,
                     "base_turn_waypoint_reached");
+        } else if (phaseTicks > 1200) {
+            transition(server, aircraft, snapshot, FlightPhase.ABORTED,
+                    "downwind_timeout");
         }
         return waypointControl(aircraft, snapshot, waypoint,
                 profile.approachSpeedBps() * 1.18,
                 "fly_downwind_leg_at_safe_approach_margin");
     }
 
-    private FlightControlOutput base(MinecraftServer server, Entity aircraft, FlightSnapshot snapshot) {
+    private FlightControlOutput base(MinecraftServer server, Entity aircraft,
+                                     FlightSnapshot snapshot) {
         Vec3 waypoint = finalStartPoint();
         if (horizontalDistance(snapshot.position(), waypoint) < 24.0) {
             transition(server, aircraft, snapshot, FlightPhase.FINAL,
                     "final_approach_start_reached");
+        } else if (phaseTicks > 1000) {
+            transition(server, aircraft, snapshot, FlightPhase.ABORTED, "base_timeout");
         }
         return waypointControl(aircraft, snapshot, waypoint,
                 profile.approachSpeedBps() * 1.10,
                 "align_with_final_approach_path");
     }
 
-    private FlightControlOutput finalApproach(MinecraftServer server, Entity aircraft, FlightSnapshot snapshot) {
+    private FlightControlOutput finalApproach(MinecraftServer server, Entity aircraft,
+                                              FlightSnapshot snapshot) {
         Vec3 touchdown = touchdownPoint();
         double horizontalDistance = horizontalDistance(snapshot.position(), touchdown);
         double targetAltitude = homePoint.y + Mth.clamp(horizontalDistance * 0.20, 2.0, 38.0);
@@ -347,6 +398,9 @@ final class AutopilotSession {
         } else if (snapshot.altitudeAboveGround() <= 8.0 || horizontalDistance <= 35.0) {
             transition(server, aircraft, snapshot, FlightPhase.FLARE,
                     "flare_height_or_distance_reached");
+        } else if (phaseTicks > 1400) {
+            transition(server, aircraft, snapshot, FlightPhase.GO_AROUND,
+                    "final_approach_timeout");
         }
         return control(aircraft, snapshot, touchdown.subtract(snapshot.position()), targetAltitude,
                 profile.approachSpeedBps(), cruiseThrottle(snapshot, profile.approachSpeedBps()),
@@ -354,7 +408,8 @@ final class AutopilotSession {
                 "descend_on_final_while_holding_measured_approach_speed", "none");
     }
 
-    private FlightControlOutput flare(MinecraftServer server, Entity aircraft, FlightSnapshot snapshot) {
+    private FlightControlOutput flare(MinecraftServer server, Entity aircraft,
+                                      FlightSnapshot snapshot) {
         if (snapshot.onGround()) {
             stableTicks++;
             if (stableTicks >= 4) {
@@ -374,7 +429,8 @@ final class AutopilotSession {
                 "reduce_descent_rate_and_power_for_touchdown", "none");
     }
 
-    private FlightControlOutput touchdown(MinecraftServer server, Entity aircraft, FlightSnapshot snapshot) {
+    private FlightControlOutput touchdown(MinecraftServer server, Entity aircraft,
+                                          FlightSnapshot snapshot) {
         if (!snapshot.onGround() && phaseTicks > 15) {
             transition(server, aircraft, snapshot, FlightPhase.GO_AROUND,
                     "aircraft_bounced_after_touchdown");
@@ -387,7 +443,8 @@ final class AutopilotSession {
                 "keep_runway_heading_and_begin_deceleration", "touchdown_braking");
     }
 
-    private FlightControlOutput brake(MinecraftServer server, Entity aircraft, FlightSnapshot snapshot) {
+    private FlightControlOutput brake(MinecraftServer server, Entity aircraft,
+                                      FlightSnapshot snapshot) {
         if (snapshot.onGround() && snapshot.horizontalSpeedBps() < 0.25) {
             stableTicks++;
             if (stableTicks >= 40) {
@@ -397,24 +454,30 @@ final class AutopilotSession {
         } else {
             stableTicks = 0;
         }
+        if (phaseTicks > 1400) {
+            transition(server, aircraft, snapshot, FlightPhase.ABORTED, "brake_timeout");
+        }
         return control(aircraft, snapshot, runwayForward, homePoint.y,
                 0.0, 0.0f, 0.0, true,
                 "send_explicit_negative_input_until_complete_stop", "explicit_ground_brake");
     }
 
-    private FlightControlOutput goAround(MinecraftServer server, Entity aircraft, FlightSnapshot snapshot) {
+    private FlightControlOutput goAround(MinecraftServer server, Entity aircraft,
+                                         FlightSnapshot snapshot) {
         if (snapshot.altitudeAboveGround() >= 55.0
                 && snapshot.speedBps() >= profile.climbTargetSpeedBps()) {
             transition(server, aircraft, snapshot, FlightPhase.RETURN_TO_PATTERN,
                     "go_around_safe_altitude_and_speed_reached");
+        } else if (phaseTicks > 1200) {
+            transition(server, aircraft, snapshot, FlightPhase.ABORTED, "go_around_timeout");
         }
         return control(aircraft, snapshot, runwayForward, homePoint.y + SAFE_ALTITUDE,
                 profile.climbTargetSpeedBps(), 1.0f, -10.0, false,
                 "abort_landing_climb_straight_ahead_and_rejoin_pattern", "go_around");
     }
 
-    private FlightControlOutput waypointControl(Entity aircraft, FlightSnapshot snapshot, Vec3 waypoint,
-                                                double targetSpeed, String reason) {
+    private FlightControlOutput waypointControl(Entity aircraft, FlightSnapshot snapshot,
+                                                Vec3 waypoint, double targetSpeed, String reason) {
         Vec3 delta = waypoint.subtract(snapshot.position());
         return control(aircraft, snapshot, delta, waypoint.y, targetSpeed,
                 cruiseThrottle(snapshot, targetSpeed),
@@ -425,7 +488,8 @@ final class AutopilotSession {
         if (phase == FlightPhase.PARKED || snapshot.onGround()) {
             return control(aircraft, snapshot, runwayForward, homePoint.y,
                     0.0, 0.0f, 0.0, true,
-                    phase == FlightPhase.PARKED ? "mission_complete_hold_parked" : "abort_hold_ground_brake",
+                    phase == FlightPhase.PARKED
+                            ? "mission_complete_hold_parked" : "abort_hold_ground_brake",
                     phase == FlightPhase.PARKED ? "none" : "aborted");
         }
         return control(aircraft, snapshot, snapshot.horizontalForward(), snapshot.position().y,
@@ -433,9 +497,11 @@ final class AutopilotSession {
                 "abort_airborne_hold_level_flight_for_manual_recovery", "aborted");
     }
 
-    private FlightControlOutput control(Entity aircraft, FlightSnapshot snapshot, Vec3 desiredDirection,
-                                        double targetAltitude, double targetSpeed, float engineTarget,
-                                        double desiredPitchDeg, boolean brake, String reason, String safetyOverride) {
+    private FlightControlOutput control(Entity aircraft, FlightSnapshot snapshot,
+                                        Vec3 desiredDirection, double targetAltitude,
+                                        double targetSpeed, float engineTarget,
+                                        double desiredPitchDeg, boolean brake,
+                                        String reason, String safetyOverride) {
         Vec3 horizontalDesired = horizontal(desiredDirection);
         if (horizontalDesired.lengthSqr() < 1.0e-8) {
             horizontalDesired = snapshot.horizontalForward();
@@ -450,17 +516,21 @@ final class AutopilotSession {
         if (phase == FlightPhase.TAKEOFF_ROLL) {
             x = Mth.clamp(x, -0.35f, 0.35f);
         }
-        float z = (float) Mth.clamp((desiredPitchDeg - snapshot.pitchDeg()) / 18.0, -0.78, 0.78);
+        float z = (float) Mth.clamp((desiredPitchDeg - snapshot.pitchDeg()) / 18.0,
+                -0.78, 0.78);
         float y = brake ? -1.0f : 0.0f;
         if (!brake && targetSpeed > 0.0 && snapshot.speedBps() < targetSpeed * 0.90) {
             engineTarget = 1.0f;
         }
 
-        boolean stallRisk = !snapshot.onGround() && snapshot.speedBps() < profile.stallGuardSpeedBps();
-        boolean terrainRisk = !snapshot.onGround() && snapshot.altitudeAboveGround() < 24.0;
+        boolean stallRisk = !snapshot.onGround()
+                && snapshot.speedBps() < profile.stallGuardSpeedBps();
+        boolean terrainRisk = !snapshot.onGround()
+                && snapshot.altitudeAboveGround() < 24.0;
         return new FlightControlOutput(
                 x, y, z, engineTarget, horizontalDesired, targetAltitude, targetSpeed,
-                headingError, altitudeError, speedError, stallRisk, terrainRisk, reason, safetyOverride
+                headingError, altitudeError, speedError, stallRisk, terrainRisk,
+                reason, safetyOverride
         );
     }
 
@@ -512,8 +582,8 @@ final class AutopilotSession {
                 previous.name() + "->" + next.name() + ":" + reason, next);
     }
 
-    private void logFrame(MinecraftServer server, Entity aircraft, FlightSnapshot snapshot,
-                          FlightControlOutput output) {
+    private void logFrame(MinecraftServer server, Entity aircraft,
+                          FlightSnapshot snapshot, FlightControlOutput output) {
         JsonObject frame = new JsonObject();
         frame.addProperty("phase", phase.name());
         frame.addProperty("phase_ticks", phaseTicks);
@@ -564,18 +634,21 @@ final class AutopilotSession {
             frame.addProperty("profile_brake_lead_blocks", profile.brakeLeadBlocks());
         }
         if (profile.brakeDistanceLowerBoundBlocks() != null) {
-            frame.addProperty("profile_brake_distance_lower_bound_blocks", profile.brakeDistanceLowerBoundBlocks());
+            frame.addProperty("profile_brake_distance_lower_bound_blocks",
+                    profile.brakeDistanceLowerBoundBlocks());
         }
 
         AutopilotLogManager.writeFrame(server, aircraft, frame);
     }
 
     private Vec3 downwindPoint() {
-        return homePoint.add(runwayForward.scale(80.0)).add(runwayRight.scale(90.0)).add(0.0, 70.0, 0.0);
+        return homePoint.add(runwayForward.scale(80.0))
+                .add(runwayRight.scale(90.0)).add(0.0, 70.0, 0.0);
     }
 
     private Vec3 basePoint() {
-        return homePoint.subtract(runwayForward.scale(90.0)).add(runwayRight.scale(90.0)).add(0.0, 58.0, 0.0);
+        return homePoint.subtract(runwayForward.scale(90.0))
+                .add(runwayRight.scale(90.0)).add(0.0, 58.0, 0.0);
     }
 
     private Vec3 finalStartPoint() {
