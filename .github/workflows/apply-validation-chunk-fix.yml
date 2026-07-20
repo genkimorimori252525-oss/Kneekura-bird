@@ -1,0 +1,30 @@
+name: Apply validation chunk level fix
+
+on:
+  push:
+    branches:
+      - agent/harden-benchmark-from-validation
+    paths:
+      - 'tools/fix_validation_chunk_level.py'
+      - '.github/workflows/apply-validation-chunk-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/harden-benchmark-from-validation
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python tools/fix_validation_chunk_level.py
+      - run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add ww-debug-benchmark/src/main/java/com/wwdebug/benchmark/BenchmarkManager.java
+          git commit -m 'fix: resolve benchmark ServerLevel from aircraft'
+          git push origin HEAD:agent/harden-benchmark-from-validation
