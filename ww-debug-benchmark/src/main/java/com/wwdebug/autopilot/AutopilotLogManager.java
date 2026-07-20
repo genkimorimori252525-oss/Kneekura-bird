@@ -3,12 +3,15 @@ package com.wwdebug.autopilot;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
+import com.wwdebug.benchmark.ReflectiveAircraft;
 import com.wwdebug.benchmark.WWDebugBenchmarkMod;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.storage.LevelResource;
+import net.minecraft.world.phys.Vec3;
 
 import java.io.BufferedWriter;
 import java.io.IOException;
@@ -40,6 +43,7 @@ public final class AutopilotLogManager {
             frame.addProperty("event", "frame");
             frame.addProperty("server_tick", server.overworld().getGameTime());
             addIdentity(frame, aircraft);
+            run.enrichMotion(server, aircraft, frame);
             run.write(aircraft, GSON.toJson(frame));
         } catch (RuntimeException | IOException exception) {
             WWDebugBenchmarkMod.LOGGER.error("Could not write autonomous-flight telemetry", exception);
@@ -115,12 +119,57 @@ public final class AutopilotLogManager {
         private final Path directory;
         private final BufferedWriter combined;
         private final Map<UUID, AircraftWriter> aircraftWriters = new HashMap<>();
+        private final Map<UUID, MotionSample> motionSamples = new HashMap<>();
         private int pendingCombined;
 
         private RunLog(String runId, Path directory) throws IOException {
             this.runId = runId;
             this.directory = directory;
             this.combined = writer(directory.resolve("combined.jsonl"));
+        }
+
+        private void enrichMotion(MinecraftServer server, Entity aircraft, JsonObject frame) {
+            long tick = server.overworld().getGameTime();
+            MotionSample current = new MotionSample(
+                    tick,
+                    aircraft.position(),
+                    aircraft.getDeltaMovement(),
+                    Mth.wrapDegrees(aircraft.getYRot()),
+                    Mth.wrapDegrees(aircraft.getXRot()),
+                    ReflectiveAircraft.rollDegrees(aircraft)
+            );
+            MotionSample previous = motionSamples.put(aircraft.getUUID(), current);
+            if (previous == null || tick <= previous.tick()) {
+                frame.addProperty("motion_sample_ticks", 0);
+                frame.addProperty("acceleration_bps2", 0.0);
+                addVector(frame, "acceleration_vector_bps2", Vec3.ZERO);
+                frame.addProperty("displacement_blocks_since_sample", 0.0);
+                frame.addProperty("yaw_rate_deg_s", 0.0);
+                frame.addProperty("pitch_rate_deg_s", 0.0);
+                frame.addProperty("roll_rate_deg_s", 0.0);
+                return;
+            }
+
+            long tickDelta = tick - previous.tick();
+            double seconds = tickDelta / 20.0;
+            Vec3 currentVelocityBps = current.velocityBpt().scale(20.0);
+            Vec3 previousVelocityBps = previous.velocityBpt().scale(20.0);
+            Vec3 acceleration = currentVelocityBps.subtract(previousVelocityBps).scale(1.0 / seconds);
+            double scalarAcceleration = (currentVelocityBps.length() - previousVelocityBps.length()) / seconds;
+
+            frame.addProperty("motion_sample_ticks", tickDelta);
+            frame.addProperty("acceleration_bps2", scalarAcceleration);
+            addVector(frame, "acceleration_vector_bps2", acceleration);
+            frame.addProperty("displacement_blocks_since_sample",
+                    current.position().distanceTo(previous.position()));
+            frame.addProperty("yaw_rate_deg_s",
+                    Mth.wrapDegrees(current.yawDeg() - previous.yawDeg()) / seconds);
+            frame.addProperty("pitch_rate_deg_s",
+                    Mth.wrapDegrees(current.pitchDeg() - previous.pitchDeg()) / seconds);
+            if (Double.isFinite(current.rollDeg()) && Double.isFinite(previous.rollDeg())) {
+                frame.addProperty("roll_rate_deg_s",
+                        Mth.wrapDegrees((float) (current.rollDeg() - previous.rollDeg())) / seconds);
+            }
         }
 
         private void write(Entity aircraft, String line) throws IOException {
@@ -146,6 +195,7 @@ public final class AutopilotLogManager {
         }
 
         private void closeAircraft(UUID uuid) {
+            motionSamples.remove(uuid);
             AircraftWriter writer = aircraftWriters.remove(uuid);
             if (writer != null) {
                 writer.close();
@@ -153,6 +203,7 @@ public final class AutopilotLogManager {
         }
 
         private void close() {
+            motionSamples.clear();
             for (AircraftWriter writer : aircraftWriters.values()) {
                 writer.close();
             }
@@ -169,6 +220,24 @@ public final class AutopilotLogManager {
             return Files.newBufferedWriter(path, StandardCharsets.UTF_8,
                     StandardOpenOption.CREATE, StandardOpenOption.APPEND);
         }
+    }
+
+    private static void addVector(JsonObject root, String name, Vec3 value) {
+        JsonObject vector = new JsonObject();
+        vector.addProperty("x", value.x);
+        vector.addProperty("y", value.y);
+        vector.addProperty("z", value.z);
+        root.add(name, vector);
+    }
+
+    private record MotionSample(
+            long tick,
+            Vec3 position,
+            Vec3 velocityBpt,
+            float yawDeg,
+            float pitchDeg,
+            double rollDeg
+    ) {
     }
 
     private static final class AircraftWriter {
