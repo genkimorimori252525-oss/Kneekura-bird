@@ -662,7 +662,7 @@ public final class BenchmarkManager {
             aircraft.setDeltaMovement(Vec3.ZERO);
             aircraft.setYRot(0.0f);
             aircraft.setXRot(0.0f);
-            aircraft.setZRot(0.0f);
+            ReflectiveAircraft.setRoll(aircraft, 0.0f);
             aircraft.fallDistance = 0.0f;
             CONTROLS.put(aircraft.getUUID(), new ControlInput(0, 0, 0, 0));
         }
