@@ -1,0 +1,41 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="All Rights Reserved"
+
+[[mods]]
+modId="${mod_id}"
+version="${mod_version}"
+displayName="${mod_name}"
+authors="Kamogawa private tooling"
+description='''
+Adds repeatable fixed-input aircraft benchmarks to the existing WW Debug workflow.
+It uses reflection and a soft Mixin target so Warfare Wings and Immersive Aircraft remain unmodified.
+'''
+
+[[dependencies.${mod_id}]]
+modId="forge"
+mandatory=true
+versionRange="[47,)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.${mod_id}]]
+modId="minecraft"
+mandatory=true
+versionRange="[1.20.1,1.21)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.${mod_id}]]
+modId="immersive_aircraft"
+mandatory=true
+versionRange="[1.1.0,)"
+ordering="AFTER"
+side="BOTH"
+
+[[dependencies.${mod_id}]]
+modId="warfare_wings"
+mandatory=false
+versionRange="[1.1.4,)"
+ordering="AFTER"
+side="BOTH"
