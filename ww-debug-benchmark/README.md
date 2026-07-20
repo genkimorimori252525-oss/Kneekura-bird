@@ -6,11 +6,13 @@ A Forge 1.20.1 companion mod for Warfare Wings / Immersive Aircraft. It provides
 - measured `flight_profiles.json` output;
 - non-combat autonomous flight for mob-piloted fighters;
 - per-tick, per-aircraft JSONL decision telemetry;
+- a fast deterministic mission simulator;
+- a headless real-physics Forge GameTest;
 - sequential full-mission validation from takeoff through complete stop.
 
-The module uses reflection and a soft Mixin target, so it does not require a compile-time dependency on Warfare Wings or Immersive Aircraft.
+The module uses reflection and a soft Mixin target, so normal compilation does not require a compile-time dependency on Warfare Wings or Immersive Aircraft.
 
-## Build
+## Build and fast simulation
 
 Use Java 17.
 
@@ -19,7 +21,72 @@ cd ww-debug-benchmark
 gradle build
 ```
 
+`build` compiles the mod and runs the deterministic pre-flight simulator. Its report is written to:
+
+```text
+build/reports/flight-simulation/report.json
+```
+
+Without an external profile file, CI uses a synthetic boundary matrix representing a light turn fighter, an energy fighter, and a heavy fighter. Each profile is tested under nominal, weak-engine, turn-energy-loss, and long-brake conditions.
+
+To run the same simulator against the measured profiles from Minecraft:
+
+```powershell
+gradle runFlightSimulation -PflightProfiles="C:\path\to\flight_profiles.json"
+```
+
+The simulator is a fast logic and envelope check. It checks phase reachability, timeouts, measured speed gates, stall recovery, landing progression, and complete stop. It does not replace the real Immersive Aircraft physics test.
+
 The jar is written to `build/libs/wwdebug_benchmark-1.0.0.jar`.
+
+## Headless real-physics GameTest
+
+The Forge GameTest server runs the real Minecraft server, real Warfare Wings entities, real Immersive Aircraft physics, the real `tickPilot()` path, and the autonomous-flight Mixin without opening a game window.
+
+Place the exact runtime jars in:
+
+```text
+ww-debug-benchmark/flight-test-mods/
+├─ immersive_aircraft-1.3.3+1.20.1-forge.jar
+└─ warfare_wings-1.1.4-1.20.1-forge.jar
+```
+
+Run the A6M smoke test:
+
+```powershell
+gradle runGameTestServer -PflightTestAircraft=warfare_wings:a6m
+```
+
+Run every representative fighter sequentially:
+
+```powershell
+gradle runGameTestServer -PflightTestAircraft=all
+```
+
+An existing measured profile can be supplied:
+
+```powershell
+gradle runGameTestServer `
+  -PflightTestAircraft=all `
+  -PflightProfiles="C:\path\to\flight_profiles.json"
+```
+
+If no profile is supplied, the headless test performs the real fixed-input fighter benchmark first, installs the generated `flight_profiles.json`, reloads the AI profiles, and only then starts autonomous flight.
+
+The GameTest automatically:
+
+1. creates a 29-block-wide, approximately 930-block-long runway;
+2. clears the immediate aircraft corridor;
+3. measures fighter profiles when necessary;
+4. spawns the selected fighter and a mob pilot;
+5. runs startup, takeoff, climb, cruise, both turns, stall recovery, return, landing, and braking;
+6. reads the validation summary and per-aircraft telemetry;
+7. requires `PARKED`, full mission completion, and a final stop inside the runway corridor;
+8. returns a non-zero process exit code on failure.
+
+Runtime jars can alternatively be supplied through `WW_FLIGHT_TEST_MODS`, using the operating system path separator between entries. A measured profile can be supplied through `WW_FLIGHT_PROFILES`.
+
+GitHub Actions runs the A6M headless smoke test on pull requests. The `WW Headless Flight GameTest` workflow can be started manually with `aircraft=all` for the complete fighter suite. Runtime mods are downloaded transiently from their exact official Modrinth versions and are not uploaded as workflow artifacts.
 
 ## Fixed-input benchmark commands
 
@@ -84,7 +151,7 @@ The full validation mission is:
 11. downwind, base, final, and flare;
 12. touchdown, explicit braking, and complete stop.
 
-`validate fighters` discovers one representative per fighter livery group and runs them sequentially from the command source position and heading. Stand at the runway start while facing the intended takeoff direction. Use a long, flat, obstacle-free runway for the first validation pass.
+`validate fighters` discovers one representative per fighter livery group and runs them sequentially from the command source position and heading. Stand at the runway start while facing the intended takeoff direction. Use a long, flat, obstacle-free runway for manual validation.
 
 ## Flight profile loading
 
@@ -114,12 +181,17 @@ Every frame includes enough information to reconstruct why the AI acted and how 
 - phase, phase ticks, mission ticks, previous transition reason, current action reason;
 - position, velocity, aircraft forward vector, desired direction, home position, runway direction;
 - total, horizontal, and vertical speed in blocks per second;
+- scalar and vector acceleration and per-frame displacement;
 - movement yaw and human-readable movement direction;
-- aircraft yaw, pitch, altitude above ground, ground-contact state, and engine power;
+- aircraft yaw, pitch, roll, and available angular rates;
+- altitude above ground and ground-contact state;
+- engine power, actual engine target, commanded engine target, and available fuel utilization;
 - target speed, target altitude, heading error, altitude error, and speed error;
-- final `x`, `y`, and `z` control inputs and commanded engine target;
+- final `x`, `y`, and `z` control inputs;
 - stall risk, terrain risk, and any safety override;
 - all measured profile thresholds used for the decision.
+
+Reflective values that do not exist in the installed aircraft build are marked unavailable instead of disabling flight control.
 
 The combined file is useful for comparing aircraft. The UUID-specific file isolates one aircraft even when several entities share the same model.
 
@@ -161,8 +233,9 @@ Files:
 
 ## Important limitations
 
+- The deterministic simulator is a pre-flight logic model, not an exact reimplementation of Minecraft physics.
 - `stall_proxy_speed_bps` is a conservative game-AI threshold, not a real aerodynamic stall definition.
 - The generated profile provides measured starting values; controller constants still require autonomous-flight validation.
-- The initial landing test assumes a long, flat, obstacle-free runway. General terrain avoidance and landing-site discovery remain later work.
+- The initial landing test assumes the generated flat runway. General terrain avoidance and landing-site discovery remain later work.
 - Bomber, attacker, torpedo-bomber, combat, weapon, target-selection, and formation policies are not part of this phase.
 - Build and in-game validation must use the same Immersive Aircraft and Warfare Wings build used for the measured profiles.
