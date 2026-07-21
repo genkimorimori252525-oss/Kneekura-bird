@@ -10,10 +10,12 @@ These instructions apply to every AI-assisted GitHub session in this repository.
 
 ## Mandatory time and scope limits
 
-- Stop an implementation loop after **20 minutes or 3 remote CI runs**, whichever happens first.
-- At the limit, report the current result, the exact failing acceptance condition, the best known commit, and the next single hypothesis. Do not keep tuning silently.
+- Stop an implementation loop after **60 minutes or 8 remote CI runs**, whichever happens first.
+- At **30 minutes or 4 remote CI runs**, pause for an internal checkpoint: compare against the best known commit, confirm that the current hypothesis is still materially different, and report progress to the owner before continuing.
+- At the final limit, report the current result, the exact failing acceptance condition, the best known commit, and the next single hypothesis. Do not keep tuning silently.
 - One commit should test one behavioral hypothesis.
-- If a proposed change is likely to exceed **5 files or 500 added/changed lines**, stop and split the design before implementation.
+- If a proposed change is likely to exceed **10 files or 800 added/changed lines**, stop and split the design before implementation.
+- Treat 10 files and 800 lines as hard ceilings, not targets. Prefer the smallest patch that can test the hypothesis.
 - If the same failure occurs twice, stop changing thresholds and revisit the design or test determinism.
 - If a previously passing metric regresses, return to the known-good commit before trying another behavior change.
 
