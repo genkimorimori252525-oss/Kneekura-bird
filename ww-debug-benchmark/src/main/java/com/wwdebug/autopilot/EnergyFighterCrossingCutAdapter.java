@@ -17,9 +17,9 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Cuts an energy fighter across the opponent's turn circle when a high-yo-yo reaches its broadside
- * crossing. Waiting for the target to enter a narrow forward cone can carry the fighter past the
- * best intercept; this adapter converts the roughly ninety-degree crossing into a short-lead attack
- * setup and then hands control to the normal fixed-gun offensive selector.
+ * crossing. The fighter unloads into a short zoom climb at the apex, trading excess speed for a
+ * tighter horizontal radius, then points through the opponent's future path and hands control to
+ * the normal fixed-gun offensive selector.
  */
 public final class EnergyFighterCrossingCutAdapter {
     private static final double START_MIN_RAW_ANGLE = 78.0;
@@ -29,9 +29,10 @@ public final class EnergyFighterCrossingCutAdapter {
     private static final double START_MIN_CLOSURE_BPS = 2.0;
     private static final double START_MIN_ENERGY_RATIO = 1.03;
     private static final double OFFENSIVE_HANDOFF_RAW_ANGLE = 34.0;
-    private static final double ABORT_RAW_ANGLE = 145.0;
+    private static final double ABORT_RAW_ANGLE = 155.0;
     private static final double ABORT_DISTANCE = 175.0;
-    private static final int MAX_CUT_TICKS = 150;
+    private static final int ZOOM_CLIMB_TICKS = 46;
+    private static final int MAX_CUT_TICKS = 180;
     private static final Map<UUID, State> STATES = new ConcurrentHashMap<>();
 
     private EnergyFighterCrossingCutAdapter() {
@@ -106,7 +107,7 @@ public final class EnergyFighterCrossingCutAdapter {
             return false;
         }
         if (state.ticks >= MAX_CUT_TICKS || distance > ABORT_DISTANCE
-                || (state.ticks > 20 && rawAngle > ABORT_RAW_ANGLE)) {
+                || (state.ticks > ZOOM_CLIMB_TICKS && rawAngle > ABORT_RAW_ANGLE)) {
             AirCombatManeuverManager.clear(aircraft.getUUID());
             finish(level, aircraft, status.get().phase(), "crossing_cut_geometry_lost");
             return false;
@@ -130,6 +131,7 @@ public final class EnergyFighterCrossingCutAdapter {
             AutopilotLogManager.writeEvent(level.getServer(), aircraft,
                     "energy_crossing_cut_status",
                     description(state, target, rawAngle, distance, closure)
+                            + ":zoom_climb=" + (state.ticks <= ZOOM_CLIMB_TICKS)
                             + ":lead_angle=" + leadAngle
                             + ":offensive_active=" + AirCombatManeuverManager.active(aircraft)
                             + ":shots_remaining=" + shotsRemaining,
@@ -142,32 +144,43 @@ public final class EnergyFighterCrossingCutAdapter {
                                         FlightSnapshot snapshot, FlightProfile profile,
                                         double rawAngle, double distance, double closure,
                                         State state) {
+        boolean zoomClimb = state.ticks < ZOOM_CLIMB_TICKS;
+        double leadTicks = zoomClimb ? 10.0 : 22.0;
         Vec3 leadPoint = target.getBoundingBox().getCenter()
-                .add(target.getDeltaMovement().scale(5.0));
+                .add(target.getDeltaMovement().scale(leadTicks));
         Vec3 desired = safeNormalize(leadPoint.subtract(aircraft.getBoundingBox().getCenter()),
                 snapshot.forward());
         Vec3 horizontalDesired = safeNormalize(horizontal(desired), snapshot.horizontalForward());
         double desiredYaw = Math.toDegrees(Math.atan2(-horizontalDesired.x, horizontalDesired.z));
         double headingError = Mth.wrapDegrees((float) (desiredYaw - snapshot.yawDeg()));
-        float x = (float) Mth.clamp(headingError / 27.0, -0.88, 0.88);
+        float x = (float) Mth.clamp(headingError / 23.0, -0.92, 0.92);
 
-        double targetAltitude = target.position().y + 6.0;
+        double targetAltitude = zoomClimb
+                ? snapshot.position().y + 48.0 : target.position().y + 8.0;
         double altitudeError = targetAltitude - snapshot.position().y;
-        double desiredPitch = Mth.clamp(-altitudeError * 0.19
-                + snapshot.verticalSpeedBps() * 0.30, -10.0, 8.0);
-        if (snapshot.speedBps() < profile.turnSpeedFloorBps() * 0.88) {
+        double desiredPitch = zoomClimb
+                ? Mth.clamp(-altitudeError * 0.35
+                        + snapshot.verticalSpeedBps() * 0.22, -24.0, 5.0)
+                : Mth.clamp(-altitudeError * 0.19
+                        + snapshot.verticalSpeedBps() * 0.30, -11.0, 8.0);
+        float engineTarget = zoomClimb ? 0.22f : 0.76f;
+        if (snapshot.speedBps() < profile.cruiseSpeedBps() * 0.78) {
             desiredPitch = Math.max(desiredPitch, -2.0);
-            x *= 0.58f;
+            x *= 0.55f;
+            engineTarget = 1.0f;
         }
-        float z = (float) Mth.clamp((desiredPitch - snapshot.pitchDeg()) / 16.0,
-                -0.76, 0.76);
-        double targetSpeed = Math.max(profile.cruiseSpeedBps() + 4.0,
-                target.getDeltaMovement().horizontalDistance() * 20.0 + 3.0);
-        FlightControlOutput output = new FlightControlOutput(x, 0.0f, z, 0.96f,
+        float z = (float) Mth.clamp((desiredPitch - snapshot.pitchDeg()) / 14.0,
+                -0.90, 0.82);
+        double targetSpeed = zoomClimb
+                ? Math.max(profile.cruiseSpeedBps() - 5.0,
+                profile.stallGuardSpeedBps() * 2.4)
+                : profile.cruiseSpeedBps() + 2.0;
+        FlightControlOutput output = new FlightControlOutput(x, 0.0f, z, engineTarget,
                 horizontalDesired, targetAltitude, targetSpeed, headingError, altitudeError,
                 targetSpeed - snapshot.speedBps(),
                 snapshot.speedBps() < profile.stallGuardSpeedBps(), false,
-                "energy_crossing_cut", "energy_counterattack_crossing_cut");
+                zoomClimb ? "energy_crossing_zoom_climb" : "energy_crossing_cut",
+                zoomClimb ? "energy_counterattack_apex_zoom" : "energy_counterattack_crossing_cut");
         ReflectiveAircraft.applyControl(aircraft, -output.x(), output.y(), output.z(),
                 output.engineTarget());
         AutopilotLogManager.writeControlAdapter(level.getServer(), aircraft,
@@ -175,6 +188,7 @@ public final class EnergyFighterCrossingCutAdapter {
                         .map(AutonomousFlightManager.SessionStatus::phase)
                         .orElse(FlightPhase.ABORTED),
                 "ticks=" + state.ticks
+                        + ":zoom_climb=" + zoomClimb
                         + ":raw_target_angle=" + round(rawAngle)
                         + ":distance=" + round(distance)
                         + ":closure=" + round(closure),
