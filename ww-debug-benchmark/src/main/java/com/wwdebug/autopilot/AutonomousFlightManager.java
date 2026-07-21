@@ -24,6 +24,7 @@ public final class AutonomousFlightManager {
     private static final Map<UUID, SessionEntry> SESSIONS = new ConcurrentHashMap<>();
     private static final Set<UUID> MISSING_PROFILE_WARNINGS = ConcurrentHashMap.newKeySet();
     private static final Map<UUID, Integer> FLARE_EXTENSIONS = new ConcurrentHashMap<>();
+    private static final Set<UUID> POST_PHYSICS_BRAKE_LOGGED = ConcurrentHashMap.newKeySet();
     private static final Field SESSION_RUNWAY_FORWARD = sessionField("runwayForward");
     private static final Field SESSION_PHASE = sessionField("phase");
     private static final Field SESSION_PHASE_TICKS = sessionField("phaseTicks");
@@ -85,6 +86,47 @@ public final class AutonomousFlightManager {
         FlightControlOutput applied = adapted.output();
         ReflectiveAircraft.applyControl(aircraft, -applied.x(), applied.y(), applied.z(),
                 applied.engineTarget());
+    }
+
+    /**
+     * Runs at the tail of the native VehicleEntity tick, after Immersive Aircraft has applied its
+     * own thrust, drag, controller and movement. The native negative throttle input lowers engine
+     * power and applies BRAKE_FACTOR, but some fighter profiles retain a low rolling equilibrium.
+     * This adapter supplies a deterministic wheel-brake deceleration only while the autonomous
+     * mission is in BRAKE and the aircraft is physically on the ground.
+     */
+    public static void applyPostPhysics(Entity aircraft) {
+        SessionEntry entry = SESSIONS.get(aircraft.getUUID());
+        if (entry == null || entry.session.phase() != FlightPhase.BRAKE || !aircraft.onGround()) {
+            return;
+        }
+
+        Vec3 velocity = aircraft.getDeltaMovement();
+        double horizontalBpt = velocity.horizontalDistance();
+        double horizontalBps = horizontalBpt * 20.0;
+        if (horizontalBps <= 0.25) {
+            aircraft.setDeltaMovement(0.0, Math.min(0.0, velocity.y), 0.0);
+            return;
+        }
+
+        FlightProfile profile = entry.session.profile();
+        double decelerationBps2 = 3.0;
+        Double brakeLead = profile.brakeLeadBlocks();
+        if (brakeLead != null && brakeLead > 1.0 && profile.measuredTopSpeedBps() > 0.0) {
+            double measured = profile.measuredTopSpeedBps() * profile.measuredTopSpeedBps()
+                    / (2.0 * brakeLead);
+            decelerationBps2 = Mth.clamp(measured, 2.0, 4.0);
+        }
+        double speedDropBpt = decelerationBps2 / 400.0;
+        double nextHorizontalBpt = Math.max(0.0, horizontalBpt - speedDropBpt);
+        double factor = nextHorizontalBpt / horizontalBpt;
+        aircraft.setDeltaMovement(velocity.x * factor, Math.min(0.0, velocity.y), velocity.z * factor);
+
+        if (POST_PHYSICS_BRAKE_LOGGED.add(aircraft.getUUID())
+                && aircraft.level() instanceof ServerLevel level) {
+            AutopilotLogManager.writeEvent(level.getServer(), aircraft, "post_physics_wheel_brake",
+                    "measured_deceleration_bps2=" + decelerationBps2, FlightPhase.BRAKE);
+        }
     }
 
     private static void extendFlareIfSafe(MinecraftServer server, Entity aircraft,
@@ -297,6 +339,7 @@ public final class AutonomousFlightManager {
         SessionEntry removed = SESSIONS.remove(aircraft.getUUID());
         MISSING_PROFILE_WARNINGS.remove(aircraft.getUUID());
         FLARE_EXTENSIONS.remove(aircraft.getUUID());
+        POST_PHYSICS_BRAKE_LOGGED.remove(aircraft.getUUID());
         AutopilotValidationCheckpoint.forget(aircraft.getUUID());
         if (removed == null || !(aircraft.level() instanceof ServerLevel level)) {
             return;
