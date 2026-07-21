@@ -2,6 +2,22 @@ name: WW Headless Flight GameTest
 
 on:
   workflow_dispatch:
+    inputs:
+      aircraft:
+        description: 'Aircraft entity id, or all for every fighter'
+        required: true
+        default: 'warfare_wings:a6m'
+        type: string
+      scenario:
+        description: 'Validation starting point'
+        required: true
+        default: 'full'
+        type: choice
+        options:
+          - full
+          - landing
+          - stall
+          - turn
   pull_request:
     paths:
       - 'ww-debug-benchmark/**'
@@ -13,45 +29,16 @@ concurrency:
 
 jobs:
   headless-flight:
-    name: Full flight (${{ matrix.label }})
+    name: Headless flight (${{ matrix.scenario }})
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - aircraft: warfare_wings:a6m
-            label: a6m
-          - aircraft: warfare_wings:fw190
-            label: fw190
-          - aircraft: warfare_wings:f4u
-            label: f4u
-          - aircraft: warfare_wings:f6f
-            label: f6f
-          - aircraft: warfare_wings:bf109
-            label: bf109
-          - aircraft: warfare_wings:ki61
-            label: ki61
-          - aircraft: warfare_wings:ki84
-            label: ki84
-          - aircraft: warfare_wings:mc202
-            label: mc202
-          - aircraft: warfare_wings:mig3
-            label: mig3
-          - aircraft: warfare_wings:p40e
-            label: p40e
-          - aircraft: warfare_wings:p47n
-            label: p47n
-          - aircraft: warfare_wings:p51d
-            label: p51d
-          - aircraft: warfare_wings:spitfire
-            label: spitfire
-          - aircraft: warfare_wings:yak3
-            label: yak3
+        scenario: ${{ fromJSON(github.event_name == 'workflow_dispatch' && format('["{0}"]', inputs.scenario) || '["landing","turn","stall","full"]') }}
     env:
-      FLIGHT_TEST_TARGET: ${{ matrix.aircraft }}
-      FLIGHT_TEST_LABEL: ${{ matrix.label }}
-      FLIGHT_TEST_SCENARIO: full
+      FLIGHT_TEST_TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.aircraft || 'warfare_wings:a6m' }}
+      FLIGHT_TEST_SCENARIO: ${{ matrix.scenario }}
     defaults:
       run:
         working-directory: ww-debug-benchmark
@@ -140,21 +127,21 @@ jobs:
             --root run-gametest \
             --scenario "$FLIGHT_TEST_SCENARIO" \
             --gradle-status "$gradle_status" \
-            --output "run-gametest/scenario-verification-$FLIGHT_TEST_LABEL.json"
+            --output "run-gametest/scenario-verification-$FLIGHT_TEST_SCENARIO.json"
 
       - name: Render visual flight diagnostics
         if: always()
         run: |
           python tools/render_flight_diagnostics.py \
             --root run-gametest \
-            --output "run-gametest/flight-diagnostics-$FLIGHT_TEST_LABEL.html" \
+            --output "run-gametest/flight-diagnostics-$FLIGHT_TEST_SCENARIO.html" \
             --scenario "$FLIGHT_TEST_SCENARIO"
 
       - name: Upload headless server log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ww-headless-flight-server-log-${{ matrix.label }}
+          name: ww-headless-flight-server-log-${{ env.FLIGHT_TEST_SCENARIO }}
           path: |
             ww-debug-benchmark/headless-flight*.log
             ww-debug-benchmark/run-gametest/logs/**
@@ -165,7 +152,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ww-headless-flight-results-${{ matrix.label }}
+          name: ww-headless-flight-results-${{ env.FLIGHT_TEST_SCENARIO }}
           path: |
             ww-debug-benchmark/run-gametest/**/wwdebug/**
             ww-debug-benchmark/run-gametest/config/warfare_wings/flight_profiles.json
