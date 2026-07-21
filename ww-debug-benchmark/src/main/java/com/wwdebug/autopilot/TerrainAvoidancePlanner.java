@@ -10,6 +10,9 @@ import net.minecraft.world.phys.Vec3;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Predicts collisions along a multi-ray flight corridor and selects a short-lived safe heading.
@@ -24,6 +27,7 @@ final class TerrainAvoidancePlanner {
     private static final double MIN_SAFE_CLEARANCE = 28.0;
     private static final int REPLAN_HOLD_TICKS = 32;
     private static final int CLEAR_RELEASE_TICKS = 12;
+    private static final Map<UUID, Long> ACTIVE_UNTIL_GAME_TICK = new ConcurrentHashMap<>();
 
     private TerrainAvoidancePlanner() {
     }
@@ -31,6 +35,7 @@ final class TerrainAvoidancePlanner {
     static Decision plan(Entity aircraft, FlightPhase phase, FlightSnapshot snapshot,
                          FlightControlOutput planned, State state) {
         if (!eligible(phase, snapshot)) {
+            markClear(aircraft);
             return state.clear(false, 0.0, 0.0);
         }
 
@@ -52,9 +57,11 @@ final class TerrainAvoidancePlanner {
                 state.clearTicks++;
                 Probe held = probe(aircraft, snapshot, state.direction, state.targetAltitude, lookAhead);
                 if (held.clearanceBlocks() >= Math.min(lookAhead * 0.55, 70.0)) {
-                    return state.heldDecision(lookAhead, direct.clearanceBlocks(), held.clearanceBlocks());
+                    return markActive(aircraft,
+                            state.heldDecision(lookAhead, direct.clearanceBlocks(), held.clearanceBlocks()));
                 }
             }
+            markClear(aircraft);
             return state.clear(state.active, lookAhead, direct.clearanceBlocks());
         }
 
@@ -63,7 +70,8 @@ final class TerrainAvoidancePlanner {
             Probe held = probe(aircraft, snapshot, state.direction, state.targetAltitude, lookAhead);
             if (held.clearanceBlocks() >= MIN_SAFE_CLEARANCE) {
                 state.holdTicks--;
-                return state.heldDecision(lookAhead, direct.clearanceBlocks(), held.clearanceBlocks());
+                return markActive(aircraft,
+                        state.heldDecision(lookAhead, direct.clearanceBlocks(), held.clearanceBlocks()));
             }
         }
 
@@ -105,9 +113,28 @@ final class TerrainAvoidancePlanner {
         state.climbBlocks = climbBlocks;
         state.holdTicks = REPLAN_HOLD_TICKS;
 
-        return new Decision(true, changed, mode, state.direction, selectedAltitude,
+        return markActive(aircraft, new Decision(true, changed, mode, state.direction, selectedAltitude,
                 lookAhead, direct.clearanceBlocks(), selectedClearance,
-                headingOffset, climbBlocks, emergency);
+                headingOffset, climbBlocks, emergency));
+    }
+
+    static boolean active(Entity aircraft) {
+        Long until = ACTIVE_UNTIL_GAME_TICK.get(aircraft.getUUID());
+        long now = aircraft.level().getGameTime();
+        if (until == null || until < now) {
+            ACTIVE_UNTIL_GAME_TICK.remove(aircraft.getUUID());
+            return false;
+        }
+        return true;
+    }
+
+    private static Decision markActive(Entity aircraft, Decision decision) {
+        ACTIVE_UNTIL_GAME_TICK.put(aircraft.getUUID(), aircraft.level().getGameTime() + 2L);
+        return decision;
+    }
+
+    private static void markClear(Entity aircraft) {
+        ACTIVE_UNTIL_GAME_TICK.remove(aircraft.getUUID());
     }
 
     private static boolean eligible(FlightPhase phase, FlightSnapshot snapshot) {
