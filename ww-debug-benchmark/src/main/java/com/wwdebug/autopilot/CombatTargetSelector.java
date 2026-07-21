@@ -40,8 +40,7 @@ final class CombatTargetSelector {
             return state.clear("combat_disabled_in_" + phase.name().toLowerCase());
         }
 
-        LivingEntity pilot = aircraft.getControllingPassenger() instanceof LivingEntity living
-                ? living : null;
+        LivingEntity pilot = aircraft.getControllingPassenger();
         if (pilot == null) {
             return state.clear("no_living_pilot");
         }
