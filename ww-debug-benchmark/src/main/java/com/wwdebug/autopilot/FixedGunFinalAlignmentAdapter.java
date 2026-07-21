@@ -22,7 +22,8 @@ public final class FixedGunFinalAlignmentAdapter {
     private static final double MIN_DISTANCE = 38.0;
     private static final double MAX_DISTANCE = 170.0;
     private static final double MIN_LEAD_ANGLE_DEG = 3.0;
-    private static final double MAX_LEAD_ANGLE_DEG = 8.0;
+    private static final double TURN_FIGHTER_MAX_LEAD_ANGLE_DEG = 15.0;
+    private static final double ENERGY_FIGHTER_MAX_LEAD_ANGLE_DEG = 8.0;
     private static final double MAX_RAW_TARGET_ANGLE_DEG = 35.0;
     private static final double MIN_CLOSURE_BPS = 20.0;
 
@@ -80,8 +81,10 @@ public final class FixedGunFinalAlignmentAdapter {
                 .subtract(aircraft.getBoundingBox().getCenter()), snapshot.forward());
         double rawAngle = angleDegrees(snapshot.forward(), rawDirection);
         double closure = relativeClosureBps(aircraft, target);
+        double maxLeadAngle = "turn_fighter".equalsIgnoreCase(profile.doctrine())
+                ? TURN_FIGHTER_MAX_LEAD_ANGLE_DEG : ENERGY_FIGHTER_MAX_LEAD_ANGLE_DEG;
         if (distance < MIN_DISTANCE || distance > MAX_DISTANCE
-                || leadAngle < MIN_LEAD_ANGLE_DEG || leadAngle > MAX_LEAD_ANGLE_DEG
+                || leadAngle < MIN_LEAD_ANGLE_DEG || leadAngle > maxLeadAngle
                 || rawAngle > MAX_RAW_TARGET_ANGLE_DEG
                 || closure < MIN_CLOSURE_BPS) {
             return false;
@@ -117,6 +120,7 @@ public final class FixedGunFinalAlignmentAdapter {
         String description = "doctrine=" + profile.doctrine()
                 + ":distance=" + round(distance)
                 + ":lead_angle=" + round(leadAngle)
+                + ":max_lead_angle=" + round(maxLeadAngle)
                 + ":raw_target_angle=" + round(rawAngle)
                 + ":closure=" + round(closure);
         AutopilotLogManager.writeControlAdapter(level.getServer(), aircraft, status.get().phase(),
