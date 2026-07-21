@@ -65,7 +65,12 @@ public final class ReflectiveAircraft {
     }
 
     public static double rollDegrees(Entity entity) {
-        Object value = invoke(accessors(entity).getZRot, entity);
+        Accessors accessors = accessors(entity);
+        Object value = invoke(accessors.getRoll, entity);
+        if (!(value instanceof Number)) {
+            // Compatibility fallback for aircraft implementations that expose a Z-rotation getter.
+            value = invoke(accessors.getZRot, entity);
+        }
         return value instanceof Number number ? number.doubleValue() : Double.NaN;
     }
 
@@ -147,6 +152,7 @@ public final class ReflectiveAircraft {
                 findMethod(type, "setEngineTarget", float.class),
                 findMethod(type, "getEnginePower"),
                 findMethod(type, "getEngineTarget"),
+                findMethod(type, "getRoll"),
                 findMethod(type, "getZRot"),
                 findMethod(type, "getFuelUtilization"),
                 findMethod(type, "setZRot", float.class),
@@ -235,6 +241,7 @@ public final class ReflectiveAircraft {
             Method setEngineTarget,
             Method getEnginePower,
             Method getEngineTarget,
+            Method getRoll,
             Method getZRot,
             Method getFuelUtilization,
             Method setZRot,
