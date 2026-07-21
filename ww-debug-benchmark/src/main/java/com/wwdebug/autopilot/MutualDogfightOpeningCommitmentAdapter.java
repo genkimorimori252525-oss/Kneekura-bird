@@ -24,13 +24,12 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class MutualDogfightOpeningCommitmentAdapter {
     private static final String SCENARIO_PROPERTY = "wwdebug.flightGameTestScenario";
     private static final String SCENARIO = "dogfight_mutual";
-    private static final String TEST_NAME_PREFIX = "AUTOPILOT TEST MUTUAL ";
+    private static final String TEST_NAME_PREFIX = "AUTOPILOT TEST ";
     private static final String OPPONENT_TAG = "wwcombat:mutual_opponent";
-    private static final double SEARCH_HORIZONTAL = 210.0;
-    private static final double SEARCH_VERTICAL = 100.0;
-    private static final double START_MAX_DISTANCE = 175.0;
+    private static final double SEARCH_HORIZONTAL = 270.0;
+    private static final double SEARCH_VERTICAL = 110.0;
+    private static final double START_MAX_DISTANCE = 250.0;
     private static final double START_MIN_CLOSURE_BPS = 24.0;
-    private static final double START_MAX_OPPOSED_HEADING_DOT = -0.45;
     private static final double CROSSED_DISTANCE = 48.0;
     private static final double RELEASE_DISTANCE = 64.0;
     private static final int MAX_COMMITMENT_TICKS = 120;
@@ -76,14 +75,12 @@ public final class MutualDogfightOpeningCommitmentAdapter {
         FlightSnapshot snapshot = FlightSnapshot.capture(aircraft);
         double distance = aircraft.distanceTo(opponent);
         double closure = relativeClosureBps(aircraft, opponent);
-        Vec3 opponentForward = safeNormalize(horizontal(opponent.getLookAngle()),
-                safeNormalize(horizontal(opponent.getDeltaMovement()),
-                        snapshot.horizontalForward().scale(-1.0)));
-        double headingDot = snapshot.horizontalForward().dot(opponentForward);
 
         if (state == null) {
-            if (distance > START_MAX_DISTANCE || closure < START_MIN_CLOSURE_BPS
-                    || headingDot > START_MAX_OPPOSED_HEADING_DOT) {
+            // The scenario already establishes a neutral opposed crossing. High closure is a more
+            // reliable start signal than entity look vectors, which can differ from velocity during
+            // the first aircraft-physics ticks.
+            if (distance > START_MAX_DISTANCE || closure < START_MIN_CLOSURE_BPS) {
                 return false;
             }
             state = new State(opponent.getUUID(), snapshot.horizontalForward(),
@@ -92,8 +89,8 @@ public final class MutualDogfightOpeningCommitmentAdapter {
             clearCombatLayers(aircraft.getUUID());
             AutopilotLogManager.writeEvent(level.getServer(), aircraft,
                     "mutual_opening_commitment_start",
-                    description(state, distance, closure, headingDot)
-                            + ":reason=opposed_crossing_locked",
+                    description(state, distance, closure)
+                            + ":reason=high_closure_opposed_crossing_locked",
                     status.get().phase());
         }
 
@@ -115,20 +112,20 @@ public final class MutualDogfightOpeningCommitmentAdapter {
         }
 
         clearCombatLayers(aircraft.getUUID());
-        applyControl(level, aircraft, snapshot, profile, state, distance, closure, headingDot,
+        applyControl(level, aircraft, snapshot, profile, state, distance, closure,
                 status.get().phase());
         state.ticks++;
         if (state.statusTicks++ % 10 == 0) {
             AutopilotLogManager.writeEvent(level.getServer(), aircraft,
                     "mutual_opening_commitment_status",
-                    description(state, distance, closure, headingDot), status.get().phase());
+                    description(state, distance, closure), status.get().phase());
         }
         return true;
     }
 
     private static void applyControl(ServerLevel level, Entity aircraft, FlightSnapshot snapshot,
                                      FlightProfile profile, State state, double distance,
-                                     double closure, double headingDot, FlightPhase phase) {
+                                     double closure, FlightPhase phase) {
         Vec3 desired = state.entryDirection;
         double desiredYaw = Math.toDegrees(Math.atan2(-desired.x, desired.z));
         double headingError = Mth.wrapDegrees((float) (desiredYaw - snapshot.yawDeg()));
@@ -148,8 +145,7 @@ public final class MutualDogfightOpeningCommitmentAdapter {
         ReflectiveAircraft.applyControl(aircraft, -output.x(), output.y(), output.z(),
                 output.engineTarget());
         AutopilotLogManager.writeControlAdapter(level.getServer(), aircraft, phase,
-                description(state, distance, closure, headingDot), snapshot,
-                baseline(snapshot), output);
+                description(state, distance, closure), snapshot, baseline(snapshot), output);
     }
 
     private static Optional<Entity> opponent(ServerLevel level, Entity aircraft) {
@@ -171,7 +167,7 @@ public final class MutualDogfightOpeningCommitmentAdapter {
     private static void clearCombatLayers(UUID aircraftUuid) {
         DefensiveAirCombatManager.clear(aircraftUuid);
         AirCombatManeuverManager.clear(aircraftUuid);
-        EnergyFighterCounterattackManager.clear(aircraftUuid);
+        EnergyFighterCounterattackGate.clear(aircraftUuid);
         EnergyFighterCrossingCutAdapter.clear(aircraftUuid);
     }
 
@@ -193,14 +189,12 @@ public final class MutualDogfightOpeningCommitmentAdapter {
         STATES.remove(aircraftUuid);
     }
 
-    private static String description(State state, double distance,
-                                      double closure, double headingDot) {
+    private static String description(State state, double distance, double closure) {
         return "ticks=" + state.ticks
                 + ":opponent_uuid=" + state.opponentUuid
                 + ":distance=" + round(distance)
                 + ":minimum_distance=" + round(state.minimumDistance)
                 + ":closure=" + round(closure)
-                + ":heading_dot=" + round(headingDot)
                 + ":reached_crossing=" + state.reachedCrossing;
     }
 
@@ -217,18 +211,6 @@ public final class MutualDogfightOpeningCommitmentAdapter {
     private static boolean eligiblePhase(FlightPhase phase) {
         return phase.isAirborneMissionPhase() && !phase.isLandingPhase()
                 && phase != FlightPhase.STALL_ENTRY && phase != FlightPhase.STALL_RECOVERY;
-    }
-
-    private static Vec3 horizontal(Vec3 vector) {
-        return new Vec3(vector.x, 0.0, vector.z);
-    }
-
-    private static Vec3 safeNormalize(Vec3 vector, Vec3 fallback) {
-        if (vector.lengthSqr() > 1.0e-8) {
-            return vector.normalize();
-        }
-        return fallback.lengthSqr() > 1.0e-8
-                ? fallback.normalize() : new Vec3(0.0, 0.0, 1.0);
     }
 
     private static FlightControlOutput baseline(FlightSnapshot snapshot) {
