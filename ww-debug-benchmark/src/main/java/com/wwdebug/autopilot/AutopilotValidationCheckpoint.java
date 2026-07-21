@@ -67,21 +67,21 @@ final class AutopilotValidationCheckpoint {
                 position = home.subtract(runwayForward.scale(150.0)).add(0.0, 36.0, 0.0);
                 speedBps = profile.approachSpeedBps() * 1.10;
                 engineTarget = 0.72f;
-                initialMissionTicks = 12_500;
+                initialMissionTicks = 14_500;
             }
             case "stall" -> {
                 initialPhase = FlightPhase.STALL_ENTRY;
                 position = home.add(0.0, 125.0, 0.0);
                 speedBps = profile.climbTargetSpeedBps();
                 engineTarget = 0.0f;
-                initialMissionTicks = 14_000;
+                initialMissionTicks = 14_800;
             }
             case "turn" -> {
                 initialPhase = FlightPhase.TURN_LEFT;
                 position = home.add(0.0, 100.0, 0.0);
                 speedBps = Math.max(profile.turnSpeedFloorBps(), profile.cruiseSpeedBps());
                 engineTarget = 0.72f;
-                initialMissionTicks = 15_000;
+                initialMissionTicks = 15_400;
             }
             default -> {
                 APPLIED.remove(aircraft.getUUID());
