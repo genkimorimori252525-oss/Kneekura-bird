@@ -29,11 +29,16 @@ concurrency:
 
 jobs:
   headless-flight:
+    name: Headless flight (${{ matrix.scenario }})
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: ${{ fromJSON(github.event_name == 'workflow_dispatch' && format('["{0}"]', inputs.scenario) || '["landing","turn","stall","full"]') }}
     env:
       FLIGHT_TEST_TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.aircraft || 'warfare_wings:a6m' }}
-      FLIGHT_TEST_SCENARIO: ${{ github.event_name == 'workflow_dispatch' && inputs.scenario || 'turn' }}
+      FLIGHT_TEST_SCENARIO: ${{ matrix.scenario }}
     defaults:
       run:
         working-directory: ww-debug-benchmark
@@ -67,9 +72,7 @@ jobs:
           import urllib.request
 
           versions = {
-              # [Forge 1.20.1] Immersive Aircraft 1.3.3
               'GsVmbbkj': 'immersive_aircraft-1.3.3+1.20.1-forge.jar',
-              # Warfare Wings 1.1.4 [Forge 1.20.1]
               'q94LN7dV': 'warfare_wings-1.1.4-1.20.1-forge.jar',
           }
           target = pathlib.Path('flight-test-mods')
@@ -120,62 +123,18 @@ jobs:
           fi
           set -e
 
-          GRADLE_STATUS="$gradle_status" python - <<'PY'
-          import json
-          import os
-          import pathlib
-          import sys
-
-          root = pathlib.Path('run-gametest')
-          errors = []
-          if int(os.environ['GRADLE_STATUS']) != 0:
-              errors.append(f"Gradle GameTest exit code was {os.environ['GRADLE_STATUS']}")
-
-          crash_reports = list(root.glob('crash-reports/*.txt'))
-          if crash_reports:
-              errors.append('crash report created: ' + ', '.join(str(path) for path in crash_reports))
-
-          summaries = sorted(root.rglob('validation-summary-*.json'),
-                             key=lambda path: path.stat().st_mtime)
-          if not summaries:
-              errors.append('no autonomous-flight validation summary was produced')
-          else:
-              summary_path = summaries[-1]
-              with summary_path.open(encoding='utf-8') as stream:
-                  summary = json.load(stream)
-              results = summary.get('results') or []
-              total = int(summary.get('total') or 0)
-              failures = [row for row in results if not row.get('passed')]
-              if summary.get('state') != 'complete':
-                  errors.append(f"validation state was {summary.get('state')!r}")
-              if total <= 0 or len(results) != total:
-                  errors.append(f"validation result count was {len(results)}/{total}")
-              if failures:
-                  first = failures[0]
-                  errors.append('first flight failure: '
-                                f"{first.get('entity_id')}:{first.get('final_phase')}:{first.get('reason')}")
-              print(f'verified validation summary: {summary_path} ({total - len(failures)}/{total} passed)')
-
-          profiles = list(root.rglob('flight_profiles.json'))
-          if not profiles:
-              errors.append('no measured flight_profiles.json was produced or staged')
-
-          aircraft_logs = list(root.rglob('aircraft/*.jsonl'))
-          if not aircraft_logs:
-              errors.append('no per-aircraft autonomous-flight telemetry was produced')
-
-          if errors:
-              for error in errors:
-                  print('ERROR:', error, file=sys.stderr)
-              sys.exit(1)
-          PY
+          python tools/verify_flight_scenario.py \
+            --root run-gametest \
+            --scenario "$FLIGHT_TEST_SCENARIO" \
+            --gradle-status "$gradle_status" \
+            --output "run-gametest/scenario-verification-$FLIGHT_TEST_SCENARIO.json"
 
       - name: Render visual flight diagnostics
         if: always()
         run: |
           python tools/render_flight_diagnostics.py \
             --root run-gametest \
-            --output run-gametest/flight-diagnostics.html \
+            --output "run-gametest/flight-diagnostics-$FLIGHT_TEST_SCENARIO.html" \
             --scenario "$FLIGHT_TEST_SCENARIO"
 
       - name: Upload headless server log
@@ -197,7 +156,8 @@ jobs:
           path: |
             ww-debug-benchmark/run-gametest/**/wwdebug/**
             ww-debug-benchmark/run-gametest/config/warfare_wings/flight_profiles.json
-            ww-debug-benchmark/run-gametest/flight-diagnostics.html
+            ww-debug-benchmark/run-gametest/scenario-verification-*.json
+            ww-debug-benchmark/run-gametest/flight-diagnostics-*.html
           if-no-files-found: warn
 
       - name: Fail after preserving GameTest diagnostics
