@@ -11,17 +11,19 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-/** Injects finite moving air targets into the straight, crossing and energy dogfight GameTests. */
+/** Injects finite moving air targets into straight, crossing, energy and evasive GameTests. */
 final class AirCombatValidationSceneManager {
     private static final String SCENARIO_PROPERTY = "wwdebug.flightGameTestScenario";
     private static final String STRAIGHT_SCENARIO = "dogfight";
     private static final String CROSSING_SCENARIO = "dogfight_crossing";
     private static final String ENERGY_SCENARIO = "dogfight_energy";
+    private static final String EVASIVE_SCENARIO = "dogfight_evasive";
     private static final String TEST_NAME_PREFIX = "AUTOPILOT TEST ";
     private static final String AIR_TARGET_TAG = "wwcombat:air_target";
     private static final int STRAIGHT_COMBAT_WINDOW_TICKS = 620;
     private static final int CROSSING_COMBAT_WINDOW_TICKS = 300;
     private static final int ENERGY_COMBAT_WINDOW_TICKS = 520;
+    private static final int EVASIVE_COMBAT_WINDOW_TICKS = 560;
     private static final Map<UUID, Scene> SCENES = new ConcurrentHashMap<>();
 
     private AirCombatValidationSceneManager() {
@@ -33,6 +35,7 @@ final class AirCombatValidationSceneManager {
             case STRAIGHT_SCENARIO -> Geometry.STRAIGHT;
             case CROSSING_SCENARIO -> Geometry.CROSSING;
             case ENERGY_SCENARIO -> Geometry.ENERGY;
+            case EVASIVE_SCENARIO -> Geometry.EVASIVE;
             default -> null;
         };
         if (geometry == null || !aircraft.getName().getString().startsWith(TEST_NAME_PREFIX)) {
@@ -56,9 +59,33 @@ final class AirCombatValidationSceneManager {
             return;
         }
         scene.ageTicks++;
-        double vertical = scene.geometry == Geometry.STRAIGHT && scene.ageTicks > 220
-                ? Math.sin(scene.ageTicks * 0.055) * 0.018 : 0.0;
-        Vec3 commandedVelocity = scene.direction.scale(scene.speedBps / 20.0)
+
+        Vec3 commandedDirection = scene.direction;
+        double vertical = 0.0;
+        if (scene.geometry == Geometry.STRAIGHT && scene.ageTicks > 220) {
+            vertical = Math.sin(scene.ageTicks * 0.055) * 0.018;
+        } else if (scene.geometry == Geometry.EVASIVE) {
+            double lateralCommand = Math.sin(scene.ageTicks * 0.045) * 0.55;
+            commandedDirection = scene.forwardAxis.add(scene.rightAxis.scale(lateralCommand)).normalize();
+            vertical = Math.sin(scene.ageTicks * 0.031) * 0.028;
+            int lateralSign = lateralCommand > 0.08 ? 1 : lateralCommand < -0.08 ? -1 : 0;
+            if (lateralSign != 0 && scene.lastLateralSign != 0
+                    && lateralSign != scene.lastLateralSign) {
+                scene.reversalCount++;
+                AutopilotLogManager.writeEvent(level.getServer(), aircraft,
+                        event(scene, "maneuver_reversal"),
+                        "reversal=" + scene.reversalCount
+                                + ":age_ticks=" + scene.ageTicks
+                                + ":heading_offset_deg=" + round(angleSignedDegrees(
+                                scene.forwardAxis, commandedDirection, scene.rightAxis)),
+                        phase);
+            }
+            if (lateralSign != 0) {
+                scene.lastLateralSign = lateralSign;
+            }
+        }
+
+        Vec3 commandedVelocity = commandedDirection.scale(scene.speedBps / 20.0)
                 .add(0.0, vertical, 0.0);
         // No-AI living targets retain delta movement for lead calculation but do not reliably
         // advance their world coordinates. Move every qualification target explicitly so the
@@ -66,7 +93,7 @@ final class AirCombatValidationSceneManager {
         target.moveTo(target.getX() + commandedVelocity.x,
                 target.getY() + commandedVelocity.y,
                 target.getZ() + commandedVelocity.z,
-                yaw(scene.direction), 0.0f);
+                yaw(commandedDirection), 0.0f);
         target.setDeltaMovement(commandedVelocity);
         target.setNoGravity(true);
         target.fallDistance = 0.0f;
@@ -84,6 +111,9 @@ final class AirCombatValidationSceneManager {
                             + ":distance=" + round(aircraft.distanceTo(target))
                             + ":cross_track=" + round(crossTrack)
                             + ":downrange=" + round(downrange)
+                            + ":heading_offset_deg=" + round(angleSignedDegrees(
+                            scene.forwardAxis, commandedDirection, scene.rightAxis))
+                            + ":reversals=" + scene.reversalCount
                             + ":target_speed_bps=" + round(target.getDeltaMovement().length() * 20.0),
                     phase);
         }
@@ -128,6 +158,12 @@ final class AirCombatValidationSceneManager {
             direction = forward;
             targetSpeed = Math.max(profile.stallGuardSpeedBps() * 1.22,
                     profile.cruiseSpeedBps() * 0.48);
+        } else if (scene.geometry == Geometry.EVASIVE) {
+            position = aircraft.position().add(forward.scale(108.0))
+                    .subtract(right.scale(8.0)).add(0.0, 4.0, 0.0);
+            direction = forward;
+            targetSpeed = Math.max(profile.stallGuardSpeedBps() * 1.35,
+                    profile.cruiseSpeedBps() * 0.68);
         } else {
             position = aircraft.position().add(forward.scale(96.0))
                     .add(right.scale(2.0)).add(0.0, 1.0, 0.0);
@@ -178,7 +214,9 @@ final class AirCombatValidationSceneManager {
         scene.target = null;
         AutopilotLogManager.writeEvent(level.getServer(), aircraft,
                 event(scene, "completed"),
-                reason + ":geometry=" + scene.geometry.logName + ":age_ticks=" + scene.ageTicks,
+                reason + ":geometry=" + scene.geometry.logName
+                        + ":age_ticks=" + scene.ageTicks
+                        + ":reversals=" + scene.reversalCount,
                 phase);
     }
 
@@ -193,6 +231,7 @@ final class AirCombatValidationSceneManager {
         return switch (scene.geometry) {
             case CROSSING -> "crossing_dogfight_validation_" + suffix;
             case ENERGY -> "energy_dogfight_validation_" + suffix;
+            case EVASIVE -> "evasive_dogfight_validation_" + suffix;
             case STRAIGHT -> "dogfight_validation_" + suffix;
         };
     }
@@ -206,6 +245,11 @@ final class AirCombatValidationSceneManager {
         return Math.toDegrees(Math.acos(Math.max(-1.0, Math.min(1.0, dot))));
     }
 
+    private static double angleSignedDegrees(Vec3 forward, Vec3 direction, Vec3 right) {
+        double unsigned = angleDegrees(forward, direction);
+        return direction.dot(right) >= 0.0 ? unsigned : -unsigned;
+    }
+
     private static Vec3 horizontal(Vec3 vector) {
         return new Vec3(vector.x, 0.0, vector.z);
     }
@@ -217,7 +261,8 @@ final class AirCombatValidationSceneManager {
     private enum Geometry {
         STRAIGHT("straight", STRAIGHT_COMBAT_WINDOW_TICKS),
         CROSSING("crossing", CROSSING_COMBAT_WINDOW_TICKS),
-        ENERGY("energy_pass", ENERGY_COMBAT_WINDOW_TICKS);
+        ENERGY("energy_pass", ENERGY_COMBAT_WINDOW_TICKS),
+        EVASIVE("evasive_weave", EVASIVE_COMBAT_WINDOW_TICKS);
 
         private final String logName;
         private final int combatWindowTicks;
@@ -238,6 +283,8 @@ final class AirCombatValidationSceneManager {
         private Vec3 rightAxis = new Vec3(1.0, 0.0, 0.0);
         private double speedBps;
         private int ageTicks;
+        private int reversalCount;
+        private int lastLateralSign;
         private boolean started;
         private boolean completed;
 
