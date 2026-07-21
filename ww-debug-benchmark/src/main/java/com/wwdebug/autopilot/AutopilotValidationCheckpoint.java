@@ -7,6 +7,9 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.monster.Zombie;
+import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.phys.Vec3;
 
@@ -94,6 +97,14 @@ final class AutopilotValidationCheckpoint {
                 initialMissionTicks = 15_200;
                 buildTerrainObstacle((ServerLevel) aircraft.level(), home, runwayForward);
             }
+            case "targeting" -> {
+                initialPhase = FlightPhase.CRUISE_OUTBOUND;
+                position = home.subtract(runwayForward.scale(160.0)).add(0.0, 78.0, 0.0);
+                speedBps = profile.cruiseSpeedBps();
+                engineTarget = 0.72f;
+                initialMissionTicks = 15_400;
+                buildTargetingScene((ServerLevel) aircraft.level(), home, runwayForward);
+            }
             default -> {
                 APPLIED.remove(aircraft.getUUID());
                 WWDebugBenchmarkMod.LOGGER.warn(
@@ -135,6 +146,37 @@ final class AutopilotValidationCheckpoint {
         WWDebugBenchmarkMod.LOGGER.info(
                 "Built terrain-avoidance test wall center={} width={} height={} depth={}",
                 center, 45, 61, 5);
+    }
+
+    private static void buildTargetingScene(ServerLevel level, Vec3 home, Vec3 runwayForward) {
+        Vec3 neutralPosition = home.subtract(runwayForward.scale(90.0)).add(0.0, 78.0, 0.0);
+        Vec3 hostilePosition = home.subtract(runwayForward.scale(55.0)).add(0.0, 78.0, 0.0);
+
+        Villager neutral = EntityType.VILLAGER.create(level);
+        if (neutral == null) {
+            throw new IllegalStateException("Could not create neutral targeting-test villager");
+        }
+        neutral.setNoAi(true);
+        neutral.setNoGravity(true);
+        neutral.setSilent(true);
+        neutral.setInvulnerable(true);
+        neutral.moveTo(neutralPosition.x, neutralPosition.y, neutralPosition.z, 180.0f, 0.0f);
+        level.addFreshEntity(neutral);
+
+        Zombie hostile = EntityType.ZOMBIE.create(level);
+        if (hostile == null) {
+            throw new IllegalStateException("Could not create hostile targeting-test zombie");
+        }
+        hostile.setNoAi(true);
+        hostile.setNoGravity(true);
+        hostile.setSilent(true);
+        hostile.setInvulnerable(true);
+        hostile.moveTo(hostilePosition.x, hostilePosition.y, hostilePosition.z, 180.0f, 0.0f);
+        level.addFreshEntity(hostile);
+
+        WWDebugBenchmarkMod.LOGGER.info(
+                "Built targeting test scene neutral_villager={} hostile_zombie={}",
+                neutralPosition, hostilePosition);
     }
 
     static void forget(UUID aircraftUuid) {
