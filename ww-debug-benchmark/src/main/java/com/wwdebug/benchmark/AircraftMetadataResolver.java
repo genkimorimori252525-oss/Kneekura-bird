@@ -36,11 +36,20 @@ public final class AircraftMetadataResolver {
             category = inferCategory(entityId.getPath());
         }
 
+        // Released aircraft data may predate the optional ai block. The JSON still contains the
+        // authoritative physical properties, so keep it, but fill only the missing classification
+        // from the stable registry id. This avoids replacing the aircraft data with a test-only
+        // resource pack and keeps old releases compatible with measured-profile AI validation.
+        String resolvedRole = parsed.role();
+        if (isUnknown(resolvedRole) && category != BenchmarkCategory.OTHER) {
+            resolvedRole = category.id();
+        }
+
         return new AircraftMetadata(
                 entityId,
                 parsed.dataId() == null ? exactDataId : parsed.dataId(),
                 baseEntityId.toString(),
-                parsed.role(),
+                resolvedRole,
                 parsed.faction(),
                 parsed.doctrine(),
                 category,
@@ -120,6 +129,10 @@ public final class AircraftMetadataResolver {
             }
         }
         return false;
+    }
+
+    private static boolean isUnknown(String value) {
+        return value == null || value.isBlank() || "unknown".equalsIgnoreCase(value);
     }
 
     private static String string(JsonObject object, String key, String fallback) {

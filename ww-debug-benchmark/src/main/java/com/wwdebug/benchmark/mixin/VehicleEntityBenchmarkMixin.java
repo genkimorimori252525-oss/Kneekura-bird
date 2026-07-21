@@ -1,5 +1,12 @@
 package com.wwdebug.benchmark.mixin;
 
+import com.wwdebug.autopilot.AirCombatManeuverManager;
+import com.wwdebug.autopilot.AirspaceSafetyProbe;
+import com.wwdebug.autopilot.AutonomousFlightManager;
+import com.wwdebug.autopilot.AutopilotWheelLockAdapter;
+import com.wwdebug.autopilot.CombatAwarenessManager;
+import com.wwdebug.autopilot.CombatWeaponManager;
+import com.wwdebug.autopilot.FormationFlightManager;
 import com.wwdebug.benchmark.BenchmarkManager;
 import net.minecraft.world.entity.Entity;
 import org.spongepowered.asm.mixin.Mixin;
@@ -13,6 +20,23 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public abstract class VehicleEntityBenchmarkMixin {
     @Inject(method = "tickPilot", at = @At("TAIL"), remap = false, require = 0)
     private void wwdebugBenchmark$applyFixedInput(CallbackInfo callbackInfo) {
-        BenchmarkManager.applyControl((Entity) (Object) this);
+        Entity aircraft = (Entity) (Object) this;
+        BenchmarkManager.applyControl(aircraft);
+        AutonomousFlightManager.applyControl(aircraft);
+        FormationFlightManager.applyControl(aircraft);
+        // Formation collision avoidance has already been applied at this point. Do not let combat
+        // manoeuvres overwrite it while the shared CPA probe still reports a dangerous approach.
+        if (!AirspaceSafetyProbe.collisionRisk(aircraft)) {
+            AirCombatManeuverManager.applyControl(aircraft);
+        }
+    }
+
+    @Inject(method = "tick", at = @At("TAIL"), remap = false, require = 0)
+    private void wwdebugBenchmark$applyPostPhysicsWheelBrake(CallbackInfo callbackInfo) {
+        Entity aircraft = (Entity) (Object) this;
+        AutonomousFlightManager.applyPostPhysics(aircraft);
+        AutopilotWheelLockAdapter.apply(aircraft);
+        CombatAwarenessManager.tick(aircraft);
+        CombatWeaponManager.tick(aircraft);
     }
 }

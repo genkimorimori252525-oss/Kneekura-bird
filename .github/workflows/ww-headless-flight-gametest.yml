@@ -1,0 +1,209 @@
+name: WW Headless Flight GameTest
+
+on:
+  workflow_dispatch:
+    inputs:
+      aircraft:
+        description: 'Aircraft entity id, or all for every fighter'
+        required: true
+        default: 'warfare_wings:a6m'
+        type: string
+      scenario:
+        description: 'Validation starting point'
+        required: true
+        default: 'full'
+        type: choice
+        options:
+          - full
+          - landing
+          - stall
+          - turn
+          - terrain
+          - targeting
+          - weapons
+          - formation
+          - dogfight
+  pull_request:
+    paths:
+      - 'ww-debug-benchmark/**'
+      - '.github/workflows/ww-headless-flight-gametest.yml'
+
+concurrency:
+  group: ww-headless-flight-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  headless-flight:
+    name: Headless flight (${{ matrix.scenario }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: ${{ fromJSON(github.event_name == 'workflow_dispatch' && format('["{0}"]', inputs.scenario) || '["landing","turn","stall","terrain","targeting","weapons","formation","dogfight","full"]') }}
+    env:
+      FLIGHT_TEST_TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.aircraft || 'warfare_wings:a6m' }}
+      FLIGHT_TEST_SCENARIO: ${{ matrix.scenario }}
+    defaults:
+      run:
+        working-directory: ww-debug-benchmark
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.8'
+
+      - name: Cache exact runtime aircraft mods
+        id: flight-mod-cache
+        uses: actions/cache@v4
+        with:
+          path: ww-debug-benchmark/flight-test-mods
+          key: ww-flight-mods-forge-1.20.1-ia-GsVmbbkj-ww-q94LN7dV
+
+      - name: Download exact runtime aircraft mods from Modrinth
+        if: steps.flight-mod-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p flight-test-mods
+          python - <<'PY'
+          import json
+          import pathlib
+          import urllib.request
+
+          versions = {
+              'GsVmbbkj': 'immersive_aircraft-1.3.3+1.20.1-forge.jar',
+              'q94LN7dV': 'warfare_wings-1.1.4-1.20.1-forge.jar',
+          }
+          target = pathlib.Path('flight-test-mods')
+          for version_id, required_name in versions.items():
+              destination = target / required_name
+              if destination.is_file() and destination.stat().st_size > 0:
+                  print(f'using cached {destination} ({destination.stat().st_size} bytes)')
+                  continue
+              request = urllib.request.Request(
+                  f'https://api.modrinth.com/v2/version/{version_id}',
+                  headers={'User-Agent': 'Kamogawa-WW-Autonomous-Flight-Test/1.0'}
+              )
+              with urllib.request.urlopen(request) as response:
+                  metadata = json.load(response)
+              files = metadata.get('files', [])
+              selected = next((item for item in files if item.get('primary')), files[0])
+              download = urllib.request.Request(
+                  selected['url'],
+                  headers={'User-Agent': 'Kamogawa-WW-Autonomous-Flight-Test/1.0'}
+              )
+              with urllib.request.urlopen(download) as response, destination.open('wb') as output:
+                  output.write(response.read())
+              print(f'downloaded {destination} ({destination.stat().st_size} bytes)')
+          PY
+
+      - name: Inventory Warfare Wings weapon APIs
+        if: matrix.scenario == 'terrain'
+        run: |
+          mkdir -p run-gametest/api-inventory
+          python tools/inspect_weapon_api.py \
+            --jar flight-test-mods/warfare_wings-1.1.4-1.20.1-forge.jar \
+            --json-output run-gametest/api-inventory/weapon-api-inventory.json \
+            --text-output run-gametest/api-inventory/weapon-api-inventory.txt
+
+      - name: Run and verify real-physics headless GameTest
+        id: gametest
+        continue-on-error: true
+        run: |
+          run_gametest() {
+            set -o pipefail
+            gradle --no-daemon --console=plain runGameTestServer \
+              -PflightTestAircraft="$FLIGHT_TEST_TARGET" \
+              -PflightTestScenario="$FLIGHT_TEST_SCENARIO" \
+              2>&1 | tee headless-flight.log
+            return ${PIPESTATUS[0]}
+          }
+
+          echo "Headless scenario=$FLIGHT_TEST_SCENARIO aircraft=$FLIGHT_TEST_TARGET"
+          set +e
+          run_gametest
+          gradle_status=$?
+          if [ "$gradle_status" -ne 0 ] && grep -qE 'downloadAssets FAILED|Failed to get asset|SocketTimeoutException' headless-flight.log; then
+            echo 'Retrying once after a transient Minecraft asset download failure.'
+            mv headless-flight.log headless-flight-first-attempt.log
+            run_gametest
+            gradle_status=$?
+          fi
+          set -e
+
+          if [ "$FLIGHT_TEST_SCENARIO" = "terrain" ]; then
+            python tools/verify_terrain_scenario.py \
+              --root run-gametest \
+              --gradle-status "$gradle_status" \
+              --output "run-gametest/scenario-verification-$FLIGHT_TEST_SCENARIO.json"
+          elif [ "$FLIGHT_TEST_SCENARIO" = "targeting" ]; then
+            python tools/verify_targeting_scenario.py \
+              --root run-gametest \
+              --gradle-status "$gradle_status" \
+              --output "run-gametest/scenario-verification-$FLIGHT_TEST_SCENARIO.json"
+          elif [ "$FLIGHT_TEST_SCENARIO" = "weapons" ]; then
+            python tools/verify_weapons_scenario.py \
+              --root run-gametest \
+              --gradle-status "$gradle_status" \
+              --output "run-gametest/scenario-verification-$FLIGHT_TEST_SCENARIO.json"
+          elif [ "$FLIGHT_TEST_SCENARIO" = "formation" ]; then
+            python tools/verify_formation_scenario.py \
+              --root run-gametest \
+              --gradle-status "$gradle_status" \
+              --output "run-gametest/scenario-verification-$FLIGHT_TEST_SCENARIO.json"
+          elif [ "$FLIGHT_TEST_SCENARIO" = "dogfight" ]; then
+            python tools/verify_dogfight_scenario.py \
+              --root run-gametest \
+              --gradle-status "$gradle_status" \
+              --output "run-gametest/scenario-verification-$FLIGHT_TEST_SCENARIO.json"
+          else
+            python tools/verify_flight_scenario.py \
+              --root run-gametest \
+              --scenario "$FLIGHT_TEST_SCENARIO" \
+              --gradle-status "$gradle_status" \
+              --output "run-gametest/scenario-verification-$FLIGHT_TEST_SCENARIO.json"
+          fi
+
+      - name: Render visual flight diagnostics
+        if: always()
+        run: |
+          python tools/render_flight_diagnostics.py \
+            --root run-gametest \
+            --output "run-gametest/flight-diagnostics-$FLIGHT_TEST_SCENARIO.html" \
+            --scenario "$FLIGHT_TEST_SCENARIO"
+
+      - name: Upload headless server log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ww-headless-flight-server-log-${{ env.FLIGHT_TEST_SCENARIO }}
+          path: |
+            ww-debug-benchmark/headless-flight*.log
+            ww-debug-benchmark/run-gametest/logs/**
+            ww-debug-benchmark/run-gametest/crash-reports/**
+          if-no-files-found: warn
+
+      - name: Upload measured profiles and autonomous-flight telemetry
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ww-headless-flight-results-${{ env.FLIGHT_TEST_SCENARIO }}
+          path: |
+            ww-debug-benchmark/run-gametest/**/wwdebug/**
+            ww-debug-benchmark/run-gametest/config/warfare_wings/flight_profiles.json
+            ww-debug-benchmark/run-gametest/scenario-verification-*.json
+            ww-debug-benchmark/run-gametest/flight-diagnostics-*.html
+            ww-debug-benchmark/run-gametest/api-inventory/**
+          if-no-files-found: warn
+
+      - name: Fail after preserving GameTest diagnostics
+        if: steps.gametest.outcome == 'failure'
+        run: |
+          tail -n 320 headless-flight.log
+          exit 1

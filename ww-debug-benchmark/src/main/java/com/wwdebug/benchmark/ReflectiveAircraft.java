@@ -54,8 +54,49 @@ public final class ReflectiveAircraft {
         invoke(accessors.setEngineTarget, entity, 0.0f);
     }
 
+    /**
+     * Test-only initialization for an aircraft teleported into an airborne checkpoint. The real
+     * engine uses a smoothed InterpolatedFloat, so setting only the target would otherwise leave
+     * the aircraft with zero thrust for the first seconds of a focused test.
+     */
+    public static void warmEngine(Entity entity, float target) {
+        Accessors accessors = accessors(entity);
+        invoke(accessors.setEngineTarget, entity, target);
+        Object interpolatedPower = read(accessors.enginePowerField, entity);
+        if (interpolatedPower == null) {
+            return;
+        }
+        Method update = findMethod(interpolatedPower.getClass(), "update", float.class);
+        if (update == null) {
+            return;
+        }
+        for (int index = 0; index < 160; index++) {
+            invoke(update, interpolatedPower, target);
+        }
+    }
+
     public static double enginePower(Entity entity) {
         Object value = invoke(accessors(entity).getEnginePower, entity);
+        return value instanceof Number number ? number.doubleValue() : Double.NaN;
+    }
+
+    public static double engineTarget(Entity entity) {
+        Object value = invoke(accessors(entity).getEngineTarget, entity);
+        return value instanceof Number number ? number.doubleValue() : Double.NaN;
+    }
+
+    public static double rollDegrees(Entity entity) {
+        Accessors accessors = accessors(entity);
+        Object value = invoke(accessors.getRoll, entity);
+        if (!(value instanceof Number)) {
+            // Compatibility fallback for aircraft implementations that expose a Z-rotation getter.
+            value = invoke(accessors.getZRot, entity);
+        }
+        return value instanceof Number number ? number.doubleValue() : Double.NaN;
+    }
+
+    public static double fuelUtilization(Entity entity) {
+        Object value = invoke(accessors(entity).getFuelUtilization, entity);
         return value instanceof Number number ? number.doubleValue() : Double.NaN;
     }
 
@@ -131,6 +172,11 @@ public final class ReflectiveAircraft {
                 findMethod(type, "setInputs", float.class, float.class, float.class),
                 findMethod(type, "setEngineTarget", float.class),
                 findMethod(type, "getEnginePower"),
+                findMethod(type, "getEngineTarget"),
+                findField(type, "enginePower"),
+                findMethod(type, "getRoll"),
+                findMethod(type, "getZRot"),
+                findMethod(type, "getFuelUtilization"),
                 findMethod(type, "setZRot", float.class),
                 findMethod(type, "chill"),
                 findMethod(type, "getPassengerSpace"),
@@ -201,6 +247,31 @@ public final class ReflectiveAircraft {
         return null;
     }
 
+    private static Field findField(Class<?> type, String name) {
+        Class<?> current = type;
+        while (current != null) {
+            try {
+                Field field = current.getDeclaredField(name);
+                field.setAccessible(true);
+                return field;
+            } catch (NoSuchFieldException ignored) {
+                current = current.getSuperclass();
+            }
+        }
+        return null;
+    }
+
+    private static Object read(Field field, Object target) {
+        if (field == null || target == null) {
+            return null;
+        }
+        try {
+            return field.get(target);
+        } catch (ReflectiveOperationException | RuntimeException ignored) {
+            return null;
+        }
+    }
+
     private static Object invoke(Method method, Object target, Object... arguments) {
         if (method == null || target == null) {
             return null;
@@ -216,6 +287,11 @@ public final class ReflectiveAircraft {
             Method setInputs,
             Method setEngineTarget,
             Method getEnginePower,
+            Method getEngineTarget,
+            Field enginePowerField,
+            Method getRoll,
+            Method getZRot,
+            Method getFuelUtilization,
             Method setZRot,
             Method chill,
             Method getPassengerSpace,

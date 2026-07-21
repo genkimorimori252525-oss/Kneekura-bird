@@ -15,6 +15,14 @@ base {
 
 java.toolchain.languageVersion = JavaLanguageVersion.of(17)
 
+def gameTestRunDirectory = project.file('run-gametest')
+def flightTestModsDirectory = project.file('flight-test-mods')
+def validatedFlightProfileFixture = project.file(
+        'src/main/resources/data/wwdebug_benchmark/ai/validated_fighter_profiles-20260720-141003.json')
+def generatedGameTestResources = layout.buildDirectory.dir('generated/gametest-resources')
+
+sourceSets.main.resources.srcDir(generatedGameTestResources)
+
 minecraft {
     mappings channel: 'official', version: minecraft_version
 
@@ -38,6 +46,15 @@ minecraft {
             property 'forge.enabledGameTestNamespaces', mod_id
             args '--nogui'
         }
+
+        gameTestServer {
+            workingDirectory gameTestRunDirectory
+            property 'forge.enabledGameTestNamespaces', mod_id
+            property 'wwdebug.flightGameTestAircraft',
+                    (project.findProperty('flightTestAircraft') ?: 'warfare_wings:a6m').toString()
+            property 'wwdebug.flightGameTestScenario',
+                    (project.findProperty('flightTestScenario') ?: 'full').toString()
+        }
     }
 }
 
@@ -49,14 +66,138 @@ mixin {
 repositories {
     mavenCentral()
     maven { url = 'https://repo.spongepowered.org/repository/maven-public/' }
+    flatDir {
+        dirs flightTestModsDirectory
+    }
 }
 
 dependencies {
     minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
     annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
+
+    // Production mod jars use SRG/production names. ForgeGradle must deobfuscate them before they
+    // can be loaded by the mapped GameTest development runtime.
+    if (flightTestModsDirectory.toPath().resolve('immersive_aircraft-1.3.3+1.20.1-forge.jar').toFile().isFile()) {
+        implementation fg.deobf('wwflight:immersive_aircraft:1.3.3+1.20.1-forge')
+    }
+    if (flightTestModsDirectory.toPath().resolve('warfare_wings-1.1.4-1.20.1-forge.jar').toFile().isFile()) {
+        implementation fg.deobf('wwflight:warfare_wings:1.1.4-1.20.1-forge')
+    }
+}
+
+tasks.register('generateEmptyGameTestStructure') {
+    def output = generatedGameTestResources.map {
+        it.file("data/${mod_id}/structures/empty.nbt").asFile
+    }
+    outputs.file(output)
+
+    doLast {
+        File target = output.get()
+        target.parentFile.mkdirs()
+        new java.io.DataOutputStream(new java.util.zip.GZIPOutputStream(
+                new java.io.BufferedOutputStream(new java.io.FileOutputStream(target)))).withCloseable { out ->
+            out.writeByte(10)
+            out.writeUTF('')
+
+            out.writeByte(3)
+            out.writeUTF('DataVersion')
+            out.writeInt(3465)
+
+            out.writeByte(9)
+            out.writeUTF('size')
+            out.writeByte(3)
+            out.writeInt(3)
+            out.writeInt(1)
+            out.writeInt(1)
+            out.writeInt(1)
+
+            out.writeByte(9)
+            out.writeUTF('palette')
+            out.writeByte(10)
+            out.writeInt(1)
+            out.writeByte(8)
+            out.writeUTF('Name')
+            out.writeUTF('minecraft:air')
+            out.writeByte(0)
+
+            out.writeByte(9)
+            out.writeUTF('blocks')
+            out.writeByte(10)
+            out.writeInt(0)
+
+            out.writeByte(9)
+            out.writeUTF('entities')
+            out.writeByte(10)
+            out.writeInt(0)
+
+            out.writeByte(0)
+        }
+    }
+}
+
+tasks.register('prepareFlightGameTestRuntime') {
+    group = 'verification'
+    description = 'Validates deobfuscated runtime aircraft mods and stages measured profiles.'
+    dependsOn tasks.named('generateEmptyGameTestStructure')
+
+    doLast {
+        gameTestRunDirectory.mkdirs()
+        new File(gameTestRunDirectory, 'eula.txt').text = 'eula=true\n'
+
+        File immersiveAircraft = new File(flightTestModsDirectory,
+                'immersive_aircraft-1.3.3+1.20.1-forge.jar')
+        File warfareWings = new File(flightTestModsDirectory,
+                'warfare_wings-1.1.4-1.20.1-forge.jar')
+        if (!immersiveAircraft.isFile() || !warfareWings.isFile()) {
+            throw new GradleException('Headless GameTest requires the exact Immersive Aircraft 1.3.3 and Warfare Wings 1.1.4 jars in ww-debug-benchmark/flight-test-mods. They are loaded through fg.deobf, not copied into run-gametest/mods.')
+        }
+
+        // Never leave production-obfuscated jars in the development run's mods directory.
+        project.delete(new File(gameTestRunDirectory, 'mods'))
+
+        File profileDirectory = new File(gameTestRunDirectory, 'config/warfare_wings')
+        File stagedProfile = new File(profileDirectory, 'flight_profiles.json')
+        project.delete(stagedProfile)
+
+        String profileValue = project.findProperty('flightProfiles')?.toString()
+        if (profileValue == null || profileValue.isBlank()) {
+            profileValue = System.getenv('WW_FLIGHT_PROFILES')
+        }
+        File profileFile = profileValue == null || profileValue.isBlank()
+                ? validatedFlightProfileFixture
+                : project.file(profileValue)
+        if (!profileFile.isFile()) {
+            throw new GradleException("Measured profile file does not exist: ${profileFile}")
+        }
+        profileDirectory.mkdirs()
+        project.copy {
+            from profileFile
+            into profileDirectory
+            rename { 'flight_profiles.json' }
+        }
+        logger.lifecycle('Headless GameTest profile source: {}', profileFile)
+    }
+}
+
+tasks.register('runFlightSimulation', JavaExec) {
+    group = 'verification'
+    description = 'Runs the deterministic autonomous-flight pre-flight simulator.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.wwdebug.simulation.FlightSimulationMain'
+
+    String profileValue = project.findProperty('flightProfiles')?.toString()
+    if (profileValue == null || profileValue.isBlank()) {
+        profileValue = System.getenv('WW_FLIGHT_PROFILES')
+    }
+    if (profileValue != null && !profileValue.isBlank()) {
+        args '--profiles', profileValue
+    }
+    args '--output', layout.buildDirectory.file('reports/flight-simulation/report.json').get().asFile.absolutePath
 }
 
 tasks.named('processResources', ProcessResources).configure {
+    dependsOn tasks.named('generateEmptyGameTestStructure')
     def replaceProperties = [
             minecraft_version: minecraft_version,
             forge_version: forge_version,
@@ -68,6 +209,14 @@ tasks.named('processResources', ProcessResources).configure {
     filesMatching(['META-INF/mods.toml', 'pack.mcmeta']) {
         expand replaceProperties + [project: project]
     }
+}
+
+tasks.named('check').configure {
+    dependsOn tasks.named('runFlightSimulation')
+}
+
+tasks.matching { it.name == 'runGameTestServer' }.configureEach {
+    dependsOn tasks.named('prepareFlightGameTestRuntime')
 }
 
 tasks.named('jar', Jar).configure {
