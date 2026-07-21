@@ -18,4 +18,9 @@ public abstract class VehicleEntityBenchmarkMixin {
         BenchmarkManager.applyControl(aircraft);
         AutonomousFlightManager.applyControl(aircraft);
     }
+
+    @Inject(method = "tick", at = @At("TAIL"), remap = false, require = 0)
+    private void wwdebugBenchmark$applyPostPhysicsWheelBrake(CallbackInfo callbackInfo) {
+        AutonomousFlightManager.applyPostPhysics((Entity) (Object) this);
+    }
 }
