@@ -11,12 +11,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * Maintains target awareness separately from flight and weapon actuation.
- *
- * <p>No method in this class fires, reloads or consumes ammunition. It only exposes the currently
- * selected hostile solution for a later weapon-policy layer.</p>
- */
+/** Maintains conservative target awareness separately from flight actuation. */
 public final class CombatAwarenessManager {
     private static final Map<UUID, CombatTargetSelector.State> STATES = new ConcurrentHashMap<>();
     private static final Map<UUID, CombatTargetSelector.Solution> SOLUTIONS = new ConcurrentHashMap<>();
@@ -43,6 +38,7 @@ public final class CombatAwarenessManager {
             return;
         }
 
+        CombatValidationSceneManager.tick(level, aircraft);
         CombatTargetSelector.State state = STATES.computeIfAbsent(
                 aircraft.getUUID(), ignored -> new CombatTargetSelector.State());
         CombatTargetSelector.Update update = CombatTargetSelector.update(
@@ -71,5 +67,6 @@ public final class CombatAwarenessManager {
     public static void clear(UUID aircraftUuid) {
         STATES.remove(aircraftUuid);
         SOLUTIONS.remove(aircraftUuid);
+        CombatValidationSceneManager.clear(aircraftUuid);
     }
 }
