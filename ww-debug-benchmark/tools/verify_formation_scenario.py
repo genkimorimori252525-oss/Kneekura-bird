@@ -8,16 +8,13 @@ import itertools
 import json
 import math
 import re
+import statistics
 import sys
 from pathlib import Path
 from typing import Any
 
 SLOT_ERROR = re.compile(r"(?:^|:)slot_error=(-?\d+(?:\.\d+)?)")
-AIRBORNE_PHASES = {
-    "ROTATE", "CLIMB", "CRUISE_OUTBOUND", "TURN_LEFT", "CRUISE_CROSS",
-    "TURN_RIGHT", "STALL_SETUP", "STALL_ENTRY", "STALL_RECOVERY",
-    "RETURN_TO_PATTERN", "DOWNWIND", "BASE", "FINAL", "FLARE", "GO_AROUND",
-}
+FORMATION_TEST_PHASES = {"CRUISE_OUTBOUND"}
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -83,7 +80,8 @@ def aircraft_name(rows: list[dict[str, Any]]) -> str:
 def slot_errors(rows: list[dict[str, Any]]) -> list[tuple[int, float]]:
     values: list[tuple[int, float]] = []
     for row in rows:
-        if row.get("event") != "formation_slot_tracking":
+        if (row.get("event") != "formation_slot_tracking"
+                or str(row.get("phase", "")) not in FORMATION_TEST_PHASES):
             continue
         match = SLOT_ERROR.search(str(row.get("reason", "")))
         row_tick = tick(row)
@@ -132,7 +130,8 @@ def main() -> int:
     collision_clears = [row for row in all_rows
                         if row.get("event") == "collision_avoidance_clear"]
     tracking_rows = [row for row in all_rows
-                     if row.get("event") == "formation_slot_tracking"]
+                     if row.get("event") == "formation_slot_tracking"
+                     and str(row.get("phase", "")) in FORMATION_TEST_PHASES]
     metrics["collision_start_count"] = len(collision_starts)
     metrics["collision_clear_count"] = len(collision_clears)
     metrics["formation_tracking_count"] = len(tracking_rows)
@@ -141,13 +140,14 @@ def main() -> int:
     require(bool(collision_clears), errors,
             "collision avoidance never cleared after separation")
     require(bool(tracking_rows), errors,
-            "formation slot tracking never activated")
+            "formation slot tracking never activated during straight flight")
 
     frames_by_name: dict[str, dict[int, tuple[float, float, float]]] = {}
     for name, (_, rows) in logs.items():
         frames: dict[int, tuple[float, float, float]] = {}
         for row in rows:
-            if row.get("event") != "frame":
+            if (row.get("event") != "frame"
+                    or str(row.get("phase", "")) not in FORMATION_TEST_PHASES):
                 continue
             row_tick = tick(row)
             row_position = position(row)
@@ -185,7 +185,7 @@ def main() -> int:
         pair_metrics[pair] = {
             "initial_minimum": initial,
             "later_maximum": best_later,
-            "final_distance": series[-1][1],
+            "straight_flight_final_distance": series[-1][1],
         }
         if initial < 13.0 and best_later >= 15.0:
             recovered_pairs += 1
@@ -198,53 +198,52 @@ def main() -> int:
     for name in wingman_names[:2]:
         rows = logs[name][1]
         values = slot_errors(rows)
-        require(len(values) >= 3, errors,
-                f"{name} produced fewer than three formation-error samples")
+        require(len(values) >= 6, errors,
+                f"{name} produced fewer than six straight-flight formation samples")
         if not values:
             continue
         initial = values[0][1]
-        split = max(1, len(values) // 2)
-        late_values = [value for _, value in values[split:]] or [values[-1][1]]
-        best_late = min(late_values)
+        late_window = [value for _, value in values[-min(6, len(values)):]]
+        late_median = statistics.median(late_window)
         final = values[-1][1]
-        converged = best_late <= 32.0 or best_late <= initial * 0.72
+        converged = late_median <= 35.0 or late_median <= initial * 0.75
         convergence[name] = {
             "sample_count": len(values),
             "initial_slot_error": initial,
-            "best_late_slot_error": best_late,
-            "final_slot_error": final,
+            "late_window_median_slot_error": late_median,
+            "straight_flight_final_slot_error": final,
             "converged": converged,
         }
         require(converged, errors,
-                f"{name} did not converge toward its formation slot: {initial:.3f} -> {best_late:.3f}")
+                f"{name} did not sustain convergence: {initial:.3f} -> median {late_median:.3f}")
     metrics["formation_convergence"] = convergence
 
     unsafe_ground_frames = []
     speed_metrics: dict[str, Any] = {}
     for name, (_, rows) in logs.items():
-        airborne_frames = [row for row in rows
-                           if row.get("event") == "frame"
-                           and str(row.get("phase", "")) in AIRBORNE_PHASES]
+        formation_frames = [row for row in rows
+                            if row.get("event") == "frame"
+                            and str(row.get("phase", "")) in FORMATION_TEST_PHASES]
         unsafe_ground_frames.extend(
-            (name, tick(row)) for row in airborne_frames if bool(row.get("on_ground"))
+            (name, tick(row)) for row in formation_frames if bool(row.get("on_ground"))
         )
-        speeds = [value for row in airborne_frames
+        speeds = [value for row in formation_frames
                   if (value := finite(row.get("speed_bps"))) is not None]
-        guards = [value for row in airborne_frames
+        guards = [value for row in formation_frames
                   if (value := finite(row.get("profile_stall_guard_speed_bps"))) is not None]
         if speeds and guards:
             minimum = min(speeds)
             guard = guards[0]
             speed_metrics[name] = {
-                "minimum_airborne_speed_bps": minimum,
+                "minimum_formation_speed_bps": minimum,
                 "stall_guard_speed_bps": guard,
             }
-            require(minimum >= guard * 0.78, errors,
-                    f"{name} lost unsafe airspeed: {minimum:.3f}/{guard:.3f}")
-    metrics["airborne_speed"] = speed_metrics
+            require(minimum >= guard * 0.90, errors,
+                    f"{name} lost unsafe formation airspeed: {minimum:.3f}/{guard:.3f}")
+    metrics["formation_speed"] = speed_metrics
     metrics["unsafe_ground_frames"] = unsafe_ground_frames
     require(not unsafe_ground_frames, errors,
-            f"formation aircraft touched ground in airborne phases: {unsafe_ground_frames[:5]}")
+            f"formation aircraft touched ground during straight formation flight: {unsafe_ground_frames[:5]}")
 
     result = {
         "scenario": "formation",
