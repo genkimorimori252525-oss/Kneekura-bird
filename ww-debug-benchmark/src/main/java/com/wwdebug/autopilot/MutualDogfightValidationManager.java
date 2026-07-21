@@ -8,11 +8,14 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.registries.ForgeRegistries;
 
 import java.lang.reflect.Field;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -32,6 +35,7 @@ final class MutualDogfightValidationManager {
     private static final String HOSTILE_BLUE = "wwcombat:hostile:blue";
     private static final int COMBAT_WINDOW_TICKS = 1_000;
     private static final int MISSING_ENTITY_GRACE_TICKS = 40;
+    private static final int FORCE_RADIUS_CHUNKS = 2;
     private static final Map<UUID, Scene> SCENES = new ConcurrentHashMap<>();
 
     private static final Field SESSIONS = field(AutonomousFlightManager.class, "SESSIONS");
@@ -75,6 +79,7 @@ final class MutualDogfightValidationManager {
                 opponent = reloaded;
                 scene.missingEntityTicks = 0;
             } else if (++scene.missingEntityTicks <= MISSING_ENTITY_GRACE_TICKS) {
+                keepCombatChunksLoaded(level, scene, aircraft, null);
                 return;
             } else {
                 completeScene(level, aircraft, scene, phase,
@@ -84,6 +89,11 @@ final class MutualDogfightValidationManager {
         } else {
             scene.missingEntityTicks = 0;
         }
+
+        // Both real aircraft must remain inside ticking chunks. Without this, the remote P-47N can
+        // freeze at its opening position until the A6M approaches, leaving no time to acquire,
+        // manoeuvre, or form a legitimate firing window before collision avoidance takes priority.
+        keepCombatChunksLoaded(level, scene, aircraft, opponent);
 
         scene.ageTicks++;
         if (CombatAwarenessManager.currentSolution(aircraft.getUUID())
@@ -116,6 +126,7 @@ final class MutualDogfightValidationManager {
                             + ":opponent_track_ticks=" + scene.opponentTrackTicks
                             + ":primary_combat_ticks=" + scene.primaryCombatTicks
                             + ":opponent_combat_ticks=" + scene.opponentCombatTicks
+                            + ":forced_chunks=" + scene.ownedForcedChunks.size()
                             + ":opponent_phase=" + AutonomousFlightManager.status(opponent.getUUID())
                             .map(status -> status.phase().name()).orElse("NONE"),
                     phase);
@@ -157,8 +168,7 @@ final class MutualDogfightValidationManager {
         }
         forward = forward.normalize();
         Vec3 right = new Vec3(-forward.z, 0.0, forward.x).normalize();
-        // Begin with the energy fighter behind the turn fighter. The P-47N receives a real firing
-        // window before its greater speed creates an overtake, after which the A6M can turn back in.
+        // The opening adapter replaces this provisional spawn geometry before target selection.
         Vec3 opponentPosition = primary.position().subtract(forward.scale(105.0))
                 .add(right.scale(2.0)).add(0.0, 2.0, 0.0);
         Vec3 opponentDirection = forward;
@@ -217,6 +227,7 @@ final class MutualDogfightValidationManager {
         AutonomousFlightManager.applyControl(opponent);
         seedOpponentCruise(opponent, opponentDirection);
 
+        scene.level = level;
         scene.started = true;
         scene.primaryPilotUuid = primaryPilot.getUUID();
         scene.opponent = opponent;
@@ -224,6 +235,7 @@ final class MutualDogfightValidationManager {
         scene.opponentPilotUuid = opponentPilot.getUUID();
         scene.minimumSeparation = primary.distanceTo(opponent);
         scene.maximumSeparation = scene.minimumSeparation;
+        keepCombatChunksLoaded(level, scene, primary, opponent);
         AutopilotLogManager.writeEvent(level.getServer(), primary,
                 "mutual_dogfight_validation_started",
                 "primary_uuid=" + primary.getUUID()
@@ -233,7 +245,8 @@ final class MutualDogfightValidationManager {
                         + ":opponent_pilot_uuid=" + opponentPilot.getUUID()
                         + ":opponent_faction=blue"
                         + ":initial_separation=" + round(primary.distanceTo(opponent))
-                        + ":opponent_speed_bps=" + round(opponentSpeed),
+                        + ":opponent_speed_bps=" + round(opponentSpeed)
+                        + ":forced_chunks=" + scene.ownedForcedChunks.size(),
                 phase);
     }
 
@@ -260,6 +273,48 @@ final class MutualDogfightValidationManager {
         }
     }
 
+    private static void keepCombatChunksLoaded(ServerLevel level, Scene scene,
+                                               Entity primary, Entity opponent) {
+        Set<Long> desired = new HashSet<>();
+        addChunkSquare(desired, primary.chunkPosition());
+        if (opponent != null && !opponent.isRemoved()) {
+            addChunkSquare(desired, opponent.chunkPosition());
+        }
+
+        Set<Long> release = new HashSet<>(scene.ownedForcedChunks);
+        release.removeAll(desired);
+        for (long key : release) {
+            ChunkPos chunk = new ChunkPos(key);
+            level.setChunkForced(chunk.x, chunk.z, false);
+            scene.ownedForcedChunks.remove(key);
+        }
+
+        Set<Long> alreadyForced = level.getForcedChunks();
+        for (long key : desired) {
+            if (!alreadyForced.contains(key)) {
+                ChunkPos chunk = new ChunkPos(key);
+                level.setChunkForced(chunk.x, chunk.z, true);
+                scene.ownedForcedChunks.add(key);
+            }
+        }
+    }
+
+    private static void addChunkSquare(Set<Long> chunks, ChunkPos center) {
+        for (int dx = -FORCE_RADIUS_CHUNKS; dx <= FORCE_RADIUS_CHUNKS; dx++) {
+            for (int dz = -FORCE_RADIUS_CHUNKS; dz <= FORCE_RADIUS_CHUNKS; dz++) {
+                chunks.add(ChunkPos.asLong(center.x + dx, center.z + dz));
+            }
+        }
+    }
+
+    private static void releaseOwnedChunks(ServerLevel level, Scene scene) {
+        for (long key : scene.ownedForcedChunks) {
+            ChunkPos chunk = new ChunkPos(key);
+            level.setChunkForced(chunk.x, chunk.z, false);
+        }
+        scene.ownedForcedChunks.clear();
+    }
+
     private static void completeScene(ServerLevel level, Entity primary, Scene scene,
                                       FlightPhase phase, String reason) {
         Entity opponent = scene.opponent;
@@ -271,6 +326,7 @@ final class MutualDogfightValidationManager {
                 cleanupOpponent(loaded);
             }
         }
+        releaseOwnedChunks(level, scene);
         clearFaction(primary, RED_FACTION, HOSTILE_BLUE);
         finish(level, primary, scene, phase, reason);
     }
@@ -358,6 +414,9 @@ final class MutualDogfightValidationManager {
         if (scene == null) {
             return;
         }
+        if (scene.level != null) {
+            releaseOwnedChunks(scene.level, scene);
+        }
         Entity opponent = scene.opponent;
         if (opponent != null && !opponent.isRemoved()) {
             cleanupOpponent(opponent);
@@ -365,6 +424,8 @@ final class MutualDogfightValidationManager {
     }
 
     private static final class Scene {
+        private final Set<Long> ownedForcedChunks = new HashSet<>();
+        private ServerLevel level;
         private UUID primaryPilotUuid;
         private Entity opponent;
         private UUID opponentUuid;
