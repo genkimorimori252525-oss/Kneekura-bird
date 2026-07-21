@@ -40,6 +40,7 @@ public final class CombatAwarenessManager {
 
         CombatValidationSceneManager.tick(level, aircraft);
         AirCombatValidationSceneManager.tick(level, aircraft, status.get().phase());
+        MutualDogfightValidationManager.tick(level, aircraft, status.get().phase());
         CombatTargetSelector.State state = STATES.computeIfAbsent(
                 aircraft.getUUID(), ignored -> new CombatTargetSelector.State());
         CombatTargetSelector.Update update = CombatTargetSelector.update(
@@ -70,6 +71,7 @@ public final class CombatAwarenessManager {
         SOLUTIONS.remove(aircraftUuid);
         CombatValidationSceneManager.clear(aircraftUuid);
         AirCombatValidationSceneManager.clear(aircraftUuid);
+        MutualDogfightValidationManager.clear(aircraftUuid);
         AirCombatManeuverManager.clear(aircraftUuid);
     }
 }
