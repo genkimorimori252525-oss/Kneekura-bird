@@ -88,7 +88,7 @@ final class AirCombatValidationSceneManager {
         forward = forward.normalize();
         Vec3 right = new Vec3(-forward.z, 0.0, forward.x).normalize();
         Vec3 position = aircraft.position().add(forward.scale(96.0))
-                .add(right.scale(12.0)).add(0.0, 5.0, 0.0);
+                .add(right.scale(2.0)).add(0.0, 1.0, 0.0);
 
         Zombie target = EntityType.ZOMBIE.create(level);
         if (target == null) {
@@ -117,8 +117,8 @@ final class AirCombatValidationSceneManager {
                 "dogfight_validation_started",
                 "target_uuid=" + target.getUUID()
                         + ":initial_distance=" + round(aircraft.distanceTo(target))
-                        + ":lateral_offset=12.0"
-                        + ":vertical_offset=5.0"
+                        + ":lateral_offset=2.0"
+                        + ":vertical_offset=1.0"
                         + ":target_speed_bps=" + round(targetSpeed),
                 phase);
     }
