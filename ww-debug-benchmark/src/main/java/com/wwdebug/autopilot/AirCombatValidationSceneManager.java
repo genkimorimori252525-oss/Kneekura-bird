@@ -11,15 +11,17 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-/** Injects finite moving air targets into the straight and crossing dogfight GameTests. */
+/** Injects finite moving air targets into the straight, crossing and energy dogfight GameTests. */
 final class AirCombatValidationSceneManager {
     private static final String SCENARIO_PROPERTY = "wwdebug.flightGameTestScenario";
     private static final String STRAIGHT_SCENARIO = "dogfight";
     private static final String CROSSING_SCENARIO = "dogfight_crossing";
+    private static final String ENERGY_SCENARIO = "dogfight_energy";
     private static final String TEST_NAME_PREFIX = "AUTOPILOT TEST ";
     private static final String AIR_TARGET_TAG = "wwcombat:air_target";
     private static final int STRAIGHT_COMBAT_WINDOW_TICKS = 620;
     private static final int CROSSING_COMBAT_WINDOW_TICKS = 300;
+    private static final int ENERGY_COMBAT_WINDOW_TICKS = 520;
     private static final Map<UUID, Scene> SCENES = new ConcurrentHashMap<>();
 
     private AirCombatValidationSceneManager() {
@@ -30,6 +32,7 @@ final class AirCombatValidationSceneManager {
         Geometry geometry = switch (requested) {
             case STRAIGHT_SCENARIO -> Geometry.STRAIGHT;
             case CROSSING_SCENARIO -> Geometry.CROSSING;
+            case ENERGY_SCENARIO -> Geometry.ENERGY;
             default -> null;
         };
         if (geometry == null || !aircraft.getName().getString().startsWith(TEST_NAME_PREFIX)) {
@@ -119,6 +122,12 @@ final class AirCombatValidationSceneManager {
             direction = forward.scale(0.32).add(right.scale(0.95)).normalize();
             targetSpeed = Math.max(profile.stallGuardSpeedBps() * 1.38,
                     profile.cruiseSpeedBps() * 0.66);
+        } else if (scene.geometry == Geometry.ENERGY) {
+            position = aircraft.position().add(forward.scale(104.0))
+                    .add(right.scale(3.0)).add(0.0, -3.0, 0.0);
+            direction = forward;
+            targetSpeed = Math.max(profile.stallGuardSpeedBps() * 1.22,
+                    profile.cruiseSpeedBps() * 0.48);
         } else {
             position = aircraft.position().add(forward.scale(96.0))
                     .add(right.scale(2.0)).add(0.0, 1.0, 0.0);
@@ -181,9 +190,11 @@ final class AirCombatValidationSceneManager {
     }
 
     private static String event(Scene scene, String suffix) {
-        return scene.geometry == Geometry.CROSSING
-                ? "crossing_dogfight_validation_" + suffix
-                : "dogfight_validation_" + suffix;
+        return switch (scene.geometry) {
+            case CROSSING -> "crossing_dogfight_validation_" + suffix;
+            case ENERGY -> "energy_dogfight_validation_" + suffix;
+            case STRAIGHT -> "dogfight_validation_" + suffix;
+        };
     }
 
     private static float yaw(Vec3 direction) {
@@ -205,7 +216,8 @@ final class AirCombatValidationSceneManager {
 
     private enum Geometry {
         STRAIGHT("straight", STRAIGHT_COMBAT_WINDOW_TICKS),
-        CROSSING("crossing", CROSSING_COMBAT_WINDOW_TICKS);
+        CROSSING("crossing", CROSSING_COMBAT_WINDOW_TICKS),
+        ENERGY("energy_pass", ENERGY_COMBAT_WINDOW_TICKS);
 
         private final String logName;
         private final int combatWindowTicks;
