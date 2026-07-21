@@ -161,23 +161,28 @@ public final class FormationFlightManager {
                 .add(0.0, offset.vertical(), 0.0);
         Vec3 slotErrorVector = desiredPosition.subtract(aircraft.position());
         double slotError = slotErrorVector.length();
+        double lateralError = slotErrorVector.dot(leaderRight);
+        double alongTrackError = slotErrorVector.dot(leaderForward);
+        double verticalError = slotErrorVector.y;
 
-        Vec3 desiredDirection;
-        Vec3 horizontalError = horizontal(slotErrorVector);
-        if (horizontalError.lengthSqr() > 4.0) {
-            desiredDirection = horizontal(
-                    horizontalError.normalize().scale(0.78).add(leaderForward.scale(0.22)));
-        } else {
-            desiredDirection = leaderForward;
-        }
+        // A fixed-wing aircraft must not point directly at a slot that lies behind it. Correct
+        // lateral displacement with a bounded intercept angle and correct fore/aft displacement
+        // with airspeed relative to the leader.
+        double lateralIntercept = Mth.clamp(lateralError / 42.0, -0.55, 0.55);
+        Vec3 desiredDirection = horizontal(
+                leaderForward.add(leaderRight.scale(lateralIntercept)));
         if (desiredDirection.lengthSqr() < 1.0e-8) {
             desiredDirection = leaderForward;
         }
         desiredDirection = desiredDirection.normalize();
 
         double leaderSpeed = leader.getDeltaMovement().horizontalDistance() * 20.0;
-        double closure = Mth.clamp((slotError - 7.0) * 0.11, -3.0, 8.0);
-        double targetSpeed = Math.max(profile.stallGuardSpeedBps() * 1.30, leaderSpeed + closure);
+        double speedCorrection = Mth.clamp(alongTrackError * 0.14, -8.0, 8.0);
+        if (Math.abs(lateralError) > 32.0) {
+            speedCorrection = Math.min(speedCorrection, 4.0);
+        }
+        double targetSpeed = Math.max(profile.stallGuardSpeedBps() * 1.35,
+                leaderSpeed + speedCorrection);
         float engineTarget;
         double speedError = targetSpeed - snapshot.speedBps();
         if (speedError > 3.5) {
@@ -186,6 +191,8 @@ public final class FormationFlightManager {
             engineTarget = 0.76f;
         } else if (speedError < -2.5) {
             engineTarget = 0.08f;
+        } else if (speedError < -0.8) {
+            engineTarget = 0.24f;
         } else {
             engineTarget = 0.42f;
         }
@@ -200,6 +207,9 @@ public final class FormationFlightManager {
         String reason = "leader_uuid=" + leader.getUUID()
                 + ":slot=" + slot
                 + ":slot_error=" + round(slotError)
+                + ":lateral_error=" + round(lateralError)
+                + ":along_error=" + round(alongTrackError)
+                + ":vertical_error=" + round(verticalError)
                 + ":desired_x=" + round(desiredPosition.x)
                 + ":desired_y=" + round(desiredPosition.y)
                 + ":desired_z=" + round(desiredPosition.z)
