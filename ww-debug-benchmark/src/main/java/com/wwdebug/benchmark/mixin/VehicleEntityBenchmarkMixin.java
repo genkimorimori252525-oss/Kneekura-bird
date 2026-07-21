@@ -1,5 +1,6 @@
 package com.wwdebug.benchmark.mixin;
 
+import com.wwdebug.autopilot.AirCombatManeuverManager;
 import com.wwdebug.autopilot.AutonomousFlightManager;
 import com.wwdebug.autopilot.AutopilotWheelLockAdapter;
 import com.wwdebug.autopilot.CombatAwarenessManager;
@@ -21,6 +22,8 @@ public abstract class VehicleEntityBenchmarkMixin {
         Entity aircraft = (Entity) (Object) this;
         BenchmarkManager.applyControl(aircraft);
         AutonomousFlightManager.applyControl(aircraft);
+        AirCombatManeuverManager.applyControl(aircraft);
+        // Formation collision avoidance runs last so safety separation can override combat.
         FormationFlightManager.applyControl(aircraft);
     }
 
