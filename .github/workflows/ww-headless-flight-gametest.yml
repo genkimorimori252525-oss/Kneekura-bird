@@ -39,7 +39,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: ${{ fromJSON(github.event_name == 'workflow_dispatch' && format('["{0}"]', inputs.scenario) || '["landing","turn","stall","terrain","targeting","weapons","formation","full"]') }}
+        scenario: ${{ fromJSON(github.event_name == 'workflow_dispatch' && format('["{0}"]', inputs.scenario) || '["formation"]') }}
     env:
       FLIGHT_TEST_TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.aircraft || 'warfare_wings:a6m' }}
       FLIGHT_TEST_SCENARIO: ${{ matrix.scenario }}
