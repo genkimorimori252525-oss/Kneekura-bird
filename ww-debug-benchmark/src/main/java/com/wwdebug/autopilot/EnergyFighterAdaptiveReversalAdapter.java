@@ -13,13 +13,13 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Converts a measured broadside reversal plateau into a direct attack setup.
+ * Tightens a measured broadside reversal plateau without changing the successful turn side.
  *
  * <p>The ordinary energy-fighter counterattack keeps full control while its raw target angle is
  * improving. If it has already made meaningful progress, reaches the broadside sector, and then
- * stops improving for several ticks, this adapter points toward a short future target position
- * instead of reversing the successful turn side. It hands control back before the normal
- * fixed-gun attack sector.</p>
+ * stops improving for several ticks, this adapter keeps the current bank direction but converts
+ * excess speed into a steeper high yo-yo. The lower horizontal speed reduces turn radius and lets
+ * the fighter continue cutting toward the normal fixed-gun attack sector.</p>
  */
 public final class EnergyFighterAdaptiveReversalAdapter {
     private static final int MIN_OBSERVATION_TICKS = 60;
@@ -29,6 +29,7 @@ public final class EnergyFighterAdaptiveReversalAdapter {
     private static final double MAX_BEST_RAW_ANGLE_DEG = 105.0;
     private static final double MAX_START_RAW_ANGLE_DEG = 112.0;
     private static final double HANDOFF_RAW_ANGLE_DEG = 48.0;
+    private static final double YOYO_ALTITUDE_GAIN = 40.0;
     private static final Map<UUID, State> STATES = new ConcurrentHashMap<>();
 
     private EnergyFighterAdaptiveReversalAdapter() {
@@ -106,10 +107,11 @@ public final class EnergyFighterAdaptiveReversalAdapter {
             }
             state.overrideActive = true;
             state.overrideTicks = 0;
+            state.turnSign = retainedTurnSign(snapshot, targetDirection);
             AutopilotLogManager.writeEvent(level.getServer(), aircraft,
                     "energy_adaptive_reversal_start",
                     description(state, rawTargetAngle)
-                            + ":reason=broadside_reversal_progress_plateau",
+                            + ":reason=broadside_plateau_tighten_high_yoyo",
                     status.get().phase());
         }
 
@@ -118,13 +120,13 @@ public final class EnergyFighterAdaptiveReversalAdapter {
             AutopilotLogManager.writeEvent(level.getServer(), aircraft,
                     "energy_adaptive_reversal_handoff",
                     description(state, rawTargetAngle)
-                            + ":reason=direct_cut_timeout",
+                            + ":reason=tightened_high_yoyo_timeout",
                     status.get().phase());
             return false;
         }
 
-        applyDirectCut(level, aircraft, target.aircraft(), snapshot, profile,
-                rawTargetAngle, state, status.get().phase());
+        applyTightenedHighYoyo(level, aircraft, target.aircraft(), snapshot, profile,
+                targetDirection, rawTargetAngle, state, status.get().phase());
         state.overrideTicks++;
         if (state.statusTicks++ % 10 == 0) {
             AutopilotLogManager.writeEvent(level.getServer(), aircraft,
@@ -134,39 +136,48 @@ public final class EnergyFighterAdaptiveReversalAdapter {
         return true;
     }
 
-    private static void applyDirectCut(ServerLevel level, Entity aircraft, Entity target,
-                                       FlightSnapshot snapshot, FlightProfile profile,
-                                       double rawTargetAngle, State state, FlightPhase phase) {
+    private static void applyTightenedHighYoyo(ServerLevel level, Entity aircraft, Entity target,
+                                                FlightSnapshot snapshot, FlightProfile profile,
+                                                Vec3 targetDirection, double rawTargetAngle,
+                                                State state, FlightPhase phase) {
         Vec3 shortLeadPoint = target.getBoundingBox().getCenter()
-                .add(target.getDeltaMovement().scale(6.0));
+                .add(target.getDeltaMovement().scale(8.0));
         Vec3 desired = safeNormalize(shortLeadPoint
-                .subtract(aircraft.getBoundingBox().getCenter()), snapshot.forward());
+                .subtract(aircraft.getBoundingBox().getCenter()), targetDirection);
         Vec3 horizontalDesired = safeNormalize(horizontal(desired), snapshot.horizontalForward());
         double desiredYaw = Math.toDegrees(Math.atan2(-horizontalDesired.x, horizontalDesired.z));
         double headingError = Mth.wrapDegrees((float) (desiredYaw - snapshot.yawDeg()));
-        float x = (float) Mth.clamp(headingError / 25.0, -0.88, 0.88);
 
-        double targetAltitude = Math.max(target.position().y + 7.0,
-                state.startAltitude + 6.0);
+        float x = (float) (state.turnSign * 0.92);
+        double targetAltitude = Math.max(target.position().y + 16.0,
+                state.startAltitude + YOYO_ALTITUDE_GAIN);
         double altitudeError = targetAltitude - snapshot.position().y;
-        double desiredPitch = Mth.clamp(-altitudeError * 0.18
-                + snapshot.verticalSpeedBps() * 0.28, -10.0, 8.0);
-        float engineTarget = 0.78f;
-        if (snapshot.speedBps() < profile.turnSpeedFloorBps() * 0.92) {
+        double desiredPitch = Mth.clamp(-altitudeError * 0.30
+                + snapshot.verticalSpeedBps() * 0.18, -17.0, 6.0);
+
+        double targetSpeed = Math.max(profile.stallGuardSpeedBps() * 2.8,
+                profile.turnSpeedFloorBps() * 0.90);
+        float engineTarget;
+        if (snapshot.speedBps() > targetSpeed + 1.5) {
+            engineTarget = 0.25f;
+        } else if (snapshot.speedBps() < targetSpeed - 1.0) {
+            engineTarget = 1.0f;
+        } else {
+            engineTarget = 0.72f;
+        }
+        if (snapshot.speedBps() < profile.turnSpeedFloorBps() * 0.82) {
             desiredPitch = Math.max(desiredPitch, -2.0);
-            x *= 0.58f;
+            x *= 0.62f;
             engineTarget = 1.0f;
         }
-        float z = (float) Mth.clamp((desiredPitch - snapshot.pitchDeg()) / 16.0,
-                -0.76, 0.76);
-        double targetSpeed = Math.max(profile.cruiseSpeedBps() + 2.0,
-                target.getDeltaMovement().horizontalDistance() * 20.0 + 2.0);
 
+        float z = (float) Mth.clamp((desiredPitch - snapshot.pitchDeg()) / 13.0,
+                -0.90, 0.76);
         FlightControlOutput output = new FlightControlOutput(x, 0.0f, z, engineTarget,
                 horizontalDesired, targetAltitude, targetSpeed, headingError, altitudeError,
                 targetSpeed - snapshot.speedBps(),
                 snapshot.speedBps() < profile.stallGuardSpeedBps(), false,
-                "energy_adaptive_direct_cut", "broadside_plateau_attack_setup");
+                "energy_adaptive_high_yoyo", "broadside_plateau_turn_radius_tightening");
         ReflectiveAircraft.applyControl(aircraft, -output.x(), output.y(), output.z(),
                 output.engineTarget());
         AutopilotLogManager.writeControlAdapter(level.getServer(), aircraft, phase,
@@ -187,6 +198,17 @@ public final class EnergyFighterAdaptiveReversalAdapter {
                 });
     }
 
+    private static double retainedTurnSign(FlightSnapshot snapshot, Vec3 targetDirection) {
+        if (Math.abs(snapshot.rollDeg()) >= 6.0) {
+            return snapshot.rollDeg() >= 0.0 ? 1.0 : -1.0;
+        }
+        Vec3 horizontalTarget = safeNormalize(horizontal(targetDirection),
+                snapshot.horizontalForward());
+        double desiredYaw = Math.toDegrees(Math.atan2(-horizontalTarget.x, horizontalTarget.z));
+        double headingError = Mth.wrapDegrees((float) (desiredYaw - snapshot.yawDeg()));
+        return headingError >= 0.0 ? 1.0 : -1.0;
+    }
+
     private static String description(State state, double rawTargetAngle) {
         return "ticks=" + state.ticks
                 + ":override_ticks=" + state.overrideTicks
@@ -195,6 +217,7 @@ public final class EnergyFighterAdaptiveReversalAdapter {
                 + ":raw_target_angle=" + round(rawTargetAngle)
                 + ":progress=" + round(state.initialRawTargetAngle - state.bestRawTargetAngle)
                 + ":plateau_ticks=" + state.plateauTicks
+                + ":turn_sign=" + state.turnSign
                 + ":override_active=" + state.overrideActive;
     }
 
@@ -241,6 +264,7 @@ public final class EnergyFighterAdaptiveReversalAdapter {
         private final double initialRawTargetAngle;
         private final double startAltitude;
         private double bestRawTargetAngle;
+        private double turnSign;
         private int ticks;
         private int plateauTicks;
         private int overrideTicks;
