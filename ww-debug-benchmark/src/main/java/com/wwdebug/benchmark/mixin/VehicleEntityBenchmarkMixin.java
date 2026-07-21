@@ -8,6 +8,7 @@ import com.wwdebug.autopilot.CombatAwarenessManager;
 import com.wwdebug.autopilot.CombatWeaponManager;
 import com.wwdebug.autopilot.DefensiveAirCombatManager;
 import com.wwdebug.autopilot.EnergyFighterCounterattackManager;
+import com.wwdebug.autopilot.EnergyFighterCrossingCutAdapter;
 import com.wwdebug.autopilot.FormationFlightManager;
 import com.wwdebug.autopilot.MutualDogfightMissionHoldAdapter;
 import com.wwdebug.benchmark.BenchmarkManager;
@@ -28,12 +29,19 @@ public abstract class VehicleEntityBenchmarkMixin {
         MutualDogfightMissionHoldAdapter.beforeControl(aircraft);
         AutonomousFlightManager.applyControl(aircraft);
         FormationFlightManager.applyControl(aircraft);
-        // Formation collision avoidance has already been applied at this point. Do not let either
-        // defensive or offensive combat overwrite it while the shared CPA probe is dangerous.
+        // Formation collision avoidance has already been applied at this point. Do not let combat
+        // overwrite it while the shared CPA probe is dangerous.
         if (!AirspaceSafetyProbe.collisionRisk(aircraft)) {
+            // At the high-yo-yo broadside crossing, cut directly through the turn circle instead of
+            // waiting for the target to enter a narrow cone and flying past the best intercept.
+            boolean crossingCutControl = EnergyFighterCrossingCutAdapter.applyControl(aircraft);
+            if (crossingCutControl) {
+                EnergyFighterCounterattackManager.clear(aircraft.getUUID());
+            }
             // Counterattack recovery runs before ordinary defense. When it owns this tick, stale
-            // defensive reacquisition is never applied and therefore cannot overwrite the turn-back.
-            boolean counterattackControl = EnergyFighterCounterattackManager.applyControl(aircraft);
+            // defensive reacquisition is never applied and cannot overwrite the turn-back.
+            boolean counterattackControl = crossingCutControl
+                    || EnergyFighterCounterattackManager.applyControl(aircraft);
             if (!counterattackControl) {
                 DefensiveAirCombatManager.applyControl(aircraft);
                 if (!DefensiveAirCombatManager.active(aircraft)) {
