@@ -52,6 +52,8 @@ minecraft {
             property 'forge.enabledGameTestNamespaces', mod_id
             property 'wwdebug.flightGameTestAircraft',
                     (project.findProperty('flightTestAircraft') ?: 'warfare_wings:a6m').toString()
+            property 'wwdebug.flightGameTestScenario',
+                    (project.findProperty('flightTestScenario') ?: 'full').toString()
         }
     }
 }
