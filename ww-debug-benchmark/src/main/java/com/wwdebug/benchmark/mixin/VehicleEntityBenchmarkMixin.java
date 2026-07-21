@@ -1,6 +1,7 @@
 package com.wwdebug.benchmark.mixin;
 
 import com.wwdebug.autopilot.AirCombatManeuverManager;
+import com.wwdebug.autopilot.AirspaceSafetyProbe;
 import com.wwdebug.autopilot.AutonomousFlightManager;
 import com.wwdebug.autopilot.AutopilotWheelLockAdapter;
 import com.wwdebug.autopilot.CombatAwarenessManager;
@@ -22,9 +23,12 @@ public abstract class VehicleEntityBenchmarkMixin {
         Entity aircraft = (Entity) (Object) this;
         BenchmarkManager.applyControl(aircraft);
         AutonomousFlightManager.applyControl(aircraft);
-        AirCombatManeuverManager.applyControl(aircraft);
-        // Formation collision avoidance runs last so safety separation can override combat.
         FormationFlightManager.applyControl(aircraft);
+        // Formation collision avoidance has already been applied at this point. Do not let combat
+        // manoeuvres overwrite it while the shared CPA probe still reports a dangerous approach.
+        if (!AirspaceSafetyProbe.collisionRisk(aircraft)) {
+            AirCombatManeuverManager.applyControl(aircraft);
+        }
     }
 
     @Inject(method = "tick", at = @At("TAIL"), remap = false, require = 0)
