@@ -2,9 +2,12 @@ package com.wwdebug.autopilot;
 
 import com.wwdebug.benchmark.ReflectiveAircraft;
 import com.wwdebug.benchmark.WWDebugBenchmarkMod;
+import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.phys.Vec3;
 
 import java.lang.reflect.Field;
@@ -83,6 +86,14 @@ final class AutopilotValidationCheckpoint {
                 engineTarget = 0.72f;
                 initialMissionTicks = 15_400;
             }
+            case "terrain" -> {
+                initialPhase = FlightPhase.CRUISE_OUTBOUND;
+                position = home.subtract(runwayForward.scale(180.0)).add(0.0, 78.0, 0.0);
+                speedBps = profile.cruiseSpeedBps();
+                engineTarget = 0.72f;
+                initialMissionTicks = 15_200;
+                buildTerrainObstacle((ServerLevel) aircraft.level(), home, runwayForward);
+            }
             default -> {
                 APPLIED.remove(aircraft.getUUID());
                 WWDebugBenchmarkMod.LOGGER.warn(
@@ -105,6 +116,25 @@ final class AutopilotValidationCheckpoint {
                 scenario, initialPhase, position, speedBps, ReflectiveAircraft.enginePower(aircraft),
                 initialMissionTicks, home, runwayForward);
         return true;
+    }
+
+    private static void buildTerrainObstacle(ServerLevel level, Vec3 home, Vec3 runwayForward) {
+        Vec3 runwayRight = new Vec3(-runwayForward.z, 0.0, runwayForward.x).normalize();
+        Vec3 center = home.subtract(runwayForward.scale(75.0)).add(0.0, 78.0, 0.0);
+        for (int lateral = -22; lateral <= 22; lateral++) {
+            for (int depth = -2; depth <= 2; depth++) {
+                for (int vertical = -30; vertical <= 30; vertical++) {
+                    Vec3 point = center
+                            .add(runwayRight.scale(lateral))
+                            .add(runwayForward.scale(depth))
+                            .add(0.0, vertical, 0.0);
+                    level.setBlock(BlockPos.containing(point), Blocks.STONE.defaultBlockState(), 2);
+                }
+            }
+        }
+        WWDebugBenchmarkMod.LOGGER.info(
+                "Built terrain-avoidance test wall center={} width={} height={} depth={}",
+                center, 45, 61, 5);
     }
 
     static void forget(UUID aircraftUuid) {
