@@ -84,32 +84,44 @@ public final class AutonomousFlightManager {
     private static AdaptedControl adaptForNativeFlight(AutopilotSession session,
                                                         FlightSnapshot snapshot,
                                                         FlightControlOutput planned) {
-        if (session.phase() == FlightPhase.FLARE && !snapshot.onGround()
-                && snapshot.altitudeAboveGround() > 7.0) {
-            double desiredPitch = Mth.clamp(
-                    (snapshot.altitudeAboveGround() - 3.0) * 0.36,
-                    4.5,
-                    10.0
-            );
+        if (session.phase() == FlightPhase.FLARE && !snapshot.onGround()) {
+            double agl = snapshot.altitudeAboveGround();
+            double desiredPitch;
+            String stage;
+            if (agl > 7.0) {
+                desiredPitch = Mth.clamp((agl - 3.0) * 0.36, 4.5, 10.0);
+                stage = "descent";
+            } else if (agl > 3.0) {
+                // Continue a shallow descent instead of handing control back to the old pull-up law.
+                desiredPitch = 2.0;
+                stage = "roundout";
+            } else {
+                // At wheel height, arrest the descent without climbing away from the runway.
+                desiredPitch = -0.5;
+                stage = "ground_cushion";
+            }
+
             float z = (float) Mth.clamp(
                     (desiredPitch - snapshot.pitchDeg()) / 18.0,
                     -0.78,
                     0.78
             );
             double approachSpeed = session.profile().approachSpeedBps();
-            double stallEnergyGate = session.profile().stallGuardSpeedBps() * 1.35;
+            double stallEnergyGate = session.profile().stallGuardSpeedBps() * 1.45;
             float engine;
             if (snapshot.speedBps() < stallEnergyGate) {
                 engine = 1.0f;
-            } else if (snapshot.speedBps() < approachSpeed * 0.95) {
+            } else if (snapshot.speedBps() < approachSpeed * 0.80) {
                 engine = 0.72f;
+            } else if (agl > 3.0) {
+                engine = 0.38f;
             } else {
-                engine = 0.25f;
+                engine = 0.12f;
             }
             return new AdaptedControl(copyWith(planned, z, engine,
-                    "native_flare_continue_descent_with_energy_margin",
-                    "native_landing_descent_adapter"), true,
-                    "flare_above_7_blocks_preserve_energy_and_continue_descent");
+                    "native_flare_" + stage + "_with_energy_margin",
+                    "native_landing_" + stage + "_adapter"), true,
+                    "flare_" + stage + "_continues_until_ground_contact");
         }
 
         if (session.phase() == FlightPhase.GO_AROUND && !snapshot.onGround()) {
