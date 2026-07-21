@@ -16,13 +16,13 @@ import java.util.concurrent.ConcurrentHashMap;
  * Corrects only a demonstrably slow energy-fighter reversal.
  *
  * <p>The ordinary counterattack controller gets the first forty ticks without interference. If the
- * raw target angle has improved by less than fifteen degrees, this adapter reverses the turn side
+ * raw target angle has improved by less than twenty degrees, this adapter reverses the turn side
  * and owns the high-yo-yo input until the target reaches the normal attack-setup sector. Fast,
  * already-successful reversals are never changed.</p>
  */
 public final class EnergyFighterAdaptiveReversalAdapter {
     private static final int PROGRESS_CHECK_TICKS = 40;
-    private static final double MIN_PROGRESS_DEG = 15.0;
+    private static final double MIN_PROGRESS_DEG = 20.0;
     private static final double HANDOFF_RAW_ANGLE_DEG = 48.0;
     private static final Map<UUID, State> STATES = new ConcurrentHashMap<>();
 
