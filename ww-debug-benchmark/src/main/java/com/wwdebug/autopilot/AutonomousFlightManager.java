@@ -8,7 +8,9 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.phys.Vec3;
 
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -21,6 +23,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class AutonomousFlightManager {
     private static final Map<UUID, SessionEntry> SESSIONS = new ConcurrentHashMap<>();
     private static final Set<UUID> MISSING_PROFILE_WARNINGS = ConcurrentHashMap.newKeySet();
+    private static final Field SESSION_RUNWAY_FORWARD = sessionField("runwayForward");
 
     private AutonomousFlightManager() {
     }
@@ -92,11 +95,9 @@ public final class AutonomousFlightManager {
                 desiredPitch = Mth.clamp((agl - 3.0) * 0.36, 4.5, 10.0);
                 stage = "descent";
             } else if (agl > 3.0) {
-                // Continue a shallow descent instead of handing control back to the old pull-up law.
                 desiredPitch = 2.0;
                 stage = "roundout";
             } else {
-                // At wheel height, arrest the descent without climbing away from the runway.
                 desiredPitch = -0.5;
                 stage = "ground_cushion";
             }
@@ -118,10 +119,15 @@ public final class AutonomousFlightManager {
             } else {
                 engine = 0.12f;
             }
-            return new AdaptedControl(copyWith(planned, z, engine,
-                    "native_flare_" + stage + "_with_energy_margin",
+
+            Vec3 runway = runwayForward(session, planned.desiredDirection());
+            double desiredYaw = Math.toDegrees(Math.atan2(-runway.x, runway.z));
+            double headingError = Mth.wrapDegrees((float) (desiredYaw - snapshot.yawDeg()));
+            float x = (float) Mth.clamp(headingError / 38.0, -0.65, 0.65);
+            return new AdaptedControl(copyWithHeading(planned, x, z, engine, runway, headingError,
+                    "native_flare_" + stage + "_with_runway_heading",
                     "native_landing_" + stage + "_adapter"), true,
-                    "flare_" + stage + "_continues_until_ground_contact");
+                    "flare_" + stage + "_holds_runway_heading_until_ground_contact");
         }
 
         if (session.phase() == FlightPhase.GO_AROUND && !snapshot.onGround()) {
@@ -170,6 +176,51 @@ public final class AutonomousFlightManager {
                 reason,
                 safetyOverride
         );
+    }
+
+    private static FlightControlOutput copyWithHeading(FlightControlOutput original, float x, float z,
+                                                        float engineTarget, Vec3 desiredDirection,
+                                                        double headingError, String reason,
+                                                        String safetyOverride) {
+        return new FlightControlOutput(
+                x,
+                original.y(),
+                z,
+                engineTarget,
+                desiredDirection,
+                original.targetAltitude(),
+                original.targetSpeedBps(),
+                headingError,
+                original.altitudeError(),
+                original.speedErrorBps(),
+                original.stallRisk(),
+                original.terrainRisk(),
+                reason,
+                safetyOverride
+        );
+    }
+
+    private static Vec3 runwayForward(AutopilotSession session, Vec3 fallback) {
+        try {
+            Object value = SESSION_RUNWAY_FORWARD.get(session);
+            if (value instanceof Vec3 vector && vector.horizontalDistanceSqr() > 1.0e-8) {
+                return new Vec3(vector.x, 0.0, vector.z).normalize();
+            }
+        } catch (IllegalAccessException ignored) {
+            // Fall through to the controller's desired direction.
+        }
+        Vec3 horizontal = new Vec3(fallback.x, 0.0, fallback.z);
+        return horizontal.lengthSqr() > 1.0e-8 ? horizontal.normalize() : new Vec3(0.0, 0.0, 1.0);
+    }
+
+    private static Field sessionField(String name) {
+        try {
+            Field field = AutopilotSession.class.getDeclaredField(name);
+            field.setAccessible(true);
+            return field;
+        } catch (NoSuchFieldException exception) {
+            throw new ExceptionInInitializerError(exception);
+        }
     }
 
     public static void serverTick(MinecraftServer server) {
