@@ -22,7 +22,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class EnergyFighterCounterattackGate {
     private static final double MIN_START_DISTANCE = 105.0;
-    private static final double MAX_START_DISTANCE = 155.0;
+    private static final double MAX_START_DISTANCE = 175.0;
     private static final double MAX_START_CLOSURE_BPS = -20.0;
     private static final double MIN_ATTACKER_AIM_ERROR_DEG = 45.0;
     private static final Set<UUID> ACTIVE = ConcurrentHashMap.newKeySet();
