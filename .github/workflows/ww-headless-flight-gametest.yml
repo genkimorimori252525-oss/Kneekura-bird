@@ -25,6 +25,7 @@ on:
           - dogfight
           - dogfight_crossing
           - dogfight_energy
+          - dogfight_evasive
   pull_request:
     paths:
       - 'ww-debug-benchmark/**'
@@ -42,7 +43,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: ${{ fromJSON(github.event_name == 'workflow_dispatch' && format('["{0}"]', inputs.scenario) || '["landing","turn","stall","terrain","targeting","weapons","formation","dogfight","dogfight_crossing","dogfight_energy","full"]') }}
+        scenario: ${{ fromJSON(github.event_name == 'workflow_dispatch' && format('["{0}"]', inputs.scenario) || '["dogfight_evasive"]') }}
     env:
       FLIGHT_TEST_TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.aircraft || (matrix.scenario == 'dogfight_energy' && 'warfare_wings:p47n' || 'warfare_wings:a6m') }}
       FLIGHT_TEST_SCENARIO: ${{ matrix.scenario }}
@@ -171,6 +172,11 @@ jobs:
               --output "run-gametest/scenario-verification-$FLIGHT_TEST_SCENARIO.json"
           elif [ "$FLIGHT_TEST_SCENARIO" = "dogfight_energy" ]; then
             python tools/verify_energy_dogfight_scenario.py \
+              --root run-gametest \
+              --gradle-status "$gradle_status" \
+              --output "run-gametest/scenario-verification-$FLIGHT_TEST_SCENARIO.json"
+          elif [ "$FLIGHT_TEST_SCENARIO" = "dogfight_evasive" ]; then
+            python tools/verify_evasive_dogfight_scenario.py \
               --root run-gametest \
               --gradle-status "$gradle_status" \
               --output "run-gametest/scenario-verification-$FLIGHT_TEST_SCENARIO.json"
