@@ -20,6 +20,7 @@ on:
           - turn
           - terrain
           - targeting
+          - weapons
   pull_request:
     paths:
       - 'ww-debug-benchmark/**'
@@ -37,7 +38,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: ${{ fromJSON(github.event_name == 'workflow_dispatch' && format('["{0}"]', inputs.scenario) || '["landing","turn","stall","terrain","targeting","full"]') }}
+        scenario: ${{ fromJSON(github.event_name == 'workflow_dispatch' && format('["{0}"]', inputs.scenario) || '["landing","turn","stall","terrain","targeting","weapons","full"]') }}
     env:
       FLIGHT_TEST_TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.aircraft || 'warfare_wings:a6m' }}
       FLIGHT_TEST_SCENARIO: ${{ matrix.scenario }}
@@ -141,6 +142,11 @@ jobs:
               --output "run-gametest/scenario-verification-$FLIGHT_TEST_SCENARIO.json"
           elif [ "$FLIGHT_TEST_SCENARIO" = "targeting" ]; then
             python tools/verify_targeting_scenario.py \
+              --root run-gametest \
+              --gradle-status "$gradle_status" \
+              --output "run-gametest/scenario-verification-$FLIGHT_TEST_SCENARIO.json"
+          elif [ "$FLIGHT_TEST_SCENARIO" = "weapons" ]; then
+            python tools/verify_weapons_scenario.py \
               --root run-gametest \
               --gradle-status "$gradle_status" \
               --output "run-gametest/scenario-verification-$FLIGHT_TEST_SCENARIO.json"
