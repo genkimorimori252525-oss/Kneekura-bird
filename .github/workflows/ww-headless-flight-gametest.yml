@@ -8,17 +8,32 @@ on:
         required: true
         default: 'warfare_wings:a6m'
         type: string
+      scenario:
+        description: 'Validation starting point'
+        required: true
+        default: 'full'
+        type: choice
+        options:
+          - full
+          - landing
+          - stall
+          - turn
   pull_request:
     paths:
       - 'ww-debug-benchmark/**'
       - '.github/workflows/ww-headless-flight-gametest.yml'
 
+concurrency:
+  group: ww-headless-flight-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   headless-flight:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 45
     env:
       FLIGHT_TEST_TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.aircraft || 'warfare_wings:a6m' }}
+      FLIGHT_TEST_SCENARIO: ${{ github.event_name == 'workflow_dispatch' && inputs.scenario || 'landing' }}
     defaults:
       run:
         working-directory: ww-debug-benchmark
@@ -35,7 +50,15 @@ jobs:
         with:
           gradle-version: '8.8'
 
+      - name: Cache exact runtime aircraft mods
+        id: flight-mod-cache
+        uses: actions/cache@v4
+        with:
+          path: ww-debug-benchmark/flight-test-mods
+          key: ww-flight-mods-forge-1.20.1-ia-GsVmbbkj-ww-q94LN7dV
+
       - name: Download exact runtime aircraft mods from Modrinth
+        if: steps.flight-mod-cache.outputs.cache-hit != 'true'
         run: |
           mkdir -p flight-test-mods
           python - <<'PY'
@@ -51,6 +74,10 @@ jobs:
           }
           target = pathlib.Path('flight-test-mods')
           for version_id, required_name in versions.items():
+              destination = target / required_name
+              if destination.is_file() and destination.stat().st_size > 0:
+                  print(f'using cached {destination} ({destination.stat().st_size} bytes)')
+                  continue
               request = urllib.request.Request(
                   f'https://api.modrinth.com/v2/version/{version_id}',
                   headers={'User-Agent': 'Kamogawa-WW-Autonomous-Flight-Test/1.0'}
@@ -59,7 +86,6 @@ jobs:
                   metadata = json.load(response)
               files = metadata.get('files', [])
               selected = next((item for item in files if item.get('primary')), files[0])
-              destination = target / required_name
               download = urllib.request.Request(
                   selected['url'],
                   headers={'User-Agent': 'Kamogawa-WW-Autonomous-Flight-Test/1.0'}
@@ -74,11 +100,15 @@ jobs:
         continue-on-error: true
         run: |
           run_gametest() {
+            set -o pipefail
             gradle --no-daemon --console=plain runGameTestServer \
               -PflightTestAircraft="$FLIGHT_TEST_TARGET" \
-              > headless-flight.log 2>&1
+              -PflightTestScenario="$FLIGHT_TEST_SCENARIO" \
+              2>&1 | tee headless-flight.log
+            return ${PIPESTATUS[0]}
           }
 
+          echo "Headless scenario=$FLIGHT_TEST_SCENARIO aircraft=$FLIGHT_TEST_TARGET"
           set +e
           run_gametest
           gradle_status=$?
@@ -140,11 +170,19 @@ jobs:
               sys.exit(1)
           PY
 
+      - name: Render visual flight diagnostics
+        if: always()
+        run: |
+          python tools/render_flight_diagnostics.py \
+            --root run-gametest \
+            --output run-gametest/flight-diagnostics.html \
+            --scenario "$FLIGHT_TEST_SCENARIO"
+
       - name: Upload headless server log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ww-headless-flight-server-log
+          name: ww-headless-flight-server-log-${{ env.FLIGHT_TEST_SCENARIO }}
           path: |
             ww-debug-benchmark/headless-flight*.log
             ww-debug-benchmark/run-gametest/logs/**
@@ -155,10 +193,11 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ww-headless-flight-results
+          name: ww-headless-flight-results-${{ env.FLIGHT_TEST_SCENARIO }}
           path: |
             ww-debug-benchmark/run-gametest/**/wwdebug/**
             ww-debug-benchmark/run-gametest/config/warfare_wings/flight_profiles.json
+            ww-debug-benchmark/run-gametest/flight-diagnostics.html
           if-no-files-found: warn
 
       - name: Fail after preserving GameTest diagnostics
