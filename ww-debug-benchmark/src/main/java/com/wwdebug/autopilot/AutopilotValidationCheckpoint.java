@@ -92,6 +92,7 @@ final class AutopilotValidationCheckpoint {
         }
 
         seedSession(session, initialPhase, runwayForward, aircraft.getYRot(), scenario, initialMissionTicks);
+        ReflectiveAircraft.warmEngine(aircraft, engineTarget);
         aircraft.moveTo(position.x, position.y, position.z, aircraft.getYRot(), 0.0f);
         aircraft.setDeltaMovement(runwayForward.scale(speedBps / 20.0));
         ReflectiveAircraft.setRoll(aircraft, 0.0f);
@@ -100,8 +101,9 @@ final class AutopilotValidationCheckpoint {
         AutopilotLogManager.writeEvent(server, aircraft, "validation_checkpoint",
                 scenario + "_checkpoint_seeded", initialPhase);
         WWDebugBenchmarkMod.LOGGER.info(
-                "Seeded headless autonomous-flight checkpoint scenario={} phase={} position={} speed_bps={} mission_tick_offset={} home={} runway_forward={}",
-                scenario, initialPhase, position, speedBps, initialMissionTicks, home, runwayForward);
+                "Seeded headless autonomous-flight checkpoint scenario={} phase={} position={} speed_bps={} engine_power={} mission_tick_offset={} home={} runway_forward={}",
+                scenario, initialPhase, position, speedBps, ReflectiveAircraft.enginePower(aircraft),
+                initialMissionTicks, home, runwayForward);
         return true;
     }
 
