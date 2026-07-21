@@ -10,7 +10,10 @@ import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.TamableAnimal;
 import net.minecraft.world.entity.monster.Enemy;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
@@ -24,7 +27,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * Server-side fighter weapon policy using the installed aircraft's normal fireWeapon API.
  *
  * <p>Firing requires a hostile solution, line of sight, a narrow nose angle, a safe range,
- * no protected living entity in the shot corridor, no terrain-avoidance override and available
+ * no protected living entity in the shot corridor, no immediate terrain conflict and available
  * ammunition. The policy uses three-volley bursts at the same four-tick cadence as the native
  * Warfare Wings machine-gun client logic.</p>
  */
@@ -76,9 +79,9 @@ public final class CombatWeaponManager {
             state.inhibit(level, aircraft, "weapons_disabled_in_flight_phase");
             return;
         }
-        if (AutonomousFlightManager.terrainAvoidanceActive(aircraft.getUUID())) {
+        if (unsafeTerrainAhead(aircraft)) {
             state.cancelBurst();
-            state.inhibit(level, aircraft, "terrain_avoidance_has_control_priority");
+            state.inhibit(level, aircraft, "immediate_terrain_conflict_has_priority");
             return;
         }
         if (!solution.lineOfSight()) {
@@ -205,6 +208,17 @@ public final class CombatWeaponManager {
                 && !phase.isLandingPhase()
                 && phase != FlightPhase.STALL_ENTRY
                 && phase != FlightPhase.STALL_RECOVERY;
+    }
+
+    private static boolean unsafeTerrainAhead(Entity aircraft) {
+        Vec3 start = aircraft.getBoundingBox().getCenter();
+        Vec3 forward = aircraft.getLookAngle().normalize();
+        double lookAhead = Mth.clamp(aircraft.getDeltaMovement().horizontalDistance() * 20.0 * 2.5,
+                36.0, 96.0);
+        Vec3 end = start.add(forward.scale(lookAhead));
+        BlockHitResult hit = aircraft.level().clip(new ClipContext(
+                start, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, aircraft));
+        return hit.getType() != HitResult.Type.MISS;
     }
 
     private static Optional<LivingEntity> protectedEntityInCorridor(ServerLevel level,
