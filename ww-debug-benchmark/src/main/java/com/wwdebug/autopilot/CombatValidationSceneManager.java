@@ -11,7 +11,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /** Moves the neutral test entity out of the firing corridor after an initial inhibit period. */
 final class CombatValidationSceneManager {
     private static final Map<UUID, Scene> SCENES = new ConcurrentHashMap<>();
-    private static final long FRIENDLY_BLOCK_TICKS = 12L;
+    private static final long FRIENDLY_BLOCK_TICKS = 4L;
 
     private CombatValidationSceneManager() {
     }
