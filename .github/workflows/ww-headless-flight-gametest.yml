@@ -99,6 +99,15 @@ jobs:
               print(f'downloaded {destination} ({destination.stat().st_size} bytes)')
           PY
 
+      - name: Inventory Warfare Wings weapon APIs
+        if: matrix.scenario == 'terrain'
+        run: |
+          mkdir -p run-gametest/api-inventory
+          python tools/inspect_weapon_api.py \
+            --jar flight-test-mods/warfare_wings-1.1.4-1.20.1-forge.jar \
+            --json-output run-gametest/api-inventory/weapon-api-inventory.json \
+            --text-output run-gametest/api-inventory/weapon-api-inventory.txt
+
       - name: Run and verify real-physics headless GameTest
         id: gametest
         continue-on-error: true
@@ -166,6 +175,7 @@ jobs:
             ww-debug-benchmark/run-gametest/config/warfare_wings/flight_profiles.json
             ww-debug-benchmark/run-gametest/scenario-verification-*.json
             ww-debug-benchmark/run-gametest/flight-diagnostics-*.html
+            ww-debug-benchmark/run-gametest/api-inventory/**
           if-no-files-found: warn
 
       - name: Fail after preserving GameTest diagnostics
