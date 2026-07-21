@@ -64,7 +64,8 @@ public final class EnergyFighterAdaptiveReversalAdapter {
                 .subtract(aircraft.getBoundingBox().getCenter()), snapshot.forward());
         double rawTargetAngle = angleDegrees(snapshot.forward(), targetDirection);
         State state = STATES.computeIfAbsent(aircraft.getUUID(), ignored ->
-                new State(rawTargetAngle, shortestTurnSign(snapshot, targetDirection)));
+                new State(rawTargetAngle, shortestTurnSign(snapshot, targetDirection),
+                        snapshot.position().y));
         state.ticks++;
         state.bestRawTargetAngle = Math.min(state.bestRawTargetAngle, rawTargetAngle);
 
@@ -158,7 +159,7 @@ public final class EnergyFighterAdaptiveReversalAdapter {
                     if (targetAircraft == null || !ReflectiveAircraft.isAirplane(targetAircraft)) {
                         targetAircraft = living;
                     }
-                    return new Target(living.getUUID(), targetAircraft);
+                    return new Target(targetAircraft);
                 });
     }
 
@@ -216,7 +217,7 @@ public final class EnergyFighterAdaptiveReversalAdapter {
         return Math.rint(value * 100.0) / 100.0;
     }
 
-    private record Target(UUID pilotUuid, Entity aircraft) {
+    private record Target(Entity aircraft) {
     }
 
     private static final class State {
@@ -230,11 +231,12 @@ public final class EnergyFighterAdaptiveReversalAdapter {
         private boolean overrideActive;
         private boolean handedOff;
 
-        private State(double initialRawTargetAngle, double initialTurnSign) {
+        private State(double initialRawTargetAngle, double initialTurnSign,
+                      double startAltitude) {
             this.initialRawTargetAngle = initialRawTargetAngle;
             this.initialTurnSign = initialTurnSign;
             this.bestRawTargetAngle = initialRawTargetAngle;
-            this.startAltitude = 0.0;
+            this.startAltitude = startAltitude;
         }
     }
 }
