@@ -8,6 +8,7 @@ import com.wwdebug.autopilot.CombatAwarenessManager;
 import com.wwdebug.autopilot.CombatWeaponGateTelemetry;
 import com.wwdebug.autopilot.CombatWeaponManager;
 import com.wwdebug.autopilot.DefensiveAirCombatManager;
+import com.wwdebug.autopilot.EnergyFighterAdaptiveReversalAdapter;
 import com.wwdebug.autopilot.EnergyFighterCounterattackGate;
 import com.wwdebug.autopilot.FixedGunFinalAlignmentAdapter;
 import com.wwdebug.autopilot.FormationFlightManager;
@@ -44,7 +45,12 @@ public abstract class VehicleEntityBenchmarkMixin {
                 // admitted only while the opponent remains inside a useful re-entry envelope.
                 boolean counterattackControl =
                         EnergyFighterCounterattackGate.applyControl(aircraft);
-                if (!counterattackControl) {
+                if (counterattackControl) {
+                    // The ordinary reversal gets forty ticks first. Only a measured slow reversal is
+                    // corrected, so successful counterattack geometry remains untouched.
+                    EnergyFighterAdaptiveReversalAdapter.applyControl(aircraft);
+                } else {
+                    EnergyFighterAdaptiveReversalAdapter.clear(aircraft.getUUID());
                     DefensiveAirCombatManager.applyControl(aircraft);
                     if (!DefensiveAirCombatManager.active(aircraft)) {
                         AirCombatManeuverManager.applyControl(aircraft);
