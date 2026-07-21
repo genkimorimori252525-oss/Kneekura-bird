@@ -83,8 +83,6 @@ public final class AutonomousFlightManager {
                     adapted.reason(), snapshot, planned, adapted.output());
         }
         FlightControlOutput applied = adapted.output();
-        // The controller uses conventional heading-error sign. Immersive Aircraft's lateral input
-        // axis is the opposite sign, so convert only at the final hardware-adapter boundary.
         ReflectiveAircraft.applyControl(aircraft, -applied.x(), applied.y(), applied.z(),
                 applied.engineTarget());
     }
@@ -135,7 +133,7 @@ public final class AutonomousFlightManager {
                 desiredPitch = 2.0;
                 stage = "roundout";
             } else {
-                desiredPitch = -0.5;
+                desiredPitch = 1.2;
                 stage = "ground_cushion";
             }
 
@@ -145,16 +143,17 @@ public final class AutonomousFlightManager {
                     0.78
             );
             double approachSpeed = session.profile().approachSpeedBps();
-            double stallEnergyGate = session.profile().stallGuardSpeedBps() * 1.45;
+            double stallGuard = session.profile().stallGuardSpeedBps();
+            double stallEnergyGate = stallGuard * 1.45;
             float engine;
-            if (snapshot.speedBps() < stallEnergyGate) {
+            if (agl <= 3.0) {
+                engine = snapshot.speedBps() < stallGuard * 1.10 ? 0.35f : 0.05f;
+            } else if (snapshot.speedBps() < stallEnergyGate) {
                 engine = 1.0f;
             } else if (snapshot.speedBps() < approachSpeed * 0.80) {
                 engine = 0.72f;
-            } else if (agl > 3.0) {
-                engine = 0.38f;
             } else {
-                engine = 0.12f;
+                engine = 0.38f;
             }
 
             Vec3 runway = runwayForward(session, planned.desiredDirection());
@@ -198,20 +197,10 @@ public final class AutonomousFlightManager {
                                                  float engineTarget, String reason,
                                                  String safetyOverride) {
         return new FlightControlOutput(
-                original.x(),
-                original.y(),
-                z,
-                engineTarget,
-                original.desiredDirection(),
-                original.targetAltitude(),
-                original.targetSpeedBps(),
-                original.headingErrorDeg(),
-                original.altitudeError(),
-                original.speedErrorBps(),
-                original.stallRisk(),
-                original.terrainRisk(),
-                reason,
-                safetyOverride
+                original.x(), original.y(), z, engineTarget, original.desiredDirection(),
+                original.targetAltitude(), original.targetSpeedBps(), original.headingErrorDeg(),
+                original.altitudeError(), original.speedErrorBps(), original.stallRisk(),
+                original.terrainRisk(), reason, safetyOverride
         );
     }
 
@@ -220,20 +209,10 @@ public final class AutonomousFlightManager {
                                                         double headingError, String reason,
                                                         String safetyOverride) {
         return new FlightControlOutput(
-                x,
-                original.y(),
-                z,
-                engineTarget,
-                desiredDirection,
-                original.targetAltitude(),
-                original.targetSpeedBps(),
-                headingError,
-                original.altitudeError(),
-                original.speedErrorBps(),
-                original.stallRisk(),
-                original.terrainRisk(),
-                reason,
-                safetyOverride
+                x, original.y(), z, engineTarget, desiredDirection, original.targetAltitude(),
+                original.targetSpeedBps(), headingError, original.altitudeError(),
+                original.speedErrorBps(), original.stallRisk(), original.terrainRisk(),
+                reason, safetyOverride
         );
     }
 
@@ -244,7 +223,6 @@ public final class AutonomousFlightManager {
                 return new Vec3(vector.x, 0.0, vector.z).normalize();
             }
         } catch (IllegalAccessException ignored) {
-            // Fall through to the controller's desired direction.
         }
         Vec3 horizontal = new Vec3(fallback.x, 0.0, fallback.z);
         return horizontal.lengthSqr() > 1.0e-8 ? horizontal.normalize() : new Vec3(0.0, 0.0, 1.0);
@@ -292,13 +270,9 @@ public final class AutonomousFlightManager {
         }
         AutopilotSession session = entry.session;
         return Optional.of(new SessionStatus(
-                aircraftUuid,
-                entry.aircraft.getName().getString(),
-                session.profile().profileId().toString(),
-                session.profile().doctrine(),
-                session.phase(),
-                session.phaseTicks(),
-                session.missionTicks(),
+                aircraftUuid, entry.aircraft.getName().getString(),
+                session.profile().profileId().toString(), session.profile().doctrine(),
+                session.phase(), session.phaseTicks(), session.missionTicks(),
                 session.transitionReason()
         ));
     }
