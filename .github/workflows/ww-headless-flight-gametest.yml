@@ -124,11 +124,18 @@ jobs:
           fi
           set -e
 
-          python tools/verify_flight_scenario.py \
-            --root run-gametest \
-            --scenario "$FLIGHT_TEST_SCENARIO" \
-            --gradle-status "$gradle_status" \
-            --output "run-gametest/scenario-verification-$FLIGHT_TEST_SCENARIO.json"
+          if [ "$FLIGHT_TEST_SCENARIO" = "terrain" ]; then
+            python tools/verify_terrain_scenario.py \
+              --root run-gametest \
+              --gradle-status "$gradle_status" \
+              --output "run-gametest/scenario-verification-$FLIGHT_TEST_SCENARIO.json"
+          else
+            python tools/verify_flight_scenario.py \
+              --root run-gametest \
+              --scenario "$FLIGHT_TEST_SCENARIO" \
+              --gradle-status "$gradle_status" \
+              --output "run-gametest/scenario-verification-$FLIGHT_TEST_SCENARIO.json"
+          fi
 
       - name: Render visual flight diagnostics
         if: always()
