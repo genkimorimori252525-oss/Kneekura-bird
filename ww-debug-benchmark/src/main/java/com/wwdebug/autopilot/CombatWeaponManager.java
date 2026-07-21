@@ -72,6 +72,15 @@ public final class CombatWeaponManager {
             return;
         }
         CombatTargetSelector.Solution solution = selected.get();
+        Optional<AirCombatManeuverManager.AimSolution> tacticalAim =
+                AirCombatManeuverManager.currentAim(aircraft.getUUID(), solution.targetUuid());
+        Vec3 firingDirection = tacticalAim.map(AirCombatManeuverManager.AimSolution::direction)
+                .orElse(solution.direction());
+        double firingDistance = tacticalAim.map(AirCombatManeuverManager.AimSolution::distanceBlocks)
+                .orElse(solution.distanceBlocks());
+        double firingAngle = tacticalAim.map(AirCombatManeuverManager.AimSolution::angleOffNoseDeg)
+                .orElse(solution.angleOffNoseDeg());
+
         Optional<AutonomousFlightManager.SessionStatus> status =
                 AutonomousFlightManager.status(aircraft.getUUID());
         if (status.isEmpty() || !combatPhase(status.get().phase())) {
@@ -89,13 +98,12 @@ public final class CombatWeaponManager {
             state.inhibit(level, aircraft, "target_line_of_sight_blocked");
             return;
         }
-        if (solution.distanceBlocks() < MIN_RANGE_BLOCKS
-                || solution.distanceBlocks() > MAX_RANGE_BLOCKS) {
+        if (firingDistance < MIN_RANGE_BLOCKS || firingDistance > MAX_RANGE_BLOCKS) {
             state.cancelBurst();
             state.inhibit(level, aircraft, "target_outside_machine_gun_range");
             return;
         }
-        if (solution.angleOffNoseDeg() > MAX_ANGLE_OFF_NOSE_DEG) {
+        if (firingAngle > MAX_ANGLE_OFF_NOSE_DEG) {
             state.cancelBurst();
             state.inhibit(level, aircraft, "target_outside_nose_firing_cone");
             return;
@@ -147,7 +155,8 @@ public final class CombatWeaponManager {
             AutopilotLogManager.writeEvent(level.getServer(), aircraft,
                     "weapon_burst_start",
                     solution.description() + ":weapons=" + weapons.size()
-                            + ":estimated_shots=" + shotsRemaining,
+                            + ":estimated_shots=" + shotsRemaining
+                            + ":lead=" + tacticalAim.isPresent(),
                     status.get().phase());
         }
         if (state.shotDelayTicks > 0) {
@@ -161,7 +170,7 @@ public final class CombatWeaponManager {
         int reserveAfter = reserveBefore;
         for (ReflectiveArmament.MountedWeapon weapon : weapons) {
             ReflectiveArmament.FireResult result = ReflectiveArmament.fire(
-                    aircraft, weapon, solution.direction());
+                    aircraft, weapon, firingDirection);
             loadedBefore += Math.max(0, result.loadedAmmoBefore());
             loadedAfter += Math.max(0, result.loadedAmmoAfter());
             reserveAfter = result.reserveAfter();
@@ -183,8 +192,13 @@ public final class CombatWeaponManager {
         AutopilotLogManager.writeEvent(level.getServer(), aircraft,
                 "weapon_fire",
                 "target_uuid=" + solution.targetUuid()
-                        + ":distance=" + round(solution.distanceBlocks())
-                        + ":angle=" + round(solution.angleOffNoseDeg())
+                        + ":distance=" + round(firingDistance)
+                        + ":angle=" + round(firingAngle)
+                        + ":raw_distance=" + round(solution.distanceBlocks())
+                        + ":raw_angle=" + round(solution.angleOffNoseDeg())
+                        + ":lead_seconds=" + tacticalAim
+                        .map(AirCombatManeuverManager.AimSolution::timeSeconds).map(CombatWeaponManager::round)
+                        .orElse(0.0)
                         + ":weapons_fired=" + fired
                         + ":loaded_before=" + loadedBefore
                         + ":loaded_after=" + loadedAfter
