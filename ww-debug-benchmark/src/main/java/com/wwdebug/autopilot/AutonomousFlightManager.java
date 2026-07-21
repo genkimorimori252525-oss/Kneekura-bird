@@ -25,6 +25,7 @@ public final class AutonomousFlightManager {
     private static final Set<UUID> MISSING_PROFILE_WARNINGS = ConcurrentHashMap.newKeySet();
     private static final Map<UUID, Integer> FLARE_EXTENSIONS = new ConcurrentHashMap<>();
     private static final Set<UUID> POST_PHYSICS_BRAKE_LOGGED = ConcurrentHashMap.newKeySet();
+    private static final Set<UUID> POST_PHYSICS_BRAKE_LOCKED = ConcurrentHashMap.newKeySet();
     private static final Field SESSION_RUNWAY_FORWARD = sessionField("runwayForward");
     private static final Field SESSION_PHASE = sessionField("phase");
     private static final Field SESSION_PHASE_TICKS = sessionField("phaseTicks");
@@ -102,10 +103,17 @@ public final class AutonomousFlightManager {
         }
 
         Vec3 velocity = aircraft.getDeltaMovement();
+        if (POST_PHYSICS_BRAKE_LOCKED.contains(aircraft.getUUID())) {
+            aircraft.setDeltaMovement(0.0, Math.min(0.0, velocity.y), 0.0);
+            return;
+        }
+
         double horizontalBpt = velocity.horizontalDistance();
         double horizontalBps = horizontalBpt * 20.0;
-        if (horizontalBps <= 0.25) {
+        if (horizontalBps <= 0.50) {
+            POST_PHYSICS_BRAKE_LOCKED.add(aircraft.getUUID());
             aircraft.setDeltaMovement(0.0, Math.min(0.0, velocity.y), 0.0);
+            logWheelBrakeLock(aircraft, horizontalBps);
             return;
         }
 
@@ -119,13 +127,27 @@ public final class AutonomousFlightManager {
         }
         double speedDropBpt = decelerationBps2 / 400.0;
         double nextHorizontalBpt = Math.max(0.0, horizontalBpt - speedDropBpt);
-        double factor = nextHorizontalBpt / horizontalBpt;
-        aircraft.setDeltaMovement(velocity.x * factor, Math.min(0.0, velocity.y), velocity.z * factor);
+        double nextHorizontalBps = nextHorizontalBpt * 20.0;
+        if (nextHorizontalBps <= 0.50) {
+            POST_PHYSICS_BRAKE_LOCKED.add(aircraft.getUUID());
+            aircraft.setDeltaMovement(0.0, Math.min(0.0, velocity.y), 0.0);
+            logWheelBrakeLock(aircraft, nextHorizontalBps);
+        } else {
+            double factor = nextHorizontalBpt / horizontalBpt;
+            aircraft.setDeltaMovement(velocity.x * factor, Math.min(0.0, velocity.y), velocity.z * factor);
+        }
 
         if (POST_PHYSICS_BRAKE_LOGGED.add(aircraft.getUUID())
                 && aircraft.level() instanceof ServerLevel level) {
             AutopilotLogManager.writeEvent(level.getServer(), aircraft, "post_physics_wheel_brake",
                     "measured_deceleration_bps2=" + decelerationBps2, FlightPhase.BRAKE);
+        }
+    }
+
+    private static void logWheelBrakeLock(Entity aircraft, double speedBps) {
+        if (aircraft.level() instanceof ServerLevel level) {
+            AutopilotLogManager.writeEvent(level.getServer(), aircraft, "post_physics_wheel_lock",
+                    "locked_below_speed_bps=" + speedBps, FlightPhase.BRAKE);
         }
     }
 
@@ -340,6 +362,7 @@ public final class AutonomousFlightManager {
         MISSING_PROFILE_WARNINGS.remove(aircraft.getUUID());
         FLARE_EXTENSIONS.remove(aircraft.getUUID());
         POST_PHYSICS_BRAKE_LOGGED.remove(aircraft.getUUID());
+        POST_PHYSICS_BRAKE_LOCKED.remove(aircraft.getUUID());
         AutopilotValidationCheckpoint.forget(aircraft.getUUID());
         if (removed == null || !(aircraft.level() instanceof ServerLevel level)) {
             return;
