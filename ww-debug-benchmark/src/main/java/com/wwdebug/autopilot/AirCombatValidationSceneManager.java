@@ -55,7 +55,18 @@ final class AirCombatValidationSceneManager {
         scene.ageTicks++;
         double vertical = scene.geometry == Geometry.STRAIGHT && scene.ageTicks > 220
                 ? Math.sin(scene.ageTicks * 0.055) * 0.018 : 0.0;
-        target.setDeltaMovement(scene.direction.scale(scene.speedBps / 20.0).add(0.0, vertical, 0.0));
+        Vec3 commandedVelocity = scene.direction.scale(scene.speedBps / 20.0)
+                .add(0.0, vertical, 0.0);
+        // No-AI living targets retain delta movement for lead calculation but do not reliably
+        // advance their world coordinates. Move the crossing qualification target explicitly so
+        // the visual path and the velocity used by the interceptor describe the same aircraft.
+        if (scene.geometry == Geometry.CROSSING) {
+            target.moveTo(target.getX() + commandedVelocity.x,
+                    target.getY() + commandedVelocity.y,
+                    target.getZ() + commandedVelocity.z,
+                    yaw(scene.direction), 0.0f);
+        }
+        target.setDeltaMovement(commandedVelocity);
         target.setNoGravity(true);
         target.fallDistance = 0.0f;
 
