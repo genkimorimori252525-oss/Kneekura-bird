@@ -7,8 +7,7 @@ import com.wwdebug.autopilot.AutopilotWheelLockAdapter;
 import com.wwdebug.autopilot.CombatAwarenessManager;
 import com.wwdebug.autopilot.CombatWeaponManager;
 import com.wwdebug.autopilot.DefensiveAirCombatManager;
-import com.wwdebug.autopilot.EnergyFighterCounterattackManager;
-import com.wwdebug.autopilot.EnergyFighterCrossingCutAdapter;
+import com.wwdebug.autopilot.EnergyFighterCounterattackGate;
 import com.wwdebug.autopilot.FormationFlightManager;
 import com.wwdebug.autopilot.MutualDogfightMissionHoldAdapter;
 import com.wwdebug.autopilot.MutualDogfightOpeningCommitmentAdapter;
@@ -38,16 +37,11 @@ public abstract class VehicleEntityBenchmarkMixin {
             boolean openingCommitment =
                     MutualDogfightOpeningCommitmentAdapter.applyControl(aircraft);
             if (!openingCommitment) {
-                // At the high-yo-yo broadside crossing, cut directly through the turn circle instead
-                // of waiting for the target to enter a narrow cone and flying past the best intercept.
-                boolean crossingCutControl = EnergyFighterCrossingCutAdapter.applyControl(aircraft);
-                if (crossingCutControl) {
-                    EnergyFighterCounterattackManager.clear(aircraft.getUUID());
-                }
-                // Counterattack recovery runs before ordinary defense. When it owns this tick, stale
-                // defensive reacquisition is never applied and cannot overwrite the turn-back.
-                boolean counterattackControl = crossingCutControl
-                        || EnergyFighterCounterattackManager.applyControl(aircraft);
+                // Let the high-yo-yo controller complete its reversal instead of replacing a steadily
+                // improving target angle with the previous long crossing-cut orbit. New starts are
+                // admitted only while the opponent remains inside a useful re-entry envelope.
+                boolean counterattackControl =
+                        EnergyFighterCounterattackGate.applyControl(aircraft);
                 if (!counterattackControl) {
                     DefensiveAirCombatManager.applyControl(aircraft);
                     if (!DefensiveAirCombatManager.active(aircraft)) {
