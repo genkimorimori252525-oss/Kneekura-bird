@@ -17,7 +17,10 @@ final class AirCombatDoctrineTuning {
     private static final Tuning ENERGY_FIGHTER = tuning(
             "energy_fighter",
             weights(1.12, 0.94, 1.04, 1.18, 1.22, 1.16, 1.0),
-            durations(26, 18, 11, 31, 40, 34, 50),
+            // Once an energy fighter has opened the range and recovered speed, another forty
+            // committed ticks can carry it outside useful combat and simulation range. Twenty
+            // ticks still establishes a real extension while allowing timely repositioning.
+            durations(26, 18, 11, 31, 20, 34, 50),
             durations(8, 10, 18, 10, 8, 8, 20),
             13.0
     );
