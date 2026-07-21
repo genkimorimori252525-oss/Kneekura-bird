@@ -18,7 +18,6 @@ final class AirCombatValidationSceneManager {
     private static final String TEST_NAME_PREFIX = "AUTOPILOT TEST ";
     private static final String AIR_TARGET_TAG = "wwcombat:air_target";
     private static final int COMBAT_WINDOW_TICKS = 620;
-    private static final int TARGET_LOOKUP_GRACE_TICKS = 30;
     private static final Map<UUID, Scene> SCENES = new ConcurrentHashMap<>();
 
     private AirCombatValidationSceneManager() {
@@ -41,15 +40,11 @@ final class AirCombatValidationSceneManager {
             return;
         }
 
-        Entity target = level.getEntity(scene.targetUuid);
+        Entity target = scene.target;
         if (target == null || target.isRemoved()) {
-            scene.missingTicks++;
-            if (scene.missingTicks >= TARGET_LOOKUP_GRACE_TICKS) {
-                finish(level, aircraft, scene, phase, "moving_target_missing_after_grace");
-            }
+            finish(level, aircraft, scene, phase, "moving_target_removed_before_window_end");
             return;
         }
-        scene.missingTicks = 0;
         scene.ageTicks++;
         // Preserve a predictable straight target during the first doctrine milestone. A tiny
         // vertical sine wave later exercises lead prediction without turning this into evasion AI.
@@ -92,8 +87,8 @@ final class AirCombatValidationSceneManager {
         }
         forward = forward.normalize();
         Vec3 right = new Vec3(-forward.z, 0.0, forward.x).normalize();
-        Vec3 position = aircraft.position().add(forward.scale(180.0))
-                .add(right.scale(18.0)).add(0.0, 6.0, 0.0);
+        Vec3 position = aircraft.position().add(forward.scale(96.0))
+                .add(right.scale(12.0)).add(0.0, 5.0, 0.0);
 
         Zombie target = EntityType.ZOMBIE.create(level);
         if (target == null) {
@@ -114,17 +109,16 @@ final class AirCombatValidationSceneManager {
         level.addFreshEntity(target);
 
         scene.started = true;
-        scene.targetUuid = target.getUUID();
+        scene.target = target;
         scene.direction = forward;
         scene.speedBps = targetSpeed;
         scene.ageTicks = 0;
-        scene.missingTicks = 0;
         AutopilotLogManager.writeEvent(level.getServer(), aircraft,
                 "dogfight_validation_started",
                 "target_uuid=" + target.getUUID()
                         + ":initial_distance=" + round(aircraft.distanceTo(target))
-                        + ":lateral_offset=18.0"
-                        + ":vertical_offset=6.0"
+                        + ":lateral_offset=12.0"
+                        + ":vertical_offset=5.0"
                         + ":target_speed_bps=" + round(targetSpeed),
                 phase);
     }
@@ -132,13 +126,17 @@ final class AirCombatValidationSceneManager {
     private static void finish(ServerLevel level, Entity aircraft, Scene scene,
                                FlightPhase phase, String reason) {
         scene.completed = true;
+        scene.target = null;
         AutopilotLogManager.writeEvent(level.getServer(), aircraft,
                 "dogfight_validation_completed",
                 reason + ":age_ticks=" + scene.ageTicks, phase);
     }
 
     static void clear(UUID aircraftUuid) {
-        SCENES.remove(aircraftUuid);
+        Scene scene = SCENES.remove(aircraftUuid);
+        if (scene != null && scene.target != null && !scene.target.isRemoved()) {
+            scene.target.discard();
+        }
     }
 
     private static Vec3 horizontal(Vec3 vector) {
@@ -150,11 +148,10 @@ final class AirCombatValidationSceneManager {
     }
 
     private static final class Scene {
-        private UUID targetUuid;
+        private Entity target;
         private Vec3 direction = Vec3.ZERO;
         private double speedBps;
         private int ageTicks;
-        private int missingTicks;
         private boolean started;
         private boolean completed;
     }
