@@ -19,15 +19,22 @@ import java.util.concurrent.ConcurrentHashMap;
  * Converts a completed energy-fighter extension into a bounded crossing re-entry.
  *
  * <p>When the opponent is already established in a turn, the energy fighter reverses across that
- * turn instead of joining the same large-radius orbit. Once the opponent reaches the forward sector,
- * control returns to the ordinary doctrine manager. All separation and final firing checks remain
- * outside this controller.</p>
+ * turn instead of joining the same large-radius orbit. Control returns to the ordinary doctrine
+ * manager either in the forward sector or when measured crossing geometry reaches its best useful
+ * broadside angle and then stops improving. All separation and final firing checks remain outside
+ * this controller.</p>
  */
 public final class EnergyFighterReengagementAdapter {
     private static final double START_MIN_DISTANCE = 88.0;
     private static final double START_MAX_DISTANCE = 155.0;
     private static final double START_MIN_ENERGY_RATIO = 1.02;
     private static final double APPROACH_RAW_ANGLE_DEG = 60.0;
+    private static final double ADAPTIVE_HANDOFF_MIN_ANGLE_DEG = 83.0;
+    private static final double ADAPTIVE_HANDOFF_MAX_ANGLE_DEG = 90.0;
+    private static final double IMPROVEMENT_EPSILON_DEG = 0.35;
+    private static final double ADAPTIVE_MAX_REGRESSION_DEG = 2.5;
+    private static final double ADAPTIVE_MIN_CLOSURE_BPS = 0.0;
+    private static final int ADAPTIVE_STALL_TICKS = 6;
     private static final int MIN_CROSS_TICKS = 20;
     private static final int MAX_CROSS_TICKS = 150;
     private static final int MAX_TOTAL_TICKS = 240;
@@ -92,12 +99,12 @@ public final class EnergyFighterReengagementAdapter {
             double turnSign = crossingTurnSign(snapshot, targetDirection, targetRoll);
             state = new State(target.pilotUuid(),
                     ReflectiveArmament.estimatedShotsRemaining(aircraft), turnSign,
-                    snapshot.position().y, targetRoll);
+                    snapshot.position().y, targetRoll, rawAngle);
             STATES.put(aircraft.getUUID(), state);
             DefensiveAirCombatManager.clear(aircraft.getUUID());
             AirCombatManeuverManager.clear(aircraft.getUUID());
             writeEvent(level, aircraft, status.get().phase(), "energy_crossing_reentry_start",
-                    state, distance, rawAngle, closure, threat.aimAngleDeg());
+                    state, distance, rawAngle, closure, threat.aimAngleDeg(), "safe_extension");
         }
 
         if (!state.targetPilotUuid.equals(target.pilotUuid())) {
@@ -120,15 +127,25 @@ public final class EnergyFighterReengagementAdapter {
 
         DefensiveAirCombatManager.clear(aircraft.getUUID());
         if (state.stage == Stage.CROSSING) {
-            if (state.stageTicks >= MIN_CROSS_TICKS
+            updateCrossingProgress(state, rawAngle);
+            boolean fixedHandoff = state.stageTicks >= MIN_CROSS_TICKS
                     && rawAngle <= APPROACH_RAW_ANGLE_DEG
-                    && distance >= 22.0 && distance <= 170.0) {
+                    && distance >= 22.0 && distance <= 170.0;
+            boolean adaptiveHandoff = state.stageTicks >= MIN_CROSS_TICKS
+                    && state.bestRawAngle >= ADAPTIVE_HANDOFF_MIN_ANGLE_DEG
+                    && state.bestRawAngle <= ADAPTIVE_HANDOFF_MAX_ANGLE_DEG
+                    && rawAngle <= state.bestRawAngle + ADAPTIVE_MAX_REGRESSION_DEG
+                    && state.stalledTicks >= ADAPTIVE_STALL_TICKS
+                    && distance >= 22.0 && distance <= 170.0
+                    && closure > ADAPTIVE_MIN_CLOSURE_BPS;
+            if (fixedHandoff || adaptiveHandoff) {
                 state.stage = Stage.APPROACH;
                 state.stageTicks = 0;
                 AirCombatManeuverManager.clear(aircraft.getUUID());
                 writeEvent(level, aircraft, status.get().phase(),
                         "energy_crossing_reentry_transition",
-                        state, distance, rawAngle, closure, threat.aimAngleDeg());
+                        state, distance, rawAngle, closure, threat.aimAngleDeg(),
+                        fixedHandoff ? "forward_sector_reached" : "best_crossing_geometry_stalled");
             } else if (state.stageTicks >= MAX_CROSS_TICKS || distance > 190.0) {
                 finish(level, aircraft, status.get().phase(), "crossing_window_expired");
                 return false;
@@ -148,9 +165,18 @@ public final class EnergyFighterReengagementAdapter {
         state.stageTicks++;
         if (state.statusTicks++ % 10 == 0) {
             writeEvent(level, aircraft, status.get().phase(), "energy_crossing_reentry_status",
-                    state, distance, rawAngle, closure, threat.aimAngleDeg());
+                    state, distance, rawAngle, closure, threat.aimAngleDeg(), "active");
         }
         return true;
+    }
+
+    private static void updateCrossingProgress(State state, double rawAngle) {
+        if (rawAngle + IMPROVEMENT_EPSILON_DEG < state.bestRawAngle) {
+            state.bestRawAngle = rawAngle;
+            state.stalledTicks = 0;
+        } else if (state.bestRawAngle <= ADAPTIVE_HANDOFF_MAX_ANGLE_DEG) {
+            state.stalledTicks++;
+        }
     }
 
     private static void applyCrossing(ServerLevel level, Entity aircraft, Entity target,
@@ -199,6 +225,8 @@ public final class EnergyFighterReengagementAdapter {
                         + ":stage_ticks=" + state.stageTicks
                         + ":turn_sign=" + state.turnSign
                         + ":target_roll=" + round(state.targetRoll)
+                        + ":best_raw_target_angle=" + round(state.bestRawAngle)
+                        + ":stalled_ticks=" + state.stalledTicks
                         + ":raw_target_angle=" + round(rawAngle),
                 snapshot, baseline(snapshot), output);
     }
@@ -347,17 +375,21 @@ public final class EnergyFighterReengagementAdapter {
 
     private static void writeEvent(ServerLevel level, Entity aircraft, FlightPhase phase,
                                    String event, State state, double distance,
-                                   double rawAngle, double closure, double attackerAim) {
+                                   double rawAngle, double closure, double attackerAim,
+                                   String reason) {
         AutopilotLogManager.writeEvent(level.getServer(), aircraft, event,
                 "stage=" + state.stage
                         + ":total_ticks=" + state.totalTicks
                         + ":stage_ticks=" + state.stageTicks
                         + ":distance=" + round(distance)
                         + ":raw_target_angle=" + round(rawAngle)
+                        + ":best_raw_target_angle=" + round(state.bestRawAngle)
+                        + ":stalled_ticks=" + state.stalledTicks
                         + ":closure=" + round(closure)
                         + ":attacker_aim_angle=" + round(attackerAim)
                         + ":turn_sign=" + state.turnSign
-                        + ":target_roll=" + round(state.targetRoll),
+                        + ":target_roll=" + round(state.targetRoll)
+                        + ":reason=" + reason,
                 phase);
     }
 
@@ -369,6 +401,8 @@ public final class EnergyFighterReengagementAdapter {
                     "energy_crossing_reentry_end",
                     "stage=" + removed.stage
                             + ":total_ticks=" + removed.totalTicks
+                            + ":best_raw_target_angle=" + round(removed.bestRawAngle)
+                            + ":stalled_ticks=" + removed.stalledTicks
                             + ":reason=" + reason,
                     phase);
         }
@@ -404,17 +438,20 @@ public final class EnergyFighterReengagementAdapter {
         private final double startAltitude;
         private final double targetRoll;
         private Stage stage = Stage.CROSSING;
+        private double bestRawAngle;
+        private int stalledTicks;
         private int totalTicks;
         private int stageTicks;
         private int statusTicks;
 
         private State(UUID targetPilotUuid, int initialShots, double turnSign,
-                      double startAltitude, double targetRoll) {
+                      double startAltitude, double targetRoll, double initialRawAngle) {
             this.targetPilotUuid = targetPilotUuid;
             this.initialShots = initialShots;
             this.turnSign = turnSign;
             this.startAltitude = startAltitude;
             this.targetRoll = targetRoll;
+            this.bestRawAngle = initialRawAngle;
         }
     }
 }
