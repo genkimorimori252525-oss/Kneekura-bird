@@ -15,22 +15,28 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-/** Bounded high-yo-yo recovery for energy fighters after a safe extension. */
+/**
+ * Converts a completed energy-fighter extension into a bounded crossing re-entry.
+ *
+ * <p>When the opponent is already established in a turn, the energy fighter reverses across that
+ * turn instead of joining the same large-radius orbit. Once the opponent reaches the forward sector,
+ * control returns to the ordinary doctrine manager. All separation and final firing checks remain
+ * outside this controller.</p>
+ */
 public final class EnergyFighterReengagementAdapter {
     private static final double START_MIN_DISTANCE = 88.0;
     private static final double START_MAX_DISTANCE = 155.0;
     private static final double START_MIN_ENERGY_RATIO = 1.02;
-    private static final double SETUP_RAW_ANGLE_DEG = 48.0;
-    private static final double HANDOFF_RAW_ANGLE_DEG = 34.0;
-    private static final int MIN_REVERSAL_TICKS = 18;
-    private static final int PLATEAU_OBSERVATION_TICKS = 60;
-    private static final int PLATEAU_TICKS = 14;
-    private static final int MAX_TICKS = 260;
+    private static final double APPROACH_RAW_ANGLE_DEG = 60.0;
+    private static final int MIN_CROSS_TICKS = 20;
+    private static final int MAX_CROSS_TICKS = 150;
+    private static final int MAX_TOTAL_TICKS = 240;
     private static final Map<UUID, State> STATES = new ConcurrentHashMap<>();
 
     private EnergyFighterReengagementAdapter() {
     }
 
+    /** @return true when this controller owns combat input for the current tick */
     public static boolean applyControl(Entity aircraft) {
         if (!(aircraft.level() instanceof ServerLevel level) || aircraft.level().isClientSide
                 || !ReflectiveAircraft.isAirplane(aircraft)
@@ -76,17 +82,21 @@ public final class EnergyFighterReengagementAdapter {
             if (!priorCombat || !target.lineOfSight()
                     || distance < START_MIN_DISTANCE || distance > START_MAX_DISTANCE
                     || closure > 0.0 || threat.aimAngleDeg() < 8.0
-                    || energyRatio < START_MIN_ENERGY_RATIO || rawAngle < SETUP_RAW_ANGLE_DEG) {
+                    || energyRatio < START_MIN_ENERGY_RATIO
+                    || rawAngle < APPROACH_RAW_ANGLE_DEG) {
                 return false;
             }
+
+            FlightSnapshot targetSnapshot = FlightSnapshot.capture(target.aircraft());
+            double targetRoll = targetSnapshot.rollDeg();
+            double turnSign = crossingTurnSign(snapshot, targetDirection, targetRoll);
             state = new State(target.pilotUuid(),
-                    ReflectiveArmament.estimatedShotsRemaining(aircraft),
-                    shortestTurnSign(snapshot, targetDirection, target.aircraft()),
-                    snapshot.position().y, rawAngle);
+                    ReflectiveArmament.estimatedShotsRemaining(aircraft), turnSign,
+                    snapshot.position().y, targetRoll);
             STATES.put(aircraft.getUUID(), state);
             DefensiveAirCombatManager.clear(aircraft.getUUID());
             AirCombatManeuverManager.clear(aircraft.getUUID());
-            log(level, aircraft, status.get().phase(), "energy_reengagement_start",
+            writeEvent(level, aircraft, status.get().phase(), "energy_crossing_reentry_start",
                     state, distance, rawAngle, closure, threat.aimAngleDeg());
         }
 
@@ -95,11 +105,11 @@ public final class EnergyFighterReengagementAdapter {
             return false;
         }
         if (ReflectiveArmament.estimatedShotsRemaining(aircraft) < state.initialShots) {
-            finish(level, aircraft, status.get().phase(), "weapon_fire_confirmed");
+            finish(level, aircraft, status.get().phase(), "fire_confirmed");
             return false;
         }
-        if (state.ticks >= MAX_TICKS) {
-            finish(level, aircraft, status.get().phase(), "timeout");
+        if (state.totalTicks >= MAX_TOTAL_TICKS) {
+            finish(level, aircraft, status.get().phase(), "total_timeout");
             return false;
         }
         if (credibleThreat(distance, closure, rawAngle, threat)) {
@@ -109,122 +119,88 @@ public final class EnergyFighterReengagementAdapter {
         }
 
         DefensiveAirCombatManager.clear(aircraft.getUUID());
-        updateProgress(level, aircraft, status.get().phase(), state,
-                distance, rawAngle, closure, threat.aimAngleDeg());
-
-        if (state.stage == Stage.REVERSAL && state.stageTicks >= MIN_REVERSAL_TICKS
-                && rawAngle <= SETUP_RAW_ANGLE_DEG && distance >= 22.0 && distance <= 165.0) {
-            state.stage = Stage.ATTACK_SETUP;
-            state.stageTicks = 0;
-            AirCombatManeuverManager.clear(aircraft.getUUID());
-            log(level, aircraft, status.get().phase(), "energy_reengagement_transition",
-                    state, distance, rawAngle, closure, threat.aimAngleDeg());
+        if (state.stage == Stage.CROSSING) {
+            if (state.stageTicks >= MIN_CROSS_TICKS
+                    && rawAngle <= APPROACH_RAW_ANGLE_DEG
+                    && distance >= 22.0 && distance <= 170.0) {
+                state.stage = Stage.APPROACH;
+                state.stageTicks = 0;
+                AirCombatManeuverManager.clear(aircraft.getUUID());
+                writeEvent(level, aircraft, status.get().phase(),
+                        "energy_crossing_reentry_transition",
+                        state, distance, rawAngle, closure, threat.aimAngleDeg());
+            } else if (state.stageTicks >= MAX_CROSS_TICKS || distance > 190.0) {
+                finish(level, aircraft, status.get().phase(), "crossing_window_expired");
+                return false;
+            }
         }
 
-        if (state.stage == Stage.REVERSAL) {
-            applyReversal(level, aircraft, target.aircraft(), snapshot, profile,
+        if (state.stage == Stage.CROSSING) {
+            applyCrossing(level, aircraft, target.aircraft(), snapshot, profile,
                     targetDirection, rawAngle, state, status.get().phase());
-        } else if (rawAngle > HANDOFF_RAW_ANGLE_DEG) {
-            applySetup(level, aircraft, target.aircraft(), snapshot, profile,
-                    rawAngle, state, status.get().phase());
         } else {
             AirCombatManeuverManager.applyControl(aircraft);
             applyFinalAlignment(level, aircraft, target, snapshot, profile,
                     rawAngle, closure, status.get().phase());
         }
 
-        state.ticks++;
+        state.totalTicks++;
         state.stageTicks++;
         if (state.statusTicks++ % 10 == 0) {
-            log(level, aircraft, status.get().phase(), "energy_reengagement_status",
+            writeEvent(level, aircraft, status.get().phase(), "energy_crossing_reentry_status",
                     state, distance, rawAngle, closure, threat.aimAngleDeg());
         }
         return true;
     }
 
-    private static void updateProgress(ServerLevel level, Entity aircraft, FlightPhase phase,
-                                       State state, double distance, double rawAngle,
-                                       double closure, double attackerAim) {
-        if (rawAngle + 0.7 < state.bestRawAngle) {
-            state.bestRawAngle = rawAngle;
-            state.worseningTicks = 0;
-            return;
-        }
-        state.worseningTicks++;
-        if (!state.directCut && state.stageTicks >= PLATEAU_OBSERVATION_TICKS
-                && state.bestRawAngle <= 105.0
-                && rawAngle <= state.bestRawAngle + 10.0
-                && state.worseningTicks >= PLATEAU_TICKS) {
-            state.directCut = true;
-            state.worseningTicks = 0;
-            log(level, aircraft, phase, "energy_reengagement_direct_cut",
-                    state, distance, rawAngle, closure, attackerAim);
-        }
-    }
-
-    private static void applyReversal(ServerLevel level, Entity aircraft, Entity target,
+    private static void applyCrossing(ServerLevel level, Entity aircraft, Entity target,
                                       FlightSnapshot snapshot, FlightProfile profile,
                                       Vec3 targetDirection, double rawAngle,
                                       State state, FlightPhase phase) {
-        double leadTicks = state.directCut ? 5.0 : 7.0;
         Vec3 leadPoint = target.getBoundingBox().getCenter()
-                .add(target.getDeltaMovement().scale(leadTicks));
+                .add(target.getDeltaMovement().scale(5.0));
         Vec3 desired = safeNormalize(leadPoint.subtract(aircraft.getBoundingBox().getCenter()),
                 targetDirection);
         Vec3 horizontalDesired = safeNormalize(horizontal(desired), snapshot.horizontalForward());
         double headingError = headingError(snapshot, horizontalDesired);
-        float x = state.directCut
-                ? (float) Mth.clamp(headingError / 15.0, -0.92, 0.92)
-                : (float) (state.turnSign * 0.86);
-        double targetAltitude = state.directCut
-                ? target.position().y + 8.0
-                : Math.max(target.position().y + 10.0,
-                state.startAltitude + (state.stageTicks < 52 ? 32.0 : 18.0));
-        double altitudeError = targetAltitude - snapshot.position().y;
-        double desiredPitch = Mth.clamp(-altitudeError * (state.directCut ? 0.22 : 0.19)
-                + snapshot.verticalSpeedBps() * 0.28, -12.0, 8.0);
-        if (snapshot.speedBps() < profile.turnSpeedFloorBps() * 0.90) {
-            desiredPitch = Math.max(desiredPitch, -2.0);
-            x *= 0.58f;
-        }
-        float z = (float) Mth.clamp((desiredPitch - snapshot.pitchDeg()) / 15.0,
-                -0.82, 0.76);
-        double targetSpeed = state.directCut
-                ? Math.max(profile.stallGuardSpeedBps() * 2.2, profile.cruiseSpeedBps())
-                : Math.max(profile.cruiseSpeedBps() + 7.0, snapshot.speedBps() + 2.0);
-        float engine = state.directCut ? 0.62f : 1.0f;
-        apply(level, aircraft, snapshot, new FlightControlOutput(x, 0.0f, z, engine,
-                horizontalDesired, targetAltitude, targetSpeed, headingError, altitudeError,
-                targetSpeed - snapshot.speedBps(),
-                snapshot.speedBps() < profile.stallGuardSpeedBps(), false,
-                state.directCut ? "energy_reengagement_direct_cut" : "energy_reengagement_high_yoyo",
-                "energy_reengagement_reversal"), state, rawAngle, phase);
-    }
 
-    private static void applySetup(ServerLevel level, Entity aircraft, Entity target,
-                                   FlightSnapshot snapshot, FlightProfile profile,
-                                   double rawAngle, State state, FlightPhase phase) {
-        Vec3 leadPoint = target.getBoundingBox().getCenter()
-                .add(target.getDeltaMovement().scale(6.0));
-        Vec3 desired = safeNormalize(leadPoint.subtract(aircraft.getBoundingBox().getCenter()),
-                snapshot.forward());
-        Vec3 horizontalDesired = safeNormalize(horizontal(desired), snapshot.horizontalForward());
-        double headingError = headingError(snapshot, horizontalDesired);
-        float x = (float) Mth.clamp(headingError / 24.0, -0.90, 0.90);
-        double targetAltitude = target.position().y + 8.0;
+        float x = (float) (state.turnSign * 0.92);
+        double targetAltitude = Math.max(target.position().y + 8.0, state.startAltitude + 14.0);
         double altitudeError = targetAltitude - snapshot.position().y;
-        double desiredPitch = Mth.clamp(-altitudeError * 0.18
-                + snapshot.verticalSpeedBps() * 0.28, -10.0, 8.0);
-        float z = (float) Mth.clamp((desiredPitch - snapshot.pitchDeg()) / 15.0,
-                -0.78, 0.78);
-        double targetSpeed = Math.max(profile.cruiseSpeedBps() + 3.0,
-                target.getDeltaMovement().horizontalDistance() * 20.0 + 2.0);
-        apply(level, aircraft, snapshot, new FlightControlOutput(x, 0.0f, z, 0.82f,
+        double desiredPitch = Mth.clamp(-altitudeError * 0.22
+                + snapshot.verticalSpeedBps() * 0.25, -12.0, 8.0);
+        double targetSpeed = Math.max(profile.stallGuardSpeedBps() * 2.15,
+                profile.cruiseSpeedBps() + 1.0);
+        float engineTarget;
+        if (snapshot.speedBps() > targetSpeed + 3.0) {
+            engineTarget = 0.20f;
+        } else if (snapshot.speedBps() < targetSpeed - 1.0) {
+            engineTarget = 1.0f;
+        } else {
+            engineTarget = 0.58f;
+        }
+        if (snapshot.speedBps() < profile.turnSpeedFloorBps() * 0.82) {
+            desiredPitch = Math.max(desiredPitch, -2.0);
+            x *= 0.62f;
+            engineTarget = 1.0f;
+        }
+        float z = (float) Mth.clamp((desiredPitch - snapshot.pitchDeg()) / 14.0,
+                -0.84, 0.80);
+
+        FlightControlOutput output = new FlightControlOutput(x, 0.0f, z, engineTarget,
                 horizontalDesired, targetAltitude, targetSpeed, headingError, altitudeError,
                 targetSpeed - snapshot.speedBps(),
                 snapshot.speedBps() < profile.stallGuardSpeedBps(), false,
-                "energy_reengagement_attack_setup", "energy_reengagement_attack_setup"),
-                state, rawAngle, phase);
+                "energy_crossing_reentry", "opposite_turn_crossing");
+        ReflectiveAircraft.applyControl(aircraft, -output.x(), output.y(), output.z(),
+                output.engineTarget());
+        AutopilotLogManager.writeControlAdapter(level.getServer(), aircraft, phase,
+                "stage=" + state.stage
+                        + ":stage_ticks=" + state.stageTicks
+                        + ":turn_sign=" + state.turnSign
+                        + ":target_roll=" + round(state.targetRoll)
+                        + ":raw_target_angle=" + round(rawAngle),
+                snapshot, baseline(snapshot), output);
     }
 
     private static void applyFinalAlignment(ServerLevel level, Entity aircraft, Target target,
@@ -233,45 +209,41 @@ public final class EnergyFighterReengagementAdapter {
         Optional<AirCombatManeuverManager.AimSolution> aim =
                 AirCombatManeuverManager.currentAim(aircraft.getUUID(), target.pilotUuid());
         if (aim.isEmpty() || !target.lineOfSight()
-                || aim.get().distanceBlocks() < 38.0 || aim.get().distanceBlocks() > 170.0
-                || aim.get().angleOffNoseDeg() < 3.0 || aim.get().angleOffNoseDeg() > 8.0
-                || rawAngle > 35.0 || closure < 20.0) {
+                || aim.get().distanceBlocks() < 24.0 || aim.get().distanceBlocks() > 170.0
+                || aim.get().angleOffNoseDeg() < 3.0 || aim.get().angleOffNoseDeg() > 12.0
+                || rawAngle > 45.0 || closure < -6.0) {
             return;
         }
+
         Vec3 horizontalDesired = safeNormalize(horizontal(aim.get().direction()),
                 snapshot.horizontalForward());
         double headingError = headingError(snapshot, horizontalDesired);
-        float x = (float) Mth.clamp(headingError / 10.0, -0.92, 0.92);
-        double altitudeError = aim.get().aimPoint().y - snapshot.position().y;
-        double desiredPitch = Mth.clamp(-altitudeError * 0.24
+        float x = (float) Mth.clamp(headingError / 9.0, -0.94, 0.94);
+        double targetAltitude = aim.get().aimPoint().y;
+        double altitudeError = targetAltitude - snapshot.position().y;
+        double desiredPitch = Mth.clamp(-altitudeError * 0.26
                 + snapshot.verticalSpeedBps() * 0.25, -12.0, 10.0);
+        if (snapshot.speedBps() < profile.stallGuardSpeedBps() * 1.30) {
+            desiredPitch = Math.max(desiredPitch, -2.0);
+            x *= 0.65f;
+        }
         float z = (float) Mth.clamp((desiredPitch - snapshot.pitchDeg()) / 12.0,
                 -0.86, 0.86);
-        double targetSpeed = Math.max(profile.stallGuardSpeedBps() * 1.65,
+        double targetSpeed = Math.max(profile.stallGuardSpeedBps() * 1.70,
                 target.aircraft().getDeltaMovement().horizontalDistance() * 20.0);
-        FlightControlOutput output = new FlightControlOutput(x, 0.0f, z,
-                closure > 45.0 ? 0.18f : 0.38f, horizontalDesired,
-                aim.get().aimPoint().y, targetSpeed, headingError, altitudeError,
+        float engineTarget = closure > 40.0 ? 0.18f : 0.38f;
+
+        FlightControlOutput output = new FlightControlOutput(x, 0.0f, z, engineTarget,
+                horizontalDesired, targetAltitude, targetSpeed, headingError, altitudeError,
                 targetSpeed - snapshot.speedBps(),
                 snapshot.speedBps() < profile.stallGuardSpeedBps(), false,
-                "energy_reengagement_final_alignment", "fixed_gun_final_alignment");
+                "energy_crossing_final_alignment", "forward_alignment");
         ReflectiveAircraft.applyControl(aircraft, -output.x(), output.y(), output.z(),
                 output.engineTarget());
         AutopilotLogManager.writeControlAdapter(level.getServer(), aircraft, phase,
                 "lead_angle=" + round(aim.get().angleOffNoseDeg())
-                        + ":raw_target_angle=" + round(rawAngle),
-                snapshot, baseline(snapshot), output);
-    }
-
-    private static void apply(ServerLevel level, Entity aircraft, FlightSnapshot snapshot,
-                              FlightControlOutput output, State state,
-                              double rawAngle, FlightPhase phase) {
-        ReflectiveAircraft.applyControl(aircraft, -output.x(), output.y(), output.z(),
-                output.engineTarget());
-        AutopilotLogManager.writeControlAdapter(level.getServer(), aircraft, phase,
-                "stage=" + state.stage + ":ticks=" + state.ticks
-                        + ":direct_cut=" + state.directCut
-                        + ":raw_target_angle=" + round(rawAngle),
+                        + ":raw_target_angle=" + round(rawAngle)
+                        + ":closure=" + round(closure),
                 snapshot, baseline(snapshot), output);
     }
 
@@ -284,7 +256,8 @@ public final class EnergyFighterReengagementAdapter {
                     }
                     Entity targetAircraft = pilot.getVehicle();
                     return targetAircraft != null && ReflectiveAircraft.isAirplane(targetAircraft)
-                            ? new Target(pilot.getUUID(), targetAircraft, solution.lineOfSight()) : null;
+                            ? new Target(pilot.getUUID(), targetAircraft, solution.lineOfSight())
+                            : null;
                 });
     }
 
@@ -309,14 +282,15 @@ public final class EnergyFighterReengagementAdapter {
                 || (distance <= 105.0 && closure >= 8.0 && threat.aimAngleDeg() <= 5.0);
     }
 
-    private static double shortestTurnSign(FlightSnapshot snapshot, Vec3 direction, Entity target) {
-        double error = headingError(snapshot,
-                safeNormalize(horizontal(direction), snapshot.horizontalForward()));
-        if (Math.abs(error) >= 3.0) {
-            return error > 0.0 ? 1.0 : -1.0;
+    private static double crossingTurnSign(FlightSnapshot snapshot, Vec3 direction,
+                                           double targetRoll) {
+        if (Math.abs(targetRoll) >= 4.0) {
+            return targetRoll < 0.0 ? 1.0 : -1.0;
         }
-        double roll = FlightSnapshot.capture(target).rollDeg();
-        return Math.abs(roll) >= 4.0 ? (roll < 0.0 ? 1.0 : -1.0) : 1.0;
+        Vec3 horizontalTarget = safeNormalize(horizontal(direction),
+                snapshot.horizontalForward());
+        double error = headingError(snapshot, horizontalTarget);
+        return error >= 0.0 ? 1.0 : -1.0;
     }
 
     private static double headingError(FlightSnapshot snapshot, Vec3 desired) {
@@ -371,27 +345,30 @@ public final class EnergyFighterReengagementAdapter {
                 && phase != FlightPhase.STALL_ENTRY && phase != FlightPhase.STALL_RECOVERY;
     }
 
-    private static void log(ServerLevel level, Entity aircraft, FlightPhase phase, String event,
-                            State state, double distance, double rawAngle,
-                            double closure, double attackerAim) {
+    private static void writeEvent(ServerLevel level, Entity aircraft, FlightPhase phase,
+                                   String event, State state, double distance,
+                                   double rawAngle, double closure, double attackerAim) {
         AutopilotLogManager.writeEvent(level.getServer(), aircraft, event,
-                "stage=" + state.stage + ":ticks=" + state.ticks
+                "stage=" + state.stage
+                        + ":total_ticks=" + state.totalTicks
                         + ":stage_ticks=" + state.stageTicks
                         + ":distance=" + round(distance)
                         + ":raw_target_angle=" + round(rawAngle)
-                        + ":best_raw_target_angle=" + round(state.bestRawAngle)
                         + ":closure=" + round(closure)
                         + ":attacker_aim_angle=" + round(attackerAim)
-                        + ":direct_cut=" + state.directCut,
+                        + ":turn_sign=" + state.turnSign
+                        + ":target_roll=" + round(state.targetRoll),
                 phase);
     }
 
-    private static void finish(ServerLevel level, Entity aircraft, FlightPhase phase, String reason) {
+    private static void finish(ServerLevel level, Entity aircraft,
+                               FlightPhase phase, String reason) {
         State removed = STATES.remove(aircraft.getUUID());
         if (removed != null) {
             AutopilotLogManager.writeEvent(level.getServer(), aircraft,
-                    "energy_reengagement_end",
-                    "stage=" + removed.stage + ":ticks=" + removed.ticks
+                    "energy_crossing_reentry_end",
+                    "stage=" + removed.stage
+                            + ":total_ticks=" + removed.totalTicks
                             + ":reason=" + reason,
                     phase);
         }
@@ -409,32 +386,35 @@ public final class EnergyFighterReengagementAdapter {
         return Math.rint(value * 100.0) / 100.0;
     }
 
-    private enum Stage { REVERSAL, ATTACK_SETUP }
+    private enum Stage {
+        CROSSING,
+        APPROACH
+    }
 
-    private record Target(UUID pilotUuid, Entity aircraft, boolean lineOfSight) { }
+    private record Target(UUID pilotUuid, Entity aircraft, boolean lineOfSight) {
+    }
 
-    private record ThreatView(double aimAngleDeg, boolean lineOfSight) { }
+    private record ThreatView(double aimAngleDeg, boolean lineOfSight) {
+    }
 
     private static final class State {
         private final UUID targetPilotUuid;
         private final int initialShots;
         private final double turnSign;
         private final double startAltitude;
-        private double bestRawAngle;
-        private Stage stage = Stage.REVERSAL;
-        private int ticks;
+        private final double targetRoll;
+        private Stage stage = Stage.CROSSING;
+        private int totalTicks;
         private int stageTicks;
         private int statusTicks;
-        private int worseningTicks;
-        private boolean directCut;
 
         private State(UUID targetPilotUuid, int initialShots, double turnSign,
-                      double startAltitude, double initialRawAngle) {
+                      double startAltitude, double targetRoll) {
             this.targetPilotUuid = targetPilotUuid;
             this.initialShots = initialShots;
             this.turnSign = turnSign;
             this.startAltitude = startAltitude;
-            this.bestRawAngle = initialRawAngle;
+            this.targetRoll = targetRoll;
         }
     }
 }
