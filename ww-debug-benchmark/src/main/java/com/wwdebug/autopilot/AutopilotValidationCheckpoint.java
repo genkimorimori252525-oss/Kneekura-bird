@@ -1,6 +1,7 @@
 package com.wwdebug.autopilot;
 
 import com.wwdebug.benchmark.ReflectiveAircraft;
+import com.wwdebug.benchmark.ReflectiveArmament;
 import com.wwdebug.benchmark.WWDebugBenchmarkMod;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
@@ -105,6 +106,14 @@ final class AutopilotValidationCheckpoint {
                 initialMissionTicks = 15_400;
                 buildTargetingScene((ServerLevel) aircraft.level(), home, runwayForward);
             }
+            case "weapons" -> {
+                initialPhase = FlightPhase.CRUISE_OUTBOUND;
+                position = home.subtract(runwayForward.scale(220.0)).add(0.0, 78.0, 0.0);
+                speedBps = profile.cruiseSpeedBps();
+                engineTarget = 0.72f;
+                initialMissionTicks = 15_200;
+                buildWeaponsScene((ServerLevel) aircraft.level(), aircraft, home, runwayForward);
+            }
             default -> {
                 APPLIED.remove(aircraft.getUUID());
                 WWDebugBenchmarkMod.LOGGER.warn(
@@ -151,7 +160,23 @@ final class AutopilotValidationCheckpoint {
     private static void buildTargetingScene(ServerLevel level, Vec3 home, Vec3 runwayForward) {
         Vec3 neutralPosition = home.subtract(runwayForward.scale(90.0)).add(0.0, 78.0, 0.0);
         Vec3 hostilePosition = home.subtract(runwayForward.scale(55.0)).add(0.0, 78.0, 0.0);
+        spawnTargetPair(level, neutralPosition, hostilePosition, null, runwayForward);
+    }
 
+    private static void buildWeaponsScene(ServerLevel level, Entity aircraft,
+                                          Vec3 home, Vec3 runwayForward) {
+        if (!ReflectiveArmament.equipTestMachineGun(aircraft, 16)) {
+            throw new IllegalStateException("Could not equip Warfare Wings machine gun and gunpowder");
+        }
+        Vec3 neutralPosition = home.subtract(runwayForward.scale(120.0)).add(0.0, 78.0, 0.0);
+        Vec3 hostilePosition = home.subtract(runwayForward.scale(55.0)).add(0.0, 78.0, 0.0);
+        Vec3 runwayRight = new Vec3(-runwayForward.z, 0.0, runwayForward.x).normalize();
+        spawnTargetPair(level, neutralPosition, hostilePosition, aircraft, runwayRight);
+    }
+
+    private static void spawnTargetPair(ServerLevel level, Vec3 neutralPosition,
+                                        Vec3 hostilePosition, Entity aircraft,
+                                        Vec3 lateralDirection) {
         Villager neutral = EntityType.VILLAGER.create(level);
         if (neutral == null) {
             throw new IllegalStateException("Could not create neutral targeting-test villager");
@@ -174,9 +199,12 @@ final class AutopilotValidationCheckpoint {
         hostile.moveTo(hostilePosition.x, hostilePosition.y, hostilePosition.z, 180.0f, 0.0f);
         level.addFreshEntity(hostile);
 
+        if (aircraft != null && lateralDirection != null) {
+            CombatValidationSceneManager.register(aircraft, neutral, hostile, lateralDirection);
+        }
         WWDebugBenchmarkMod.LOGGER.info(
-                "Built targeting test scene neutral_villager={} hostile_zombie={}",
-                neutralPosition, hostilePosition);
+                "Built combat test scene neutral_villager={} hostile_zombie={} armed={}",
+                neutralPosition, hostilePosition, aircraft != null);
     }
 
     static void forget(UUID aircraftUuid) {
