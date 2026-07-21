@@ -108,7 +108,7 @@ final class AutopilotValidationCheckpoint {
             }
             case "weapons" -> {
                 initialPhase = FlightPhase.CRUISE_OUTBOUND;
-                position = home.subtract(runwayForward.scale(220.0)).add(0.0, 78.0, 0.0);
+                position = home.subtract(runwayForward.scale(180.0)).add(0.0, 78.0, 0.0);
                 speedBps = profile.cruiseSpeedBps();
                 engineTarget = 0.72f;
                 initialMissionTicks = 15_200;
@@ -168,7 +168,7 @@ final class AutopilotValidationCheckpoint {
         if (!ReflectiveArmament.equipTestMachineGun(aircraft, 16)) {
             throw new IllegalStateException("Could not equip Warfare Wings machine gun and gunpowder");
         }
-        Vec3 neutralPosition = home.subtract(runwayForward.scale(120.0)).add(0.0, 78.0, 0.0);
+        Vec3 neutralPosition = home.subtract(runwayForward.scale(115.0)).add(0.0, 78.0, 0.0);
         Vec3 hostilePosition = home.subtract(runwayForward.scale(55.0)).add(0.0, 78.0, 0.0);
         Vec3 runwayRight = new Vec3(-runwayForward.z, 0.0, runwayForward.x).normalize();
         spawnTargetPair(level, neutralPosition, hostilePosition, aircraft, runwayRight);
