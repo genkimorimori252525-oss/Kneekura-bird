@@ -1,6 +1,7 @@
 package com.wwdebug.benchmark.mixin;
 
 import com.wwdebug.autopilot.AutonomousFlightManager;
+import com.wwdebug.autopilot.AutopilotWheelLockAdapter;
 import com.wwdebug.benchmark.BenchmarkManager;
 import net.minecraft.world.entity.Entity;
 import org.spongepowered.asm.mixin.Mixin;
@@ -21,6 +22,8 @@ public abstract class VehicleEntityBenchmarkMixin {
 
     @Inject(method = "tick", at = @At("TAIL"), remap = false, require = 0)
     private void wwdebugBenchmark$applyPostPhysicsWheelBrake(CallbackInfo callbackInfo) {
-        AutonomousFlightManager.applyPostPhysics((Entity) (Object) this);
+        Entity aircraft = (Entity) (Object) this;
+        AutonomousFlightManager.applyPostPhysics(aircraft);
+        AutopilotWheelLockAdapter.apply(aircraft);
     }
 }
