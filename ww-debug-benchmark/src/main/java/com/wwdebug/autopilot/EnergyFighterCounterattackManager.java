@@ -18,27 +18,28 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Converts a successful energy-fighter defensive extension into a real counterattack.
+ * Converts a completed energy-fighter extension into a crossing counterattack.
  *
- * <p>While the attacker is opening the range and has lost its firing solution, this controller
- * temporarily suppresses stale defensive reacquisition. It first points the fighter at the
- * attacker's current position, rather than a future point behind the aircraft, and only hands
- * control back to the normal lead-aimed offensive selector after the target is inside the forward
- * quarter. Terrain and predicted aircraft-separation safety remain above this controller.</p>
+ * <p>The recovery starts only after the fighter has gained useful separation and speed while the
+ * attacker has lost its firing solution. Instead of joining the turn fighter's circle, the energy
+ * fighter reverses against the attacker's bank direction, performs a zooming turn-back, and hands
+ * control to the normal lead-aimed offensive selector once the target reaches the forward quarter.
+ * Terrain and predicted aircraft separation remain higher-priority controls.</p>
  */
 public final class EnergyFighterCounterattackManager {
-    private static final double SEARCH_HORIZONTAL = 210.0;
-    private static final double SEARCH_VERTICAL = 110.0;
-    private static final double START_MIN_DISTANCE = 48.0;
-    private static final double START_MAX_CLOSURE_BPS = -4.0;
-    private static final double START_MIN_ATTACKER_AIM_ERROR_DEG = 5.5;
+    private static final double SEARCH_HORIZONTAL = 220.0;
+    private static final double SEARCH_VERTICAL = 120.0;
+    private static final double START_MIN_DISTANCE = 96.0;
+    private static final double START_MAX_CLOSURE_BPS = 2.0;
+    private static final double START_MIN_ATTACKER_AIM_ERROR_DEG = 10.0;
+    private static final double START_MIN_ENERGY_RATIO = 1.08;
     private static final double IMMINENT_FIRE_ANGLE_DEG = 4.5;
-    private static final double RENEWED_THREAT_MAX_AIM_ERROR_DEG = 8.0;
-    private static final double RENEWED_THREAT_MIN_CLOSURE_BPS = 4.0;
-    private static final double RENEWED_THREAT_MAX_DISTANCE = 105.0;
-    private static final double ATTACK_SETUP_RAW_ANGLE_DEG = 28.0;
-    private static final double ATTACK_SETUP_MAX_LEAD_ANGLE_DEG = 88.0;
-    private static final int MIN_TURN_BACK_TICKS = 18;
+    private static final double RENEWED_THREAT_MAX_AIM_ERROR_DEG = 6.0;
+    private static final double RENEWED_THREAT_MIN_CLOSURE_BPS = 12.0;
+    private static final double RENEWED_THREAT_MAX_DISTANCE = 90.0;
+    private static final double ATTACK_SETUP_RAW_ANGLE_DEG = 42.0;
+    private static final double ATTACK_SETUP_MAX_LEAD_ANGLE_DEG = 95.0;
+    private static final int MIN_TURN_BACK_TICKS = 20;
     private static final int MAX_RECOVERY_TICKS = 240;
     private static final Map<UUID, State> STATES = new ConcurrentHashMap<>();
 
@@ -46,9 +47,7 @@ public final class EnergyFighterCounterattackManager {
     }
 
     /**
-     * Applies counterattack control before the ordinary defensive controller runs.
-     *
-     * @return true when normal defensive/offensive selection must be skipped for this tick
+     * @return true when this controller owns the combat input for the current tick
      */
     public static boolean applyControl(Entity aircraft) {
         if (aircraft.level().isClientSide || !(aircraft.level() instanceof ServerLevel level)
@@ -73,22 +72,26 @@ public final class EnergyFighterCounterattackManager {
             return false;
         }
 
+        FlightSnapshot snapshot = FlightSnapshot.capture(aircraft);
         Threat threat = findThreat(level, aircraft, pilot).orElse(null);
         State state = STATES.get(aircraft.getUUID());
         if (state == null) {
-            if (!DefensiveAirCombatManager.active(aircraft)
-                    || threat == null || !staleOpening(threat)) {
+            boolean priorCombatControl = DefensiveAirCombatManager.active(aircraft)
+                    || AirCombatManeuverManager.active(aircraft);
+            if (!priorCombatControl || threat == null
+                    || !staleOpening(threat, snapshot, profile)) {
                 return false;
             }
+            double turnSign = oppositeAttackerTurn(threat.attacker(), snapshot);
             state = new State(threat.attacker().getUUID(), threat.attackerPilotUuid(),
-                    ReflectiveArmament.estimatedShotsRemaining(aircraft));
+                    ReflectiveArmament.estimatedShotsRemaining(aircraft), turnSign);
             STATES.put(aircraft.getUUID(), state);
             DefensiveAirCombatManager.clear(aircraft.getUUID());
             AirCombatManeuverManager.clear(aircraft.getUUID());
             AutopilotLogManager.writeEvent(level.getServer(), aircraft,
                     "energy_counterattack_start",
                     description(state, threat, -1.0)
-                            + ":reason=stale_opening_rear_threat",
+                            + ":reason=energy_and_spacing_recovered",
                     status.get().phase());
         }
 
@@ -97,13 +100,20 @@ public final class EnergyFighterCounterattackManager {
                     "attacker_no_longer_tracking");
             return false;
         }
+
+        Vec3 targetDirection = safeNormalize(threat.attacker().getBoundingBox().getCenter()
+                .subtract(aircraft.getBoundingBox().getCenter()), snapshot.forward());
+        double rawTargetAngle = angleDegrees(snapshot.forward(), targetDirection);
         int shotsRemaining = ReflectiveArmament.estimatedShotsRemaining(aircraft);
         if (shotsRemaining < state.initialShotsRemaining) {
             finish(level, aircraft, status.get().phase(), state, threat,
                     "counterattack_weapon_fire_confirmed");
             return false;
         }
-        if (threat.imminentFire() || renewedThreat(threat)) {
+        // A real rear-quarter firing solution still wins. During a nearly reciprocal crossing,
+        // however, allow the energy fighter to finish bringing its own guns through the target.
+        if ((threat.imminentFire() && rawTargetAngle > 55.0)
+                || (renewedThreat(threat) && rawTargetAngle > 70.0)) {
             AirCombatManeuverManager.clear(aircraft.getUUID());
             finish(level, aircraft, status.get().phase(), state, threat,
                     threat.imminentFire() ? "attacker_firing_solution_restored"
@@ -117,27 +127,22 @@ public final class EnergyFighterCounterattackManager {
         }
 
         DefensiveAirCombatManager.clear(aircraft.getUUID());
-        FlightSnapshot snapshot = FlightSnapshot.capture(aircraft);
-        Vec3 targetDirection = safeNormalize(threat.attacker().getBoundingBox().getCenter()
-                .subtract(aircraft.getBoundingBox().getCenter()), snapshot.forward());
-        double rawTargetAngle = angleDegrees(snapshot.forward(), targetDirection);
         Optional<AirCombatManeuverManager.AimSolution> ownAim = Optional.empty();
-
         if (state.stage == Stage.TURN_BACK) {
             applyTurnBackControl(level, aircraft, threat.attacker(), snapshot, profile,
                     targetDirection, rawTargetAngle, state);
             if (state.stageTicks >= MIN_TURN_BACK_TICKS
                     && rawTargetAngle <= ATTACK_SETUP_RAW_ANGLE_DEG
-                    && threat.distance() >= 20.0 && threat.distance() <= 150.0) {
+                    && threat.distance() >= 20.0 && threat.distance() <= 155.0) {
                 transition(level, aircraft, status.get().phase(), state, Stage.ATTACK_SETUP,
-                        threat, rawTargetAngle, "target_entered_forward_quarter");
+                        threat, rawTargetAngle, "crossing_target_entered_forward_quarter");
                 AirCombatManeuverManager.clear(aircraft.getUUID());
             }
         } else {
             AirCombatManeuverManager.applyControl(aircraft);
             ownAim = AirCombatManeuverManager.currentAim(
                     aircraft.getUUID(), state.attackerPilotUuid);
-            if (state.stageTicks >= 10
+            if (state.stageTicks >= 12
                     && ownAim.map(AirCombatManeuverManager.AimSolution::angleOffNoseDeg)
                     .orElse(180.0) > ATTACK_SETUP_MAX_LEAD_ANGLE_DEG) {
                 AirCombatManeuverManager.clear(aircraft.getUUID());
@@ -171,24 +176,25 @@ public final class EnergyFighterCounterattackManager {
                 snapshot.horizontalForward());
         double desiredYaw = Math.toDegrees(Math.atan2(-horizontalDesired.x, horizontalDesired.z));
         double headingError = Mth.wrapDegrees((float) (desiredYaw - snapshot.yawDeg()));
-        float x = (float) Mth.clamp(headingError / 46.0, -0.70, 0.70);
-        double targetAltitude = target.position().y + 8.0;
+        float x = (float) (state.turnSign * 0.82);
+        double targetAltitude = state.stageTicks < 65
+                ? snapshot.position().y + 30.0 : target.position().y + 12.0;
         double altitudeError = targetAltitude - snapshot.position().y;
-        double desiredPitch = Mth.clamp(-altitudeError * 0.16
-                + snapshot.verticalSpeedBps() * 0.28, -9.0, 7.0);
+        double desiredPitch = Mth.clamp(-altitudeError * 0.18
+                + snapshot.verticalSpeedBps() * 0.30, -11.0, 8.0);
         if (snapshot.speedBps() < profile.turnSpeedFloorBps() * 0.92) {
             desiredPitch = Math.max(desiredPitch, -2.5);
-            x *= 0.52f;
+            x *= 0.55f;
         }
-        float z = (float) Mth.clamp((desiredPitch - snapshot.pitchDeg()) / 18.0,
-                -0.68, 0.68);
-        double targetSpeed = Math.max(profile.cruiseSpeedBps() + 7.0,
+        float z = (float) Mth.clamp((desiredPitch - snapshot.pitchDeg()) / 17.0,
+                -0.72, 0.72);
+        double targetSpeed = Math.max(profile.cruiseSpeedBps() + 8.0,
                 snapshot.speedBps() + 3.0);
         FlightControlOutput output = new FlightControlOutput(x, 0.0f, z, 1.0f,
                 horizontalDesired, targetAltitude, targetSpeed, headingError, altitudeError,
                 targetSpeed - snapshot.speedBps(),
                 snapshot.speedBps() < profile.stallGuardSpeedBps(), false,
-                "energy_counterattack_turn_back", "energy_counterattack_turn_back");
+                "energy_counterattack_opposite_reversal", "energy_counterattack_turn_back");
         ReflectiveAircraft.applyControl(aircraft, -output.x(), output.y(), output.z(),
                 output.engineTarget());
         AutopilotLogManager.writeControlAdapter(level.getServer(), aircraft,
@@ -197,8 +203,21 @@ public final class EnergyFighterCounterattackManager {
                         .orElse(FlightPhase.ABORTED),
                 "stage=" + state.stage
                         + ":recovery_ticks=" + state.recoveryTicks
+                        + ":turn_sign=" + state.turnSign
                         + ":raw_target_angle=" + round(rawTargetAngle),
                 snapshot, baseline(snapshot), output);
+    }
+
+    private static double oppositeAttackerTurn(Entity attacker, FlightSnapshot defenderSnapshot) {
+        FlightSnapshot attackerSnapshot = FlightSnapshot.capture(attacker);
+        if (Math.abs(attackerSnapshot.rollDeg()) >= 4.0) {
+            return attackerSnapshot.rollDeg() < 0.0 ? 1.0 : -1.0;
+        }
+        Vec3 direction = safeNormalize(attacker.getBoundingBox().getCenter()
+                .subtract(defenderSnapshot.position()), defenderSnapshot.forward());
+        double desiredYaw = Math.toDegrees(Math.atan2(-direction.x, direction.z));
+        double shortestHeading = Mth.wrapDegrees((float) (desiredYaw - defenderSnapshot.yawDeg()));
+        return shortestHeading < 0.0 ? 1.0 : -1.0;
     }
 
     private static Optional<Threat> findThreat(ServerLevel level, Entity defender,
@@ -243,11 +262,14 @@ public final class EnergyFighterCounterattackManager {
                 attackerAimAngle, closure, selected.get().lineOfSight(), imminentFire, score));
     }
 
-    private static boolean staleOpening(Threat threat) {
+    private static boolean staleOpening(Threat threat, FlightSnapshot snapshot,
+                                        FlightProfile profile) {
+        double energyRatio = snapshot.speedBps() / Math.max(1.0, profile.cruiseSpeedBps());
         return threat.lineOfSight()
                 && threat.distance() >= START_MIN_DISTANCE
                 && threat.closureBps() <= START_MAX_CLOSURE_BPS
                 && threat.attackerAimAngleDeg() >= START_MIN_ATTACKER_AIM_ERROR_DEG
+                && energyRatio >= START_MIN_ENERGY_RATIO
                 && !threat.imminentFire();
     }
 
@@ -271,7 +293,8 @@ public final class EnergyFighterCounterattackManager {
                         + ":distance=" + round(threat.distance())
                         + ":raw_target_angle=" + round(rawTargetAngle)
                         + ":attacker_aim_angle=" + round(threat.attackerAimAngleDeg())
-                        + ":closure=" + round(threat.closureBps()),
+                        + ":closure=" + round(threat.closureBps())
+                        + ":turn_sign=" + state.turnSign,
                 phase);
     }
 
@@ -316,6 +339,7 @@ public final class EnergyFighterCounterattackManager {
         return "stage=" + state.stage
                 + ":stage_ticks=" + state.stageTicks
                 + ":recovery_ticks=" + state.recoveryTicks
+                + ":turn_sign=" + state.turnSign
                 + ":initial_shots=" + state.initialShotsRemaining;
     }
 
@@ -380,15 +404,18 @@ public final class EnergyFighterCounterattackManager {
         private final UUID attackerUuid;
         private final UUID attackerPilotUuid;
         private final int initialShotsRemaining;
+        private final double turnSign;
         private Stage stage = Stage.TURN_BACK;
         private int stageTicks;
         private int recoveryTicks;
         private int statusTicks;
 
-        private State(UUID attackerUuid, UUID attackerPilotUuid, int initialShotsRemaining) {
+        private State(UUID attackerUuid, UUID attackerPilotUuid,
+                      int initialShotsRemaining, double turnSign) {
             this.attackerUuid = attackerUuid;
             this.attackerPilotUuid = attackerPilotUuid;
             this.initialShotsRemaining = initialShotsRemaining;
+            this.turnSign = turnSign;
         }
     }
 }
