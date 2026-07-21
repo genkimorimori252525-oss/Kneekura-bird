@@ -122,7 +122,7 @@ final class AutopilotValidationCheckpoint {
                 initialPhase = FlightPhase.CRUISE_OUTBOUND;
                 speedBps = profile.cruiseSpeedBps();
                 engineTarget = 0.72f;
-                initialMissionTicks = 15_000;
+                initialMissionTicks = 10_000;
                 if (aircraft.getTags().contains(FORMATION_WINGMAN_TAG)) {
                     position = aircraft.position();
                 } else {
@@ -201,10 +201,10 @@ final class AutopilotValidationCheckpoint {
         Vec3 right = new Vec3(-runwayForward.z, 0.0, runwayForward.x).normalize();
 
         spawnFormationWingman(level, leader, 1,
-                leaderPosition.add(right.scale(3.0)).subtract(runwayForward.scale(1.5)),
+                leaderPosition.add(right.scale(7.0)).subtract(runwayForward.scale(2.0)),
                 runwayForward, cruiseSpeedBps);
         spawnFormationWingman(level, leader, 2,
-                leaderPosition.add(right.scale(62.0)).subtract(runwayForward.scale(68.0)).add(0.0, 8.0, 0.0),
+                leaderPosition.subtract(right.scale(28.0)).subtract(runwayForward.scale(30.0)).add(0.0, 6.0, 0.0),
                 runwayForward, cruiseSpeedBps);
         WWDebugBenchmarkMod.LOGGER.info(
                 "Built formation validation scene leader={} group={} cruise_speed_bps={}",
@@ -228,7 +228,9 @@ final class AutopilotValidationCheckpoint {
         wingman.setDeltaMovement(runwayForward.scale(cruiseSpeedBps / 20.0));
         ReflectiveAircraft.fillFuel(wingman);
         ReflectiveAircraft.warmEngine(wingman, 0.72f);
-        level.addFreshEntity(wingman);
+        if (!level.addFreshEntity(wingman)) {
+            throw new IllegalStateException("Could not add formation wingman " + slot + " to level");
+        }
 
         Villager pilot = EntityType.VILLAGER.create(level);
         if (pilot == null) {
@@ -238,10 +240,15 @@ final class AutopilotValidationCheckpoint {
         pilot.setSilent(true);
         pilot.setInvulnerable(true);
         pilot.moveTo(position.x, position.y, position.z, leader.getYRot(), 0.0f);
-        level.addFreshEntity(pilot);
+        if (!level.addFreshEntity(pilot)) {
+            throw new IllegalStateException("Could not add formation wingman pilot " + slot + " to level");
+        }
         if (!pilot.startRiding(wingman, true)) {
             throw new IllegalStateException("Could not mount formation wingman pilot " + slot);
         }
+        WWDebugBenchmarkMod.LOGGER.info(
+                "Spawned formation wingman slot={} uuid={} pilot_uuid={} position={}",
+                slot, wingman.getUUID(), pilot.getUUID(), position);
     }
 
     private static void spawnTargetPair(ServerLevel level, Vec3 neutralPosition,
@@ -285,7 +292,7 @@ final class AutopilotValidationCheckpoint {
                                     float currentYaw, String scenario, int missionTicks) {
         try {
             PHASE.set(session, phase);
-            PHASE_TICKS.setInt(session, 0);
+            PHASE_TICKS.setInt(session, "formation".equals(scenario) ? -500 : 0);
             MISSION_TICKS.setInt(session, missionTicks);
             STABLE_TICKS.setInt(session, 0);
             FALLING_TICKS.setInt(session, 0);
