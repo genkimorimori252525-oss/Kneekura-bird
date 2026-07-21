@@ -10,16 +10,16 @@ import net.minecraft.world.phys.Vec3;
 import java.util.Comparator;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Makes the reciprocal GameTest opening deterministic without granting either fighter a rear shot.
  *
- * <p>Both aircraft commit to their opposed entry headings until they have crossed and opened the
- * range again. Ordinary offensive and defensive combat resumes immediately afterward. This keeps
- * random entity UUIDs and a one-tick jink choice from changing the entire test geometry before the
- * doctrine controllers have a meaningful chance to act.</p>
+ * <p>Both aircraft commit to their opposed entry headings until they have passed the first closest
+ * approach and opened the range again. Ordinary offensive and defensive combat resumes immediately
+ * afterward. Each aircraft can complete this lock only once per GameTest process.</p>
  */
 public final class MutualDogfightOpeningCommitmentAdapter {
     private static final String SCENARIO_PROPERTY = "wwdebug.flightGameTestScenario";
@@ -30,10 +30,13 @@ public final class MutualDogfightOpeningCommitmentAdapter {
     private static final double SEARCH_VERTICAL = 110.0;
     private static final double START_MAX_DISTANCE = 250.0;
     private static final double START_MIN_CLOSURE_BPS = 24.0;
-    private static final double CROSSED_DISTANCE = 48.0;
+    private static final double PASS_MAX_CLOSURE_BPS = -2.0;
+    private static final double PASS_MIN_OPENING_FROM_CLOSEST = 8.0;
+    private static final double MAX_USEFUL_CLOSEST_DISTANCE = 90.0;
     private static final double RELEASE_DISTANCE = 64.0;
-    private static final int MAX_COMMITMENT_TICKS = 120;
+    private static final int MAX_COMMITMENT_TICKS = 100;
     private static final Map<UUID, State> STATES = new ConcurrentHashMap<>();
+    private static final Set<UUID> COMPLETED = ConcurrentHashMap.newKeySet();
 
     private MutualDogfightOpeningCommitmentAdapter() {
     }
@@ -48,7 +51,10 @@ public final class MutualDogfightOpeningCommitmentAdapter {
                 || !ReflectiveAircraft.isAirplane(aircraft)
                 || !ReflectiveAircraft.isControllable(aircraft)
                 || !participant(aircraft)) {
-            clear(aircraft.getUUID());
+            STATES.remove(aircraft.getUUID());
+            return false;
+        }
+        if (COMPLETED.contains(aircraft.getUUID())) {
             return false;
         }
 
@@ -100,14 +106,20 @@ public final class MutualDogfightOpeningCommitmentAdapter {
         }
 
         state.minimumDistance = Math.min(state.minimumDistance, distance);
-        if (distance <= CROSSED_DISTANCE) {
-            state.reachedCrossing = true;
+        if (closure >= START_MIN_CLOSURE_BPS) {
+            state.observedClosing = true;
         }
-        if ((state.reachedCrossing && distance >= RELEASE_DISTANCE && closure < 0.0)
+        if (state.observedClosing
+                && state.minimumDistance <= MAX_USEFUL_CLOSEST_DISTANCE
+                && closure <= PASS_MAX_CLOSURE_BPS
+                && distance >= state.minimumDistance + PASS_MIN_OPENING_FROM_CLOSEST) {
+            state.passedClosestApproach = true;
+        }
+        if ((state.passedClosestApproach && distance >= RELEASE_DISTANCE)
                 || state.ticks >= MAX_COMMITMENT_TICKS) {
             finish(level, aircraft, status.get().phase(),
                     state.ticks >= MAX_COMMITMENT_TICKS
-                            ? "opening_commitment_timeout" : "opposed_crossing_complete");
+                            ? "opening_commitment_timeout" : "first_closest_approach_complete");
             return false;
         }
 
@@ -175,11 +187,12 @@ public final class MutualDogfightOpeningCommitmentAdapter {
                                String reason) {
         State removed = STATES.remove(aircraft.getUUID());
         if (removed != null) {
+            COMPLETED.add(aircraft.getUUID());
             AutopilotLogManager.writeEvent(level.getServer(), aircraft,
                     "mutual_opening_commitment_end",
                     "ticks=" + removed.ticks
                             + ":minimum_distance=" + round(removed.minimumDistance)
-                            + ":reached_crossing=" + removed.reachedCrossing
+                            + ":passed_closest_approach=" + removed.passedClosestApproach
                             + ":reason=" + reason,
                     phase);
         }
@@ -195,7 +208,8 @@ public final class MutualDogfightOpeningCommitmentAdapter {
                 + ":distance=" + round(distance)
                 + ":minimum_distance=" + round(state.minimumDistance)
                 + ":closure=" + round(closure)
-                + ":reached_crossing=" + state.reachedCrossing;
+                + ":observed_closing=" + state.observedClosing
+                + ":passed_closest_approach=" + state.passedClosestApproach;
     }
 
     private static double relativeClosureBps(Entity defender, Entity attacker) {
@@ -232,7 +246,8 @@ public final class MutualDogfightOpeningCommitmentAdapter {
         private double minimumDistance;
         private int ticks;
         private int statusTicks;
-        private boolean reachedCrossing;
+        private boolean observedClosing;
+        private boolean passedClosestApproach;
 
         private State(UUID opponentUuid, Vec3 entryDirection,
                       double entryAltitude, double initialDistance) {
