@@ -60,24 +60,28 @@ final class AutopilotValidationCheckpoint {
         Vec3 position;
         double speedBps;
         float engineTarget;
+        int initialMissionTicks;
         switch (scenario) {
             case "landing" -> {
                 initialPhase = FlightPhase.FINAL;
                 position = home.subtract(runwayForward.scale(150.0)).add(0.0, 36.0, 0.0);
                 speedBps = profile.approachSpeedBps() * 1.10;
                 engineTarget = 0.72f;
+                initialMissionTicks = 12_500;
             }
             case "stall" -> {
                 initialPhase = FlightPhase.STALL_ENTRY;
                 position = home.add(0.0, 125.0, 0.0);
                 speedBps = profile.climbTargetSpeedBps();
                 engineTarget = 0.0f;
+                initialMissionTicks = 14_000;
             }
             case "turn" -> {
                 initialPhase = FlightPhase.TURN_LEFT;
                 position = home.add(0.0, 100.0, 0.0);
                 speedBps = Math.max(profile.turnSpeedFloorBps(), profile.cruiseSpeedBps());
                 engineTarget = 0.72f;
+                initialMissionTicks = 15_000;
             }
             default -> {
                 APPLIED.remove(aircraft.getUUID());
@@ -87,7 +91,7 @@ final class AutopilotValidationCheckpoint {
             }
         }
 
-        seedSession(session, initialPhase, runwayForward, aircraft.getYRot(), scenario);
+        seedSession(session, initialPhase, runwayForward, aircraft.getYRot(), scenario, initialMissionTicks);
         aircraft.moveTo(position.x, position.y, position.z, aircraft.getYRot(), 0.0f);
         aircraft.setDeltaMovement(runwayForward.scale(speedBps / 20.0));
         ReflectiveAircraft.setRoll(aircraft, 0.0f);
@@ -96,8 +100,8 @@ final class AutopilotValidationCheckpoint {
         AutopilotLogManager.writeEvent(server, aircraft, "validation_checkpoint",
                 scenario + "_checkpoint_seeded", initialPhase);
         WWDebugBenchmarkMod.LOGGER.info(
-                "Seeded headless autonomous-flight checkpoint scenario={} phase={} position={} speed_bps={} home={} runway_forward={}",
-                scenario, initialPhase, position, speedBps, home, runwayForward);
+                "Seeded headless autonomous-flight checkpoint scenario={} phase={} position={} speed_bps={} mission_tick_offset={} home={} runway_forward={}",
+                scenario, initialPhase, position, speedBps, initialMissionTicks, home, runwayForward);
         return true;
     }
 
@@ -106,11 +110,11 @@ final class AutopilotValidationCheckpoint {
     }
 
     private static void seedSession(AutopilotSession session, FlightPhase phase, Vec3 direction,
-                                    float currentYaw, String scenario) {
+                                    float currentYaw, String scenario, int missionTicks) {
         try {
             PHASE.set(session, phase);
             PHASE_TICKS.setInt(session, 0);
-            MISSION_TICKS.setInt(session, 0);
+            MISSION_TICKS.setInt(session, missionTicks);
             STABLE_TICKS.setInt(session, 0);
             FALLING_TICKS.setInt(session, 0);
             PHASE_DIRECTION.set(session, direction);
