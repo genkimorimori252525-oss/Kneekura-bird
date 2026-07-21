@@ -75,6 +75,22 @@ def altitude_values(frames: list[dict[str, Any]]) -> list[float]:
     return result
 
 
+def route_coordinates(frame: dict[str, Any]) -> tuple[float, float, float] | None:
+    position = frame.get("position") or {}
+    home = frame.get("home_position") or {}
+    forward = frame.get("runway_forward") or {}
+    px, py, pz = finite(position.get("x")), finite(position.get("y")), finite(position.get("z"))
+    hx, hy, hz = finite(home.get("x")), finite(home.get("y")), finite(home.get("z"))
+    fx, fz = finite(forward.get("x")), finite(forward.get("z"))
+    if None in (px, py, pz, hx, hy, hz, fx, fz):
+        return None
+    dx, dz = px - hx, pz - hz
+    longitudinal = dx * fx + dz * fz
+    lateral = dx * -fz + dz * fx
+    relative_altitude = py - hy
+    return longitudinal, lateral, relative_altitude
+
+
 def transition_reasons(rows: list[dict[str, Any]]) -> set[str]:
     return {
         str(row.get("reason"))
@@ -179,10 +195,51 @@ def verify_stall(rows: list[dict[str, Any]], frames: list[dict[str, Any]],
             "aircraft touched the ground during stall entry or recovery")
 
 
+def verify_terrain(rows: list[dict[str, Any]], frames: list[dict[str, Any]],
+                   errors: list[str], metrics: dict[str, Any]) -> None:
+    starts = [row for row in rows if row.get("event") == "terrain_avoidance_start"]
+    active = [frame for frame in frames
+              if str(frame.get("safety_override", "")).startswith("predictive_terrain_avoidance")
+              or frame.get("safety_override") == "terrain_emergency_climb"]
+    require(bool(starts), errors, "predictive terrain avoidance never activated")
+    require(bool(active), errors, "terrain avoidance produced no applied control frames")
+
+    coordinates = [value for frame in frames if (value := route_coordinates(frame)) is not None]
+    require(bool(coordinates), errors, "terrain route coordinates were unavailable")
+    if coordinates:
+        longitudes = [value[0] for value in coordinates]
+        laterals = [value[1] for value in coordinates]
+        relative_altitudes = [value[2] for value in coordinates]
+        metrics["maximum_longitudinal_blocks"] = max(longitudes)
+        metrics["maximum_abs_lateral_blocks"] = max(abs(value) for value in laterals)
+        metrics["maximum_relative_altitude_blocks"] = max(relative_altitudes)
+        require(max(longitudes) > -45.0, errors,
+                f"aircraft did not pass the obstacle wall: max longitudinal {max(longitudes):.3f}")
+        require(max(abs(value) for value in laterals) >= 24.0
+                or max(relative_altitudes) >= 112.0,
+                errors, "aircraft neither routed around nor climbed above the obstacle wall")
+
+    selected = active if active else frames
+    speeds = numeric(selected, "speed_bps")
+    guards = numeric(selected, "profile_stall_guard_speed_bps")
+    require(bool(speeds and guards), errors,
+            "terrain-avoidance speed or stall-guard telemetry was unavailable")
+    if speeds and guards:
+        minimum_speed = min(speeds)
+        guard = guards[0]
+        metrics["terrain_minimum_speed_bps"] = minimum_speed
+        metrics["terrain_stall_guard_speed_bps"] = guard
+        require(minimum_speed >= guard * 0.80, errors,
+                f"terrain avoidance lost unsafe airspeed: {minimum_speed:.3f}/{guard:.3f}")
+
+    require(not any(bool(frame.get("on_ground")) for frame in frames), errors,
+            "aircraft touched the ground during terrain avoidance")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, required=True)
-    parser.add_argument("--scenario", choices=("full", "landing", "stall", "turn"), required=True)
+    parser.add_argument("--scenario", choices=("full", "landing", "stall", "turn", "terrain"), required=True)
     parser.add_argument("--gradle-status", type=int, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
@@ -196,10 +253,9 @@ def main() -> int:
     metrics["crash_reports"] = [str(path) for path in crash_reports]
 
     # Full and landing scenarios are expected to end through PARKED and a clean GameTest exit.
-    # Focused turn/stall scenarios intentionally stop at their short mission budget after their
-    # evidence has been recorded, so Forge reports the timeout as exit code 1 and writes a GameTest
-    # failure report. Those process-level signals are non-fatal only when the telemetry criteria
-    # below prove that the requested maneuver completed correctly.
+    # Focused turn/stall/terrain scenarios intentionally stop at their short mission budget after
+    # their evidence has been recorded, so Forge may report the timeout as exit code 1 and write a
+    # GameTest failure report. Those signals are non-fatal only when telemetry proves the maneuver.
     if args.scenario in {"full", "landing"}:
         if args.gradle_status != 0:
             errors.append(f"Gradle GameTest exit code was {args.gradle_status}")
@@ -229,6 +285,8 @@ def main() -> int:
         verify_turn(rows, frames, errors, metrics)
     elif args.scenario == "stall":
         verify_stall(rows, frames, errors, metrics)
+    elif args.scenario == "terrain":
+        verify_terrain(rows, frames, errors, metrics)
 
     result = {
         "scenario": args.scenario,
