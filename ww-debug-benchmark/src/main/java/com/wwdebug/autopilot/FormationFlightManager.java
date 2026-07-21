@@ -240,9 +240,10 @@ public final class FormationFlightManager {
     private static void writeAdapter(ServerLevel level, Entity aircraft, FlightPhase phase,
                                      FlightSnapshot snapshot, FlightControlOutput applied,
                                      String reason) {
+        float previousEngineTarget = Double.isFinite(snapshot.engineTarget())
+                ? (float) snapshot.engineTarget() : 0.0f;
         FlightControlOutput baseline = new FlightControlOutput(
-                0.0f, 0.0f, 0.0f, snapshot.engineTargetAvailable()
-                ? (float) snapshot.engineTarget() : 0.0f,
+                0.0f, 0.0f, 0.0f, previousEngineTarget,
                 snapshot.horizontalForward(), snapshot.position().y, snapshot.speedBps(),
                 0.0, 0.0, 0.0, false, false,
                 "mission_or_previous_adapter", "none");
