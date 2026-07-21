@@ -21,8 +21,8 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * <p>The selector deliberately separates available actions from their selection policy. Actions
  * have minimum commitment and cooldowns, while utility is recomputed at a fixed cadence from
- * range, aspect, closure, energy and altitude. This gives later aircraft doctrines a stable place
- * to tune how often each manoeuvre is used without rewriting the flight controller.</p>
+ * range, aspect, closure, energy and altitude. Doctrine tuning changes how often suitable actions
+ * are selected without weakening terrain or aircraft-separation safety.</p>
  */
 public final class AirCombatManeuverManager {
     private static final String AIR_TARGET_TAG = "wwcombat:air_target";
@@ -73,6 +73,7 @@ public final class AirCombatManeuverManager {
             clear(aircraft.getUUID());
             return;
         }
+        AirCombatDoctrineTuning.Tuning tuning = AirCombatDoctrineTuning.resolve(profile.doctrine());
         State state = STATES.computeIfAbsent(aircraft.getUUID(), ignored -> new State());
         state.tick();
         FlightSnapshot snapshot = FlightSnapshot.capture(aircraft);
@@ -87,9 +88,10 @@ public final class AirCombatManeuverManager {
             return;
         }
 
-        AirCombatAction chosen = selectAction(state, context, shotsRemaining);
+        AirCombatAction chosen = selectAction(state, context, shotsRemaining, tuning);
         if (chosen != state.action) {
-            transition(level, aircraft, status.get().phase(), state, chosen, context, shotsRemaining);
+            transition(level, aircraft, status.get().phase(), state, chosen, context,
+                    shotsRemaining, tuning);
         }
         state.actionTicks++;
         state.targetUuid = targetSolution.targetUuid();
@@ -102,12 +104,12 @@ public final class AirCombatManeuverManager {
         ReflectiveAircraft.applyControl(aircraft, -output.x(), output.y(), output.z(),
                 output.engineTarget());
         AutopilotLogManager.writeControlAdapter(level.getServer(), aircraft, status.get().phase(),
-                tacticalDescription(state, context, shotsRemaining), snapshot,
+                tacticalDescription(state, context, shotsRemaining, tuning), snapshot,
                 baseline(snapshot), output);
 
         if (state.statusTicks++ % 10 == 0) {
             AutopilotLogManager.writeEvent(level.getServer(), aircraft,
-                    "air_combat_status", tacticalDescription(state, context, shotsRemaining),
+                    "air_combat_status", tacticalDescription(state, context, shotsRemaining, tuning),
                     status.get().phase());
         }
     }
@@ -124,7 +126,8 @@ public final class AirCombatManeuverManager {
     }
 
     private static AirCombatAction selectAction(State state, CombatContext context,
-                                                int shotsRemaining) {
+                                                 int shotsRemaining,
+                                                 AirCombatDoctrineTuning.Tuning tuning) {
         if (shotsRemaining <= 0) {
             return AirCombatAction.DISENGAGE;
         }
@@ -135,7 +138,7 @@ public final class AirCombatManeuverManager {
             return AirCombatAction.BREAK_AWAY;
         }
         if (state.action != AirCombatAction.NONE
-                && state.actionTicks < state.action.minimumCommitTicks()) {
+                && state.actionTicks < tuning.commitment(state.action)) {
             return state.action;
         }
         if (state.action == AirCombatAction.BREAK_AWAY && context.distance() >= 45.0) {
@@ -156,12 +159,18 @@ public final class AirCombatManeuverManager {
         state.evaluationTicks = EVALUATION_INTERVAL_TICKS;
 
         EnumMap<AirCombatAction, Double> utilities = new EnumMap<>(AirCombatAction.class);
-        utilities.put(AirCombatAction.INTERCEPT, interceptUtility(context));
-        utilities.put(AirCombatAction.ATTACK_APPROACH, approachUtility(context));
-        utilities.put(AirCombatAction.FIRING_PASS, firingUtility(context));
-        utilities.put(AirCombatAction.BREAK_AWAY, breakAwayUtility(context));
-        utilities.put(AirCombatAction.EXTEND, extendUtility(state, context));
-        utilities.put(AirCombatAction.REPOSITION, repositionUtility(context));
+        utilities.put(AirCombatAction.INTERCEPT,
+                interceptUtility(context) * tuning.weight(AirCombatAction.INTERCEPT));
+        utilities.put(AirCombatAction.ATTACK_APPROACH,
+                approachUtility(context) * tuning.weight(AirCombatAction.ATTACK_APPROACH));
+        utilities.put(AirCombatAction.FIRING_PASS,
+                firingUtility(context) * tuning.weight(AirCombatAction.FIRING_PASS));
+        utilities.put(AirCombatAction.BREAK_AWAY,
+                breakAwayUtility(context) * tuning.weight(AirCombatAction.BREAK_AWAY));
+        utilities.put(AirCombatAction.EXTEND,
+                extendUtility(state, context) * tuning.weight(AirCombatAction.EXTEND));
+        utilities.put(AirCombatAction.REPOSITION,
+                repositionUtility(context) * tuning.weight(AirCombatAction.REPOSITION));
         utilities.put(AirCombatAction.DISENGAGE, 0.0);
 
         AirCombatAction best = AirCombatAction.INTERCEPT;
@@ -177,7 +186,8 @@ public final class AirCombatManeuverManager {
         }
 
         double currentUtility = utilities.getOrDefault(state.action, 0.0);
-        return state.action == AirCombatAction.NONE || bestUtility >= currentUtility + 12.0
+        return state.action == AirCombatAction.NONE
+                || bestUtility >= currentUtility + tuning.switchMargin()
                 ? best : state.action;
     }
 
@@ -228,8 +238,8 @@ public final class AirCombatManeuverManager {
     }
 
     private static FlightControlOutput controlFor(AirCombatAction action, Entity aircraft,
-                                                  Entity target, FlightSnapshot snapshot,
-                                                  FlightProfile profile, CombatContext context) {
+                                                   Entity target, FlightSnapshot snapshot,
+                                                   FlightProfile profile, CombatContext context) {
         return switch (action) {
             case INTERCEPT -> control(snapshot, context.aim().direction(),
                     context.aim().aimPoint().y + 8.0,
@@ -284,9 +294,9 @@ public final class AirCombatManeuverManager {
     }
 
     private static FlightControlOutput control(FlightSnapshot snapshot, Vec3 desired,
-                                               double targetAltitude, double targetSpeed,
-                                               FlightProfile profile, float engineTarget,
-                                               String reason, String override) {
+                                                double targetAltitude, double targetSpeed,
+                                                FlightProfile profile, float engineTarget,
+                                                String reason, String override) {
         Vec3 horizontalDesired = safeNormalize(horizontal(desired), snapshot.horizontalForward());
         double desiredYaw = Math.toDegrees(Math.atan2(-horizontalDesired.x, horizontalDesired.z));
         double headingError = Mth.wrapDegrees((float) (desiredYaw - snapshot.yawDeg()));
@@ -368,10 +378,11 @@ public final class AirCombatManeuverManager {
 
     private static void transition(ServerLevel level, Entity aircraft, FlightPhase phase,
                                    State state, AirCombatAction next, CombatContext context,
-                                   int shotsRemaining) {
+                                   int shotsRemaining,
+                                   AirCombatDoctrineTuning.Tuning tuning) {
         AirCombatAction previous = state.action;
         if (previous != AirCombatAction.NONE) {
-            state.cooldowns.put(previous, previous.cooldownTicks());
+            state.cooldowns.put(previous, tuning.cooldown(previous));
         }
         state.action = next;
         state.actionTicks = 0;
@@ -379,6 +390,7 @@ public final class AirCombatManeuverManager {
         AutopilotLogManager.writeEvent(level.getServer(), aircraft,
                 "air_combat_action_transition",
                 "from=" + previous + ":to=" + next
+                        + ":doctrine=" + tuning.name()
                         + ":distance=" + round(context.distance())
                         + ":lead_angle=" + round(context.aim().angleOffNoseDeg())
                         + ":closure=" + round(context.closureBps())
@@ -388,9 +400,11 @@ public final class AirCombatManeuverManager {
     }
 
     private static String tacticalDescription(State state, CombatContext context,
-                                              int shotsRemaining) {
+                                               int shotsRemaining,
+                                               AirCombatDoctrineTuning.Tuning tuning) {
         return "action=" + state.action
                 + ":action_ticks=" + state.actionTicks
+                + ":doctrine=" + tuning.name()
                 + ":target_uuid=" + context.aim().targetUuid()
                 + ":distance=" + round(context.distance())
                 + ":lead_angle=" + round(context.aim().angleOffNoseDeg())

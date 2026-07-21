@@ -20,11 +20,12 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Conservative target acquisition shared by future fighter weapon doctrines.
+ * Conservative target acquisition shared by fighter weapon doctrines.
  *
- * <p>This layer never fires a weapon. It deliberately excludes players, neutral entities,
- * passengers, tame animals and scoreboard allies. A target is eligible only when Minecraft marks
- * it as an {@link Enemy}, or when a mob is actively targeting the aircraft's living pilot.</p>
+ * <p>This layer never fires a weapon. It excludes players, neutral entities, passengers, tame
+ * animals, scoreboard allies and same-faction entities. When either aircraft side declares a
+ * combat faction, only an explicit directional hostile-faction tag permits acquisition. Unfactioned
+ * ordinary mobs retain the legacy Enemy/active-attacker fallback.</p>
  */
 final class CombatTargetSelector {
     private static final double HORIZONTAL_RANGE = 192.0;
@@ -108,8 +109,13 @@ final class CombatTargetSelector {
             return false;
         }
         if (aircraft.isAlliedTo(candidate) || pilot.isAlliedTo(candidate)
-                || candidate.isAlliedTo(pilot)) {
+                || candidate.isAlliedTo(pilot)
+                || CombatFactionRelations.sameFaction(aircraft, candidate)
+                || CombatFactionRelations.sameFaction(pilot, candidate)) {
             return false;
+        }
+        if (CombatFactionRelations.relationshipDefined(aircraft, pilot, candidate)) {
+            return CombatFactionRelations.explicitlyHostile(aircraft, pilot, candidate);
         }
         if (candidate instanceof Enemy) {
             return true;
@@ -128,12 +134,14 @@ final class CombatTargetSelector {
         double angle = Math.toDegrees(Math.acos(dot));
         boolean lineOfSight = clearLine(aircraft, origin, aim);
         boolean attackingPilot = target instanceof Mob mob && mob.getTarget() == pilot;
+        boolean explicitFactionHostile =
+                CombatFactionRelations.explicitlyHostile(aircraft, pilot, target);
 
         double score = 220.0 - distance;
         score += Math.max(0.0, 100.0 - angle * 2.0);
         score += lineOfSight ? 60.0 : -80.0;
         score += attackingPilot ? 120.0 : 0.0;
-        score += target instanceof Enemy ? 40.0 : 0.0;
+        score += explicitFactionHostile ? 180.0 : target instanceof Enemy ? 40.0 : 0.0;
         return new Solution(
                 target.getUUID(),
                 target.getType().toString(),
@@ -144,6 +152,8 @@ final class CombatTargetSelector {
                 angle,
                 lineOfSight,
                 attackingPilot,
+                explicitFactionHostile,
+                CombatFactionRelations.faction(target).orElse("none"),
                 score
         );
     }
@@ -192,6 +202,8 @@ final class CombatTargetSelector {
             double angleOffNoseDeg,
             boolean lineOfSight,
             boolean attackingPilot,
+            boolean explicitFactionHostile,
+            String targetFaction,
             double score
     ) {
         String description() {
@@ -201,6 +213,8 @@ final class CombatTargetSelector {
                     + ":angle=" + round(angleOffNoseDeg)
                     + ":los=" + lineOfSight
                     + ":attacking_pilot=" + attackingPilot
+                    + ":explicit_faction_hostile=" + explicitFactionHostile
+                    + ":target_faction=" + targetFaction
                     + ":score=" + round(score);
         }
 

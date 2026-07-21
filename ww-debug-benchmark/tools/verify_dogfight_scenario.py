@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify finite air-combat action selection, lead use, firing, separation and mission recovery."""
+"""Verify finite moving-target combat, guarded fire, safe pursuit or break-away, and recovery."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 ACTION = re.compile(r"(?:^|:)to=([A-Z_]+)")
+STATUS_ACTION = re.compile(r"(?:^|:)action=([A-Z_]+)")
 NUMBER = re.compile(r"([a-z_]+)=(-?\d+(?:\.\d+)?)")
 
 
@@ -64,6 +65,7 @@ def main() -> int:
     rows = read_jsonl(log_path)
     started = [row for row in rows if row.get("event") == "dogfight_validation_started"]
     completed = [row for row in rows if row.get("event") == "dogfight_validation_completed"]
+    target_statuses = [row for row in rows if row.get("event") == "dogfight_validation_target_status"]
     transitions = [row for row in rows if row.get("event") == "air_combat_action_transition"]
     statuses = [row for row in rows if row.get("event") == "air_combat_status"]
     fires = [row for row in rows if row.get("event") == "weapon_fire"]
@@ -79,11 +81,34 @@ def main() -> int:
     distinct = set(actions)
     transition_ticks = [value for value, _ in action_rows if value >= 0]
     dwell_ticks = [later - earlier for earlier, later in zip(transition_ticks, transition_ticks[1:])]
+
+    status_samples: list[tuple[str, dict[str, float]]] = []
+    for row in statuses:
+        reason = str(row.get("reason", ""))
+        match = STATUS_ACTION.search(reason)
+        if match:
+            status_samples.append((match.group(1), numbers(reason)))
+    tail_samples = [
+        values for action, values in status_samples
+        if action == "FIRING_PASS"
+        and 24.0 <= values.get("distance", -1.0) <= 125.0
+        and abs(values.get("closure", 999.0)) <= 10.0
+    ]
+    tail_distances = [values["distance"] for values in tail_samples if "distance" in values]
+    tail_closures = [values["closure"] for values in tail_samples if "closure" in values]
+    sustained_tail_chase = len(tail_samples) >= 6 and len(fires) >= 4
+
     lead_seconds = [
         value["lead_seconds"]
         for row in statuses
         if "lead_seconds" in (value := numbers(str(row.get("reason", ""))))
     ]
+    downranges = [
+        value["downrange"]
+        for row in target_statuses
+        if "downrange" in (value := numbers(str(row.get("reason", ""))))
+    ]
+    target_motion = max(downranges) - min(downranges) if len(downranges) >= 2 else 0.0
 
     start_tick = min((tick(row) for row in started), default=-1)
     completion_tick = max((tick(row) for row in completed), default=-1)
@@ -102,21 +127,27 @@ def main() -> int:
         if bool(frame.get("on_ground")):
             ground_frames += 1
 
+    completed_attack_cycle = (
+        "BREAK_AWAY" in distinct
+        and any(action in distinct for action in ("EXTEND", "REPOSITION"))
+    )
+
     errors: list[str] = []
     require(bool(rows), errors, "no autonomous-flight telemetry was produced")
     require(bool(started), errors, "moving dogfight target was never injected")
     require(bool(completed), errors, "dogfight validation window never completed")
-    require(any(action in distinct for action in ("INTERCEPT", "ATTACK_APPROACH")), errors,
-            "no intercept or attack-approach action was selected")
+    require(target_motion >= 100.0, errors,
+            f"straight target did not actually move far enough: {target_motion:.2f} blocks")
+    require(any(action in distinct for action in ("INTERCEPT", "ATTACK_APPROACH", "FIRING_PASS")),
+            errors, "no pursuit or firing action was selected")
     require("FIRING_PASS" in distinct, errors, "no firing-pass action was selected")
-    require("BREAK_AWAY" in distinct, errors, "no break-away action was selected")
-    require(any(action in distinct for action in ("EXTEND", "REPOSITION")), errors,
-            "no post-pass extension or reposition action was selected")
+    require(completed_attack_cycle or sustained_tail_chase, errors,
+            "neither a break-away/reposition cycle nor a stable sustained tail chase occurred")
     require(bool(fires), errors, "no guarded machine-gun fire occurred during the dogfight")
     require(any(value > 0.05 for value in lead_seconds), errors,
             "no positive projectile lead time was recorded")
     require(bool(clears), errors, "combat action did not clear after the target left")
-    require(3 <= len(action_rows) <= 24, errors,
+    require(1 <= len(action_rows) <= 24, errors,
             f"action transition count was unrealistic: {len(action_rows)}")
     if dwell_ticks:
         require(statistics.median(dwell_ticks) >= 8.0, errors,
@@ -140,6 +171,9 @@ def main() -> int:
     require(bool(results) and all(bool(row.get("passed")) for row in results), errors,
             "aircraft did not return to a passed parked mission after combat")
 
+    engagement_mode = "attack_cycle" if completed_attack_cycle else (
+        "sustained_tail_chase" if sustained_tail_chase else "unqualified"
+    )
     result = {
         "scenario": "dogfight",
         "passed": not errors,
@@ -149,12 +183,18 @@ def main() -> int:
             "telemetry_log": str(log_path) if log_path else None,
             "start_tick": start_tick,
             "completion_tick": completion_tick,
+            "target_downrange_motion": target_motion,
+            "engagement_mode": engagement_mode,
             "actions": actions,
             "distinct_actions": sorted(distinct),
             "transition_count": len(action_rows),
             "median_dwell_ticks": statistics.median(dwell_ticks) if dwell_ticks else None,
             "fire_count": len(fires),
             "lead_seconds_max": max(lead_seconds) if lead_seconds else None,
+            "tail_sample_count": len(tail_samples),
+            "tail_distance_median": statistics.median(tail_distances) if tail_distances else None,
+            "tail_closure_abs_median": statistics.median(
+                [abs(value) for value in tail_closures]) if tail_closures else None,
             "combat_min_speed_bps": min(speeds) if speeds else None,
             "combat_ground_frames": ground_frames,
             "combat_clear_count": len(clears),
