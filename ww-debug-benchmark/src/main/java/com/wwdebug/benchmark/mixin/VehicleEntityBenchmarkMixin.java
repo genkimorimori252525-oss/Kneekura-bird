@@ -5,6 +5,7 @@ import com.wwdebug.autopilot.AirspaceSafetyProbe;
 import com.wwdebug.autopilot.AutonomousFlightManager;
 import com.wwdebug.autopilot.AutopilotWheelLockAdapter;
 import com.wwdebug.autopilot.CombatAwarenessManager;
+import com.wwdebug.autopilot.CombatWeaponGateTelemetry;
 import com.wwdebug.autopilot.CombatWeaponManager;
 import com.wwdebug.autopilot.DefensiveAirCombatManager;
 import com.wwdebug.autopilot.EnergyFighterCounterattackGate;
@@ -62,6 +63,7 @@ public abstract class VehicleEntityBenchmarkMixin {
         AutonomousFlightManager.applyPostPhysics(aircraft);
         AutopilotWheelLockAdapter.apply(aircraft);
         CombatAwarenessManager.tick(aircraft);
+        CombatWeaponGateTelemetry.tick(aircraft);
         CombatWeaponManager.tick(aircraft);
     }
 }
