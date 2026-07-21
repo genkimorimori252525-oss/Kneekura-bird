@@ -27,6 +27,9 @@ public final class DefensiveAirCombatManager {
     private static final double REAR_THREAT_ANGLE_DEG = 72.0;
     private static final double MAX_THREAT_RANGE = 150.0;
     private static final double IMMINENT_FIRE_ANGLE_DEG = 4.5;
+    private static final double STALE_THREAT_MIN_RANGE = 96.0;
+    private static final double STALE_THREAT_MAX_CLOSURE_BPS = 2.0;
+    private static final double STALE_THREAT_MIN_AIM_ERROR_DEG = 11.0;
     private static final Map<UUID, State> STATES = new ConcurrentHashMap<>();
 
     private DefensiveAirCombatManager() {
@@ -128,10 +131,22 @@ public final class DefensiveAirCombatManager {
         boolean imminentFire = distance >= 18.0 && distance <= 135.0
                 && attackerAimAngle <= IMMINENT_FIRE_ANGLE_DEG
                 && selected.get().lineOfSight();
+        double closure = relativeClosureBps(defender, attacker);
+
+        // A distant aircraft that is no longer closing and has lost its firing solution should not
+        // hold the defender in an endless break turn merely because it remains just inside the rear
+        // hemisphere. Releasing this stale threat lets an energy fighter convert recovered spacing
+        // into a counter-intercept, while close or imminent-fire threats remain fully defensive.
+        boolean staleRearThreat = !imminentFire
+                && distance >= STALE_THREAT_MIN_RANGE
+                && closure <= STALE_THREAT_MAX_CLOSURE_BPS
+                && attackerAimAngle >= STALE_THREAT_MIN_AIM_ERROR_DEG;
+        if (staleRearThreat) {
+            return Optional.empty();
+        }
         if (rearAngle > REAR_THREAT_ANGLE_DEG && !imminentFire) {
             return Optional.empty();
         }
-        double closure = relativeClosureBps(defender, attacker);
         double score = (MAX_THREAT_RANGE - distance)
                 + Math.max(0.0, REAR_THREAT_ANGLE_DEG - rearAngle) * 1.7
                 + Math.max(0.0, closure) * 2.0
