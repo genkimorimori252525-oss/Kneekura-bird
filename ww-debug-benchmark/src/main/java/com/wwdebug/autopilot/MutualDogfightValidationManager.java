@@ -30,7 +30,7 @@ final class MutualDogfightValidationManager {
     private static final String BLUE_FACTION = "wwcombat:faction:blue";
     private static final String HOSTILE_RED = "wwcombat:hostile:red";
     private static final String HOSTILE_BLUE = "wwcombat:hostile:blue";
-    private static final int COMBAT_WINDOW_TICKS = 760;
+    private static final int COMBAT_WINDOW_TICKS = 1_000;
     private static final int MISSING_ENTITY_GRACE_TICKS = 40;
     private static final Map<UUID, Scene> SCENES = new ConcurrentHashMap<>();
 
@@ -157,9 +157,11 @@ final class MutualDogfightValidationManager {
         }
         forward = forward.normalize();
         Vec3 right = new Vec3(-forward.z, 0.0, forward.x).normalize();
-        Vec3 opponentPosition = primary.position().add(forward.scale(92.0))
-                .add(right.scale(25.0)).add(0.0, 8.0, 0.0);
-        Vec3 opponentDirection = primary.position().subtract(opponentPosition).normalize();
+        // Begin with the energy fighter behind the turn fighter. The P-47N receives a real firing
+        // window before its greater speed creates an overtake, after which the A6M can turn back in.
+        Vec3 opponentPosition = primary.position().subtract(forward.scale(105.0))
+                .add(right.scale(2.0)).add(0.0, 2.0, 0.0);
+        Vec3 opponentDirection = forward;
 
         opponent.setCustomName(Component.literal("AUTOPILOT TEST MUTUAL BLUE P47N"));
         opponent.setCustomNameVisible(true);
@@ -205,11 +207,11 @@ final class MutualDogfightValidationManager {
             return;
         }
         ReflectiveAircraft.fillFuel(opponent);
-        ReflectiveAircraft.warmEngine(opponent, 0.90f);
+        ReflectiveAircraft.warmEngine(opponent, 1.0f);
         double opponentSpeed = AutopilotProfileRegistry.resolve(level.getServer(), opponent)
-                .map(FlightProfile::cruiseSpeedBps).orElse(30.0);
+                .map(profile -> profile.cruiseSpeedBps() + 8.0).orElse(38.0);
         opponent.setDeltaMovement(opponentDirection.scale(opponentSpeed / 20.0));
-        ReflectiveAircraft.applyControl(opponent, 0.0f, 0.0f, 0.0f, 0.90f);
+        ReflectiveAircraft.applyControl(opponent, 0.0f, 0.0f, 0.0f, 1.0f);
 
         // Create the normal autonomous session, then seed only the disposable opponent into cruise.
         AutonomousFlightManager.applyControl(opponent);
