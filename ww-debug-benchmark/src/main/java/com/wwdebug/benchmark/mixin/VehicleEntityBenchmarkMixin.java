@@ -6,6 +6,7 @@ import com.wwdebug.autopilot.AutonomousFlightManager;
 import com.wwdebug.autopilot.AutopilotWheelLockAdapter;
 import com.wwdebug.autopilot.CombatAwarenessManager;
 import com.wwdebug.autopilot.CombatWeaponManager;
+import com.wwdebug.autopilot.DefensiveAirCombatManager;
 import com.wwdebug.autopilot.FormationFlightManager;
 import com.wwdebug.benchmark.BenchmarkManager;
 import net.minecraft.world.entity.Entity;
@@ -24,10 +25,13 @@ public abstract class VehicleEntityBenchmarkMixin {
         BenchmarkManager.applyControl(aircraft);
         AutonomousFlightManager.applyControl(aircraft);
         FormationFlightManager.applyControl(aircraft);
-        // Formation collision avoidance has already been applied at this point. Do not let combat
-        // manoeuvres overwrite it while the shared CPA probe still reports a dangerous approach.
+        // Formation collision avoidance has already been applied at this point. Do not let either
+        // defensive or offensive combat overwrite it while the shared CPA probe is dangerous.
         if (!AirspaceSafetyProbe.collisionRisk(aircraft)) {
-            AirCombatManeuverManager.applyControl(aircraft);
+            DefensiveAirCombatManager.applyControl(aircraft);
+            if (!DefensiveAirCombatManager.active(aircraft)) {
+                AirCombatManeuverManager.applyControl(aircraft);
+            }
         }
     }
 
