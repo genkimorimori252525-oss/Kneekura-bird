@@ -24,6 +24,7 @@ on:
           - formation
           - dogfight
           - dogfight_crossing
+          - dogfight_energy
   pull_request:
     paths:
       - 'ww-debug-benchmark/**'
@@ -41,9 +42,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: ${{ fromJSON(github.event_name == 'workflow_dispatch' && format('["{0}"]', inputs.scenario) || '["dogfight","dogfight_crossing"]') }}
+        scenario: ${{ fromJSON(github.event_name == 'workflow_dispatch' && format('["{0}"]', inputs.scenario) || '["dogfight","dogfight_crossing","dogfight_energy"]') }}
     env:
-      FLIGHT_TEST_TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.aircraft || 'warfare_wings:a6m' }}
+      FLIGHT_TEST_TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.aircraft || (matrix.scenario == 'dogfight_energy' && 'warfare_wings:p47n' || 'warfare_wings:a6m') }}
       FLIGHT_TEST_SCENARIO: ${{ matrix.scenario }}
     defaults:
       run:
@@ -165,6 +166,11 @@ jobs:
               --output "run-gametest/scenario-verification-$FLIGHT_TEST_SCENARIO.json"
           elif [ "$FLIGHT_TEST_SCENARIO" = "dogfight_crossing" ]; then
             python tools/verify_crossing_dogfight_scenario.py \
+              --root run-gametest \
+              --gradle-status "$gradle_status" \
+              --output "run-gametest/scenario-verification-$FLIGHT_TEST_SCENARIO.json"
+          elif [ "$FLIGHT_TEST_SCENARIO" = "dogfight_energy" ]; then
+            python tools/verify_energy_dogfight_scenario.py \
               --root run-gametest \
               --gradle-status "$gradle_status" \
               --output "run-gametest/scenario-verification-$FLIGHT_TEST_SCENARIO.json"
