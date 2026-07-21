@@ -10,7 +10,7 @@ import math
 import re
 import sys
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 SLOT_ERROR = re.compile(r"(?:^|:)slot_error=(-?\d+(?:\.\d+)?)")
 AIRBORNE_PHASES = {
@@ -69,11 +69,15 @@ def require(condition: bool, errors: list[str], message: str) -> None:
 
 
 def aircraft_name(rows: list[dict[str, Any]]) -> str:
+    fallback = "unknown"
     for row in rows:
         value = row.get("aircraft_name")
-        if isinstance(value, str) and value:
+        if not isinstance(value, str) or not value:
+            continue
+        fallback = value
+        if "FORMATION" in value:
             return value
-    return "unknown"
+    return fallback
 
 
 def slot_errors(rows: list[dict[str, Any]]) -> list[tuple[int, float]]:
