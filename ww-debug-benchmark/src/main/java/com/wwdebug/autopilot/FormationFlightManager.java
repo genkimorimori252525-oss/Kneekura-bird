@@ -55,7 +55,8 @@ public final class FormationFlightManager {
             return;
         }
         FlightPhase phase = status.get().phase();
-        if (!eligiblePhase(phase) || aircraft.onGround() || immediateTerrainAhead(aircraft)) {
+        if (!eligiblePhase(phase) || aircraft.onGround()
+                || TerrainAvoidancePlanner.active(aircraft) || immediateTerrainAhead(aircraft)) {
             clearModes(level, aircraft, phase);
             return;
         }
