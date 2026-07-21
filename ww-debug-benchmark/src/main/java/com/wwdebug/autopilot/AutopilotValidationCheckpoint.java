@@ -4,6 +4,7 @@ import com.wwdebug.benchmark.ReflectiveAircraft;
 import com.wwdebug.benchmark.ReflectiveArmament;
 import com.wwdebug.benchmark.WWDebugBenchmarkMod;
 import net.minecraft.core.BlockPos;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.Mth;
@@ -27,6 +28,9 @@ import java.util.concurrent.ConcurrentHashMap;
 final class AutopilotValidationCheckpoint {
     private static final String PROPERTY = "wwdebug.flightGameTestScenario";
     private static final String VALIDATION_NAME_PREFIX = "AUTOPILOT TEST ";
+    private static final String FORMATION_GROUP_TAG = "wwformation:group:test";
+    private static final String FORMATION_LEADER_TAG = "wwformation:leader";
+    private static final String FORMATION_WINGMAN_TAG = "wwformation:wingman";
     private static final Set<UUID> APPLIED = ConcurrentHashMap.newKeySet();
 
     private static final Field PHASE = field("phase");
@@ -114,6 +118,19 @@ final class AutopilotValidationCheckpoint {
                 initialMissionTicks = 15_200;
                 buildWeaponsScene((ServerLevel) aircraft.level(), aircraft, home, runwayForward);
             }
+            case "formation" -> {
+                initialPhase = FlightPhase.CRUISE_OUTBOUND;
+                speedBps = profile.cruiseSpeedBps();
+                engineTarget = 0.72f;
+                initialMissionTicks = 15_000;
+                if (aircraft.getTags().contains(FORMATION_WINGMAN_TAG)) {
+                    position = aircraft.position();
+                } else {
+                    position = home.subtract(runwayForward.scale(180.0)).add(0.0, 90.0, 0.0);
+                    buildFormationScene((ServerLevel) aircraft.level(), aircraft,
+                            position, runwayForward, speedBps);
+                }
+            }
             default -> {
                 APPLIED.remove(aircraft.getUUID());
                 WWDebugBenchmarkMod.LOGGER.warn(
@@ -172,6 +189,59 @@ final class AutopilotValidationCheckpoint {
         Vec3 hostilePosition = home.subtract(runwayForward.scale(55.0)).add(0.0, 78.0, 0.0);
         Vec3 runwayRight = new Vec3(-runwayForward.z, 0.0, runwayForward.x).normalize();
         spawnTargetPair(level, neutralPosition, hostilePosition, aircraft, runwayRight);
+    }
+
+    private static void buildFormationScene(ServerLevel level, Entity leader,
+                                            Vec3 leaderPosition, Vec3 runwayForward,
+                                            double cruiseSpeedBps) {
+        leader.addTag(FORMATION_GROUP_TAG);
+        leader.addTag(FORMATION_LEADER_TAG);
+        leader.setCustomName(Component.literal("AUTOPILOT TEST FORMATION LEADER"));
+        leader.setCustomNameVisible(true);
+        Vec3 right = new Vec3(-runwayForward.z, 0.0, runwayForward.x).normalize();
+
+        spawnFormationWingman(level, leader, 1,
+                leaderPosition.add(right.scale(3.0)).subtract(runwayForward.scale(1.5)),
+                runwayForward, cruiseSpeedBps);
+        spawnFormationWingman(level, leader, 2,
+                leaderPosition.add(right.scale(62.0)).subtract(runwayForward.scale(68.0)).add(0.0, 8.0, 0.0),
+                runwayForward, cruiseSpeedBps);
+        WWDebugBenchmarkMod.LOGGER.info(
+                "Built formation validation scene leader={} group={} cruise_speed_bps={}",
+                leaderPosition, FORMATION_GROUP_TAG, cruiseSpeedBps);
+    }
+
+    private static void spawnFormationWingman(ServerLevel level, Entity leader, int slot,
+                                              Vec3 position, Vec3 runwayForward,
+                                              double cruiseSpeedBps) {
+        Entity wingman = leader.getType().create(level);
+        if (wingman == null) {
+            throw new IllegalStateException("Could not create formation wingman " + slot);
+        }
+        wingman.setCustomName(Component.literal("AUTOPILOT TEST FORMATION WINGMAN " + slot));
+        wingman.setCustomNameVisible(true);
+        wingman.setInvulnerable(true);
+        wingman.addTag(FORMATION_GROUP_TAG);
+        wingman.addTag(FORMATION_WINGMAN_TAG);
+        wingman.addTag("wwformation:slot:" + slot);
+        wingman.moveTo(position.x, position.y, position.z, leader.getYRot(), 0.0f);
+        wingman.setDeltaMovement(runwayForward.scale(cruiseSpeedBps / 20.0));
+        ReflectiveAircraft.fillFuel(wingman);
+        ReflectiveAircraft.warmEngine(wingman, 0.72f);
+        level.addFreshEntity(wingman);
+
+        Villager pilot = EntityType.VILLAGER.create(level);
+        if (pilot == null) {
+            throw new IllegalStateException("Could not create formation wingman pilot " + slot);
+        }
+        pilot.setNoAi(true);
+        pilot.setSilent(true);
+        pilot.setInvulnerable(true);
+        pilot.moveTo(position.x, position.y, position.z, leader.getYRot(), 0.0f);
+        level.addFreshEntity(pilot);
+        if (!pilot.startRiding(wingman, true)) {
+            throw new IllegalStateException("Could not mount formation wingman pilot " + slot);
+        }
     }
 
     private static void spawnTargetPair(ServerLevel level, Vec3 neutralPosition,
