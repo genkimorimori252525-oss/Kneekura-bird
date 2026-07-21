@@ -168,16 +168,17 @@ public final class AutonomousFlightManager {
             return;
         }
         int extensions = FLARE_EXTENSIONS.getOrDefault(aircraft.getUUID(), 0);
-        if (extensions >= 1) {
+        if (extensions >= 2) {
             return;
         }
         try {
+            int nextExtension = extensions + 1;
             SESSION_PHASE.set(session, FlightPhase.FLARE);
             SESSION_PHASE_TICKS.setInt(session, 0);
-            SESSION_TRANSITION_REASON.set(session, "native_aligned_flare_extension");
-            FLARE_EXTENSIONS.put(aircraft.getUUID(), extensions + 1);
+            SESSION_TRANSITION_REASON.set(session, "native_aligned_flare_extension_" + nextExtension);
+            FLARE_EXTENSIONS.put(aircraft.getUUID(), nextExtension);
             AutopilotLogManager.writeEvent(server, aircraft, "native_flare_extension",
-                    "aligned_descent_continues_below_20_blocks", FlightPhase.FLARE);
+                    "aligned_descent_extension_" + nextExtension + "_below_20_blocks", FlightPhase.FLARE);
         } catch (IllegalAccessException exception) {
             WWDebugBenchmarkMod.LOGGER.warn("Could not extend aligned flare", exception);
         }
