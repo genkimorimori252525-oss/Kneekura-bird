@@ -68,7 +68,7 @@ public final class AutonomousFlightManager {
                 return;
             }
             AutopilotSession session = new AutopilotSession(aircraft, profile);
-            entry = new SessionEntry(aircraft, session);
+            entry = new SessionEntry(aircraft, session, new TerrainAvoidancePlanner.State());
             SESSIONS.put(aircraft.getUUID(), entry);
             MISSING_PROFILE_WARNINGS.remove(aircraft.getUUID());
             AutopilotLogManager.writeEvent(server, aircraft, "session_start",
@@ -76,17 +76,79 @@ public final class AutonomousFlightManager {
             AutopilotValidationCheckpoint.applyIfRequested(server, aircraft, session);
         }
 
-        FlightControlOutput planned = entry.session.tick(server, aircraft);
+        FlightControlOutput missionPlanned = entry.session.tick(server, aircraft);
         FlightSnapshot snapshot = FlightSnapshot.capture(aircraft);
-        extendFlareIfSafe(server, aircraft, entry.session, snapshot, planned);
-        AdaptedControl adapted = adaptForNativeFlight(entry.session, snapshot, planned);
+        extendFlareIfSafe(server, aircraft, entry.session, snapshot, missionPlanned);
+
+        TerrainAvoidancePlanner.Decision terrainDecision = TerrainAvoidancePlanner.plan(
+                aircraft, entry.session.phase(), snapshot, missionPlanned, entry.terrainState);
+        if (terrainDecision.changed()) {
+            AutopilotLogManager.writeEvent(server, aircraft,
+                    terrainDecision.active() ? "terrain_avoidance_start" : "terrain_avoidance_clear",
+                    terrainDecision.description(), entry.session.phase());
+        }
+
+        FlightControlOutput safetyPlanned = missionPlanned;
+        if (terrainDecision.active()) {
+            safetyPlanned = applyTerrainAvoidance(entry.session, snapshot,
+                    missionPlanned, terrainDecision);
+            AutopilotLogManager.writeControlAdapter(server, aircraft, entry.session.phase(),
+                    terrainDecision.description(), snapshot, missionPlanned, safetyPlanned);
+        }
+
+        AdaptedControl adapted = adaptForNativeFlight(entry.session, snapshot, safetyPlanned);
         if (adapted.overridden()) {
             AutopilotLogManager.writeControlAdapter(server, aircraft, entry.session.phase(),
-                    adapted.reason(), snapshot, planned, adapted.output());
+                    adapted.reason(), snapshot, safetyPlanned, adapted.output());
         }
         FlightControlOutput applied = adapted.output();
         ReflectiveAircraft.applyControl(aircraft, -applied.x(), applied.y(), applied.z(),
                 applied.engineTarget());
+    }
+
+    private static FlightControlOutput applyTerrainAvoidance(AutopilotSession session,
+                                                              FlightSnapshot snapshot,
+                                                              FlightControlOutput planned,
+                                                              TerrainAvoidancePlanner.Decision decision) {
+        Vec3 desired = decision.desiredDirection();
+        double desiredYaw = Math.toDegrees(Math.atan2(-desired.x, desired.z));
+        double headingError = Mth.wrapDegrees((float) (desiredYaw - snapshot.yawDeg()));
+        float x = (float) Mth.clamp(headingError / 38.0, -0.70, 0.70);
+
+        double targetAltitude = Math.max(planned.targetAltitude(), decision.targetAltitude());
+        double altitudeError = targetAltitude - snapshot.position().y;
+        double desiredPitch = Mth.clamp(
+                -altitudeError * 0.22 + snapshot.verticalSpeedBps() * 0.30,
+                -12.0,
+                5.0
+        );
+        if (snapshot.speedBps() < session.profile().stallGuardSpeedBps() * 1.30) {
+            desiredPitch = Math.max(desiredPitch, -4.5);
+            x *= 0.55f;
+        }
+        float z = (float) Mth.clamp(
+                (desiredPitch - snapshot.pitchDeg()) / 18.0,
+                -0.78,
+                0.78
+        );
+        double targetSpeed = Math.max(planned.targetSpeedBps(),
+                session.profile().climbTargetSpeedBps());
+        return new FlightControlOutput(
+                x,
+                0.0f,
+                z,
+                1.0f,
+                desired,
+                targetAltitude,
+                targetSpeed,
+                headingError,
+                altitudeError,
+                targetSpeed - snapshot.speedBps(),
+                planned.stallRisk() || snapshot.speedBps() < session.profile().stallGuardSpeedBps(),
+                true,
+                "predictive_terrain_avoidance_" + decision.mode(),
+                decision.emergency() ? "terrain_emergency_climb" : "predictive_terrain_avoidance"
+        );
     }
 
     /**
@@ -371,7 +433,11 @@ public final class AutonomousFlightManager {
         AutopilotLogManager.closeAircraft(level.getServer(), aircraft, removed.session.phase(), reason);
     }
 
-    private record SessionEntry(Entity aircraft, AutopilotSession session) {
+    private record SessionEntry(
+            Entity aircraft,
+            AutopilotSession session,
+            TerrainAvoidancePlanner.State terrainState
+    ) {
     }
 
     private record AdaptedControl(FlightControlOutput output, boolean overridden, String reason) {
