@@ -4,6 +4,7 @@ import com.wwdebug.autopilot.AutonomousFlightManager;
 import com.wwdebug.autopilot.AutopilotWheelLockAdapter;
 import com.wwdebug.autopilot.CombatAwarenessManager;
 import com.wwdebug.autopilot.CombatWeaponManager;
+import com.wwdebug.autopilot.FormationFlightManager;
 import com.wwdebug.benchmark.BenchmarkManager;
 import net.minecraft.world.entity.Entity;
 import org.spongepowered.asm.mixin.Mixin;
@@ -20,6 +21,7 @@ public abstract class VehicleEntityBenchmarkMixin {
         Entity aircraft = (Entity) (Object) this;
         BenchmarkManager.applyControl(aircraft);
         AutonomousFlightManager.applyControl(aircraft);
+        FormationFlightManager.applyControl(aircraft);
     }
 
     @Inject(method = "tick", at = @At("TAIL"), remap = false, require = 0)
