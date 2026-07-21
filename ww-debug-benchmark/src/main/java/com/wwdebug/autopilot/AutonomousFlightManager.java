@@ -23,7 +23,11 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class AutonomousFlightManager {
     private static final Map<UUID, SessionEntry> SESSIONS = new ConcurrentHashMap<>();
     private static final Set<UUID> MISSING_PROFILE_WARNINGS = ConcurrentHashMap.newKeySet();
+    private static final Map<UUID, Integer> FLARE_EXTENSIONS = new ConcurrentHashMap<>();
     private static final Field SESSION_RUNWAY_FORWARD = sessionField("runwayForward");
+    private static final Field SESSION_PHASE = sessionField("phase");
+    private static final Field SESSION_PHASE_TICKS = sessionField("phaseTicks");
+    private static final Field SESSION_TRANSITION_REASON = sessionField("transitionReason");
 
     private AutonomousFlightManager() {
     }
@@ -72,6 +76,7 @@ public final class AutonomousFlightManager {
 
         FlightControlOutput planned = entry.session.tick(server, aircraft);
         FlightSnapshot snapshot = FlightSnapshot.capture(aircraft);
+        extendFlareIfSafe(server, aircraft, entry.session, snapshot, planned);
         AdaptedControl adapted = adaptForNativeFlight(entry.session, snapshot, planned);
         if (adapted.overridden()) {
             AutopilotLogManager.writeControlAdapter(server, aircraft, entry.session.phase(),
@@ -82,6 +87,38 @@ public final class AutonomousFlightManager {
         // axis is the opposite sign, so convert only at the final hardware-adapter boundary.
         ReflectiveAircraft.applyControl(aircraft, -applied.x(), applied.y(), applied.z(),
                 applied.engineTarget());
+    }
+
+    private static void extendFlareIfSafe(MinecraftServer server, Entity aircraft,
+                                          AutopilotSession session, FlightSnapshot snapshot,
+                                          FlightControlOutput planned) {
+        if (session.phase() != FlightPhase.GO_AROUND
+                || !"flare_timeout_without_ground_contact".equals(session.transitionReason())
+                || snapshot.onGround()
+                || snapshot.altitudeAboveGround() > 20.0
+                || snapshot.verticalSpeedBps() > 1.0) {
+            return;
+        }
+        Vec3 runway = runwayForward(session, planned.desiredDirection());
+        double desiredYaw = Math.toDegrees(Math.atan2(-runway.x, runway.z));
+        double headingError = Math.abs(Mth.wrapDegrees((float) (desiredYaw - snapshot.yawDeg())));
+        if (headingError > 8.0) {
+            return;
+        }
+        int extensions = FLARE_EXTENSIONS.getOrDefault(aircraft.getUUID(), 0);
+        if (extensions >= 1) {
+            return;
+        }
+        try {
+            SESSION_PHASE.set(session, FlightPhase.FLARE);
+            SESSION_PHASE_TICKS.setInt(session, 0);
+            SESSION_TRANSITION_REASON.set(session, "native_aligned_flare_extension");
+            FLARE_EXTENSIONS.put(aircraft.getUUID(), extensions + 1);
+            AutopilotLogManager.writeEvent(server, aircraft, "native_flare_extension",
+                    "aligned_descent_continues_below_20_blocks", FlightPhase.FLARE);
+        } catch (IllegalAccessException exception) {
+            WWDebugBenchmarkMod.LOGGER.warn("Could not extend aligned flare", exception);
+        }
     }
 
     private static AdaptedControl adaptForNativeFlight(AutopilotSession session,
@@ -285,6 +322,7 @@ public final class AutonomousFlightManager {
     private static void stopSession(Entity aircraft, String reason) {
         SessionEntry removed = SESSIONS.remove(aircraft.getUUID());
         MISSING_PROFILE_WARNINGS.remove(aircraft.getUUID());
+        FLARE_EXTENSIONS.remove(aircraft.getUUID());
         AutopilotValidationCheckpoint.forget(aircraft.getUUID());
         if (removed == null || !(aircraft.level() instanceof ServerLevel level)) {
             return;
