@@ -64,6 +64,7 @@ public final class AutonomousFlightManager {
             MISSING_PROFILE_WARNINGS.remove(aircraft.getUUID());
             AutopilotLogManager.writeEvent(server, aircraft, "session_start",
                     "mob_controlling_passenger_and_measured_fighter_profile", FlightPhase.STARTUP);
+            AutopilotValidationCheckpoint.applyIfRequested(server, aircraft, session);
         }
 
         FlightControlOutput planned = entry.session.tick(server, aircraft);
@@ -139,8 +140,8 @@ public final class AutonomousFlightManager {
     }
 
     private static FlightControlOutput copyWith(FlightControlOutput original, float z,
-                                                float engineTarget, String reason,
-                                                String safetyOverride) {
+                                                 float engineTarget, String reason,
+                                                 String safetyOverride) {
         return new FlightControlOutput(
                 original.x(),
                 original.y(),
@@ -221,6 +222,7 @@ public final class AutonomousFlightManager {
     private static void stopSession(Entity aircraft, String reason) {
         SessionEntry removed = SESSIONS.remove(aircraft.getUUID());
         MISSING_PROFILE_WARNINGS.remove(aircraft.getUUID());
+        AutopilotValidationCheckpoint.forget(aircraft.getUUID());
         if (removed == null || !(aircraft.level() instanceof ServerLevel level)) {
             return;
         }
