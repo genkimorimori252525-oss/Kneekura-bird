@@ -11,6 +11,7 @@ import com.wwdebug.autopilot.EnergyFighterCounterattackManager;
 import com.wwdebug.autopilot.EnergyFighterCrossingCutAdapter;
 import com.wwdebug.autopilot.FormationFlightManager;
 import com.wwdebug.autopilot.MutualDogfightMissionHoldAdapter;
+import com.wwdebug.autopilot.MutualDogfightOpeningCommitmentAdapter;
 import com.wwdebug.benchmark.BenchmarkManager;
 import net.minecraft.world.entity.Entity;
 import org.spongepowered.asm.mixin.Mixin;
@@ -32,20 +33,26 @@ public abstract class VehicleEntityBenchmarkMixin {
         // Formation collision avoidance has already been applied at this point. Do not let combat
         // overwrite it while the shared CPA probe is dangerous.
         if (!AirspaceSafetyProbe.collisionRisk(aircraft)) {
-            // At the high-yo-yo broadside crossing, cut directly through the turn circle instead of
-            // waiting for the target to enter a narrow cone and flying past the best intercept.
-            boolean crossingCutControl = EnergyFighterCrossingCutAdapter.applyControl(aircraft);
-            if (crossingCutControl) {
-                EnergyFighterCounterattackManager.clear(aircraft.getUUID());
-            }
-            // Counterattack recovery runs before ordinary defense. When it owns this tick, stale
-            // defensive reacquisition is never applied and cannot overwrite the turn-back.
-            boolean counterattackControl = crossingCutControl
-                    || EnergyFighterCounterattackManager.applyControl(aircraft);
-            if (!counterattackControl) {
-                DefensiveAirCombatManager.applyControl(aircraft);
-                if (!DefensiveAirCombatManager.active(aircraft)) {
-                    AirCombatManeuverManager.applyControl(aircraft);
+            // Keep the reciprocal qualification's first opposed crossing deterministic. Once both
+            // fighters have passed and opened the range, all ordinary doctrine layers resume.
+            boolean openingCommitment =
+                    MutualDogfightOpeningCommitmentAdapter.applyControl(aircraft);
+            if (!openingCommitment) {
+                // At the high-yo-yo broadside crossing, cut directly through the turn circle instead
+                // of waiting for the target to enter a narrow cone and flying past the best intercept.
+                boolean crossingCutControl = EnergyFighterCrossingCutAdapter.applyControl(aircraft);
+                if (crossingCutControl) {
+                    EnergyFighterCounterattackManager.clear(aircraft.getUUID());
+                }
+                // Counterattack recovery runs before ordinary defense. When it owns this tick, stale
+                // defensive reacquisition is never applied and cannot overwrite the turn-back.
+                boolean counterattackControl = crossingCutControl
+                        || EnergyFighterCounterattackManager.applyControl(aircraft);
+                if (!counterattackControl) {
+                    DefensiveAirCombatManager.applyControl(aircraft);
+                    if (!DefensiveAirCombatManager.active(aircraft)) {
+                        AirCombatManeuverManager.applyControl(aircraft);
+                    }
                 }
             }
         }
