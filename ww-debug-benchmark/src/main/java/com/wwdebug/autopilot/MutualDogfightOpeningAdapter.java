@@ -14,16 +14,17 @@ import java.util.concurrent.ConcurrentHashMap;
  * GameTest-only doctrine-neutral opening for the reciprocal fighter qualification.
  *
  * <p>Neither aircraft starts behind the other. The A6M begins about twenty degrees off the P-47N,
- * while the energy fighter receives a modest altitude and speed advantage and starts about twelve
- * degrees off its crossing solution. The P-47N must still turn into a legal fixed-gun window, but
- * it can express an energy pass before the A6M converts the fight into a sustained turn contest.</p>
+ * while the energy fighter receives a modest altitude and speed advantage and starts roughly six
+ * degrees off its crossing solution. Six degrees remains outside the three-degree fixed-gun cone,
+ * but the longer aircraft-awareness range gives the P-47N time to solve the first energy pass
+ * before collision avoidance necessarily takes priority.</p>
  */
 final class MutualDogfightOpeningAdapter {
     private static final String SCENARIO_PROPERTY = "wwdebug.flightGameTestScenario";
     private static final String SCENARIO = "dogfight_mutual";
     private static final String TEST_NAME_PREFIX = "AUTOPILOT TEST ";
     private static final String OPPONENT_TAG = "wwcombat:mutual_opponent";
-    private static final double ENERGY_FIGHTER_OFF_NOSE_DEG = 12.0;
+    private static final double ENERGY_FIGHTER_OFF_NOSE_DEG = 6.0;
     private static final Set<UUID> APPLIED = ConcurrentHashMap.newKeySet();
 
     private MutualDogfightOpeningAdapter() {
@@ -37,7 +38,7 @@ final class MutualDogfightOpeningAdapter {
             return;
         }
 
-        AABB search = primary.getBoundingBox().inflate(260.0, 112.0, 260.0);
+        AABB search = primary.getBoundingBox().inflate(320.0, 144.0, 320.0);
         Entity opponent = level.getEntities(primary, search,
                         entity -> !entity.isRemoved()
                                 && entity.getTags().contains(OPPONENT_TAG)
@@ -57,22 +58,22 @@ final class MutualDogfightOpeningAdapter {
         forward = forward.normalize();
         Vec3 right = new Vec3(-forward.z, 0.0, forward.x).normalize();
         Vec3 opponentPosition = primary.position()
-                .add(forward.scale(165.0))
-                .add(right.scale(62.0))
-                .add(0.0, 18.0, 0.0);
+                .add(forward.scale(225.0))
+                .add(right.scale(82.0))
+                .add(0.0, 28.0, 0.0);
         Vec3 targetDirection = horizontal(primary.position().subtract(opponentPosition)).normalize();
         Vec3 opponentDirection = leaveOffNose(forward.scale(-1.0), targetDirection,
                 ENERGY_FIGHTER_OFF_NOSE_DEG);
         double opponentSpeed = AutopilotProfileRegistry.resolve(level.getServer(), opponent)
-                .map(profile -> profile.cruiseSpeedBps() + 4.0)
-                .orElse(38.0);
+                .map(profile -> profile.cruiseSpeedBps() + 2.0)
+                .orElse(36.0);
 
         opponent.moveTo(opponentPosition.x, opponentPosition.y, opponentPosition.z,
                 yaw(opponentDirection), 0.0f);
         opponent.setDeltaMovement(opponentDirection.scale(opponentSpeed / 20.0));
         ReflectiveAircraft.setRoll(opponent, 0.0f);
-        ReflectiveAircraft.warmEngine(opponent, 0.88f);
-        ReflectiveAircraft.applyControl(opponent, 0.0f, 0.0f, 0.0f, 0.88f);
+        ReflectiveAircraft.warmEngine(opponent, 0.82f);
+        ReflectiveAircraft.applyControl(opponent, 0.0f, 0.0f, 0.0f, 0.82f);
         APPLIED.add(primary.getUUID());
 
         double separation = primary.distanceTo(opponent);
@@ -86,7 +87,7 @@ final class MutualDogfightOpeningAdapter {
                         + ":separation=" + round(separation)
                         + ":primary_off_nose_deg=" + round(primaryAngle)
                         + ":opponent_off_nose_deg=" + round(opponentAngle)
-                        + ":opponent_altitude_advantage=18.0"
+                        + ":opponent_altitude_advantage=28.0"
                         + ":opponent_speed_bps=" + round(opponentSpeed),
                 phase);
     }
