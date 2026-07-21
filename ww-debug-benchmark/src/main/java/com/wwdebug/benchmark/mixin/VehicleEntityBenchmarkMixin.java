@@ -11,6 +11,7 @@ import com.wwdebug.autopilot.EnergyFighterCounterattackGate;
 import com.wwdebug.autopilot.FormationFlightManager;
 import com.wwdebug.autopilot.MutualDogfightMissionHoldAdapter;
 import com.wwdebug.autopilot.MutualDogfightOpeningCommitmentAdapter;
+import com.wwdebug.autopilot.TurnFighterFinalAlignmentAdapter;
 import com.wwdebug.benchmark.BenchmarkManager;
 import net.minecraft.world.entity.Entity;
 import org.spongepowered.asm.mixin.Mixin;
@@ -46,6 +47,9 @@ public abstract class VehicleEntityBenchmarkMixin {
                     DefensiveAirCombatManager.applyControl(aircraft);
                     if (!DefensiveAirCombatManager.active(aircraft)) {
                         AirCombatManeuverManager.applyControl(aircraft);
+                        // A turn fighter that is already close to the fixed-gun cone receives a brief
+                        // stronger alignment input. The weapon manager still owns every firing gate.
+                        TurnFighterFinalAlignmentAdapter.applyControl(aircraft);
                     }
                 }
             }
