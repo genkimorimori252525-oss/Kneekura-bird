@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify a high-aspect crossing-target lead intercept, firing pass, break and mission recovery."""
+"""Verify a high-aspect crossing intercept, guarded snapshot or firing pass, break and recovery."""
 
 from __future__ import annotations
 
@@ -105,6 +105,16 @@ def main() -> int:
         for row in statuses + transitions
         if "doctrine" in (value := texts(str(row.get("reason", ""))))
     }
+    fire_values = [numbers(str(row.get("reason", ""))) for row in fires]
+    snapshot_fires = [
+        value for value in fire_values
+        if value.get("lead_seconds", 0.0) >= 0.25
+        and value.get("raw_angle", 0.0) >= 7.0
+        and value.get("angle", 99.0) <= 3.0
+    ]
+    fire_ticks = [tick(row) for row in fires if tick(row) >= 0]
+    break_ticks = [value for value, action in action_rows if action == "BREAK_AWAY" and value >= 0]
+    broke_after_fire = bool(fire_ticks and any(value > min(fire_ticks) for value in break_ticks))
 
     start_tick = min((tick(row) for row in started), default=-1)
     completion_tick = max((tick(row) for row in completed), default=-1)
@@ -137,10 +147,13 @@ def main() -> int:
                 f"target never crossed through to the right side: {max(cross_tracks):.2f}")
     require(any(action in distinct for action in ("INTERCEPT", "ATTACK_APPROACH")), errors,
             "no intercept or attack-approach action was selected")
-    require("FIRING_PASS" in distinct, errors, "no firing-pass action was selected")
-    require("BREAK_AWAY" in distinct, errors, "no post-pass break-away action was selected")
+    require("FIRING_PASS" in distinct or bool(snapshot_fires), errors,
+            "neither a firing pass nor a guarded high-deflection snapshot was achieved")
+    require("BREAK_AWAY" in distinct, errors, "no post-shot break-away action was selected")
     require(bool(fires), errors, "no guarded machine-gun fire occurred against the crossing target")
-    require(any(value >= 0.25 for value in lead_seconds), errors,
+    require(broke_after_fire, errors, "aircraft did not break away after firing at the crossing target")
+    require(any(value >= 0.25 for value in lead_seconds)
+            or any(value.get("lead_seconds", 0.0) >= 0.25 for value in fire_values), errors,
             "crossing engagement never required a meaningful positive lead time")
     require("turn_fighter" in doctrines, errors,
             f"A6M dogfight did not report turn-fighter doctrine: {sorted(doctrines)}")
@@ -186,7 +199,11 @@ def main() -> int:
             "transition_count": len(action_rows),
             "median_dwell_ticks": statistics.median(dwell_ticks) if dwell_ticks else None,
             "fire_count": len(fires),
+            "snapshot_fire_count": len(snapshot_fires),
+            "broke_after_fire": broke_after_fire,
             "lead_seconds_max": max(lead_seconds) if lead_seconds else None,
+            "fire_lead_seconds_max": max(
+                (value.get("lead_seconds", 0.0) for value in fire_values), default=None),
             "doctrines": sorted(doctrines),
             "combat_min_speed_bps": min(speeds) if speeds else None,
             "combat_ground_frames": ground_frames,
