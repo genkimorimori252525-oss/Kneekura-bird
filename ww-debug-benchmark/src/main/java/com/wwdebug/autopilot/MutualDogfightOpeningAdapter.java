@@ -13,10 +13,10 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * GameTest-only doctrine-neutral opening for the reciprocal fighter qualification.
  *
- * <p>Neither aircraft starts behind the other. The A6M begins about twenty degrees off the P-47N,
- * while the energy fighter receives a modest altitude and speed advantage and starts roughly six
- * degrees off its crossing solution. Six degrees remains outside the three-degree fixed-gun cone,
- * but the longer aircraft-awareness range gives the P-47N time to solve the first energy pass
+ * <p>Neither aircraft starts behind the other. The A6M begins roughly fifteen degrees off the
+ * P-47N, while the energy fighter receives a modest altitude and speed advantage and starts roughly
+ * six horizontal degrees off its crossing solution. Both remain outside the three-degree fixed-gun
+ * cone, but the longer aircraft-awareness range gives each fighter time to solve the first pass
  * before collision avoidance necessarily takes priority.</p>
  */
 final class MutualDogfightOpeningAdapter {
@@ -59,7 +59,7 @@ final class MutualDogfightOpeningAdapter {
         Vec3 right = new Vec3(-forward.z, 0.0, forward.x).normalize();
         Vec3 opponentPosition = primary.position()
                 .add(forward.scale(225.0))
-                .add(right.scale(82.0))
+                .add(right.scale(55.0))
                 .add(0.0, 28.0, 0.0);
         Vec3 targetDirection = horizontal(primary.position().subtract(opponentPosition)).normalize();
         Vec3 opponentDirection = leaveOffNose(forward.scale(-1.0), targetDirection,
