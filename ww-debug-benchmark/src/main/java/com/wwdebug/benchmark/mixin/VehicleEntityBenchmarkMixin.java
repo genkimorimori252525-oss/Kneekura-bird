@@ -7,6 +7,7 @@ import com.wwdebug.autopilot.AutopilotWheelLockAdapter;
 import com.wwdebug.autopilot.CombatAwarenessManager;
 import com.wwdebug.autopilot.CombatWeaponManager;
 import com.wwdebug.autopilot.DefensiveAirCombatManager;
+import com.wwdebug.autopilot.EnergyFighterCounterattackManager;
 import com.wwdebug.autopilot.FormationFlightManager;
 import com.wwdebug.benchmark.BenchmarkManager;
 import net.minecraft.world.entity.Entity;
@@ -32,6 +33,10 @@ public abstract class VehicleEntityBenchmarkMixin {
             if (!DefensiveAirCombatManager.active(aircraft)) {
                 AirCombatManeuverManager.applyControl(aircraft);
             }
+            // An energy fighter that has opened the range and forced its attacker off target may
+            // briefly suppress stale defensive reacquisition so the offensive selector can turn
+            // the completed extension into a real counterattack.
+            EnergyFighterCounterattackManager.applyControl(aircraft);
         }
     }
 
