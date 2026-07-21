@@ -128,20 +128,22 @@ public final class AirCombatManeuverManager {
         if (shotsRemaining <= 0) {
             return AirCombatAction.DISENGAGE;
         }
-        if (state.action == AirCombatAction.BREAK_AWAY
-                && state.actionTicks < AirCombatAction.BREAK_AWAY.minimumCommitTicks()) {
-            return state.action;
-        }
-        if (context.distance() < 24.0
-                || (context.distance() < 48.0 && context.closureBps() > 14.0)) {
+
+        boolean emergencyBreak = context.distance() < 18.0
+                || (context.distance() < 32.0 && context.closureBps() > 18.0);
+        if (emergencyBreak && state.action != AirCombatAction.BREAK_AWAY) {
             return AirCombatAction.BREAK_AWAY;
         }
-        if (state.action == AirCombatAction.BREAK_AWAY && context.distance() >= 48.0) {
+        if (state.action != AirCombatAction.NONE
+                && state.actionTicks < state.action.minimumCommitTicks()) {
+            return state.action;
+        }
+        if (state.action == AirCombatAction.BREAK_AWAY && context.distance() >= 45.0) {
             return AirCombatAction.EXTEND;
         }
-        if (state.action == AirCombatAction.EXTEND
-                && state.actionTicks < AirCombatAction.EXTEND.minimumCommitTicks()) {
-            return state.action;
+        if (firingWindow(context)
+                && state.cooldowns.getOrDefault(AirCombatAction.FIRING_PASS, 0) <= 0) {
+            return AirCombatAction.FIRING_PASS;
         }
         if (state.action == AirCombatAction.EXTEND && context.distance() > 95.0
                 && context.energyRatio() > 0.92) {
@@ -174,13 +176,18 @@ public final class AirCombatManeuverManager {
             }
         }
 
-        if (state.action != AirCombatAction.NONE
-                && state.actionTicks < state.action.minimumCommitTicks()) {
-            return state.action;
-        }
         double currentUtility = utilities.getOrDefault(state.action, 0.0);
         return state.action == AirCombatAction.NONE || bestUtility >= currentUtility + 12.0
                 ? best : state.action;
+    }
+
+    private static boolean firingWindow(CombatContext context) {
+        return context.lineOfSight()
+                && context.distance() >= 24.0
+                && context.distance() <= 125.0
+                && context.aim().angleOffNoseDeg() <= 7.0
+                && context.closureBps() >= -6.0
+                && context.closureBps() <= 28.0;
     }
 
     private static double interceptUtility(CombatContext context) {
@@ -196,18 +203,18 @@ public final class AirCombatManeuverManager {
     }
 
     private static double firingUtility(CombatContext context) {
-        if (!context.lineOfSight() || context.distance() < 20.0 || context.distance() > 125.0) {
+        if (!context.lineOfSight() || context.distance() < 20.0 || context.distance() > 130.0) {
             return -100.0;
         }
-        return 125.0
-                - context.aim().angleOffNoseDeg() * 13.0
-                - Math.abs(context.distance() - 70.0) * 0.30
-                - Math.max(0.0, context.closureBps() - 9.0) * 2.0;
+        return 150.0
+                - context.aim().angleOffNoseDeg() * 8.0
+                - Math.abs(context.distance() - 70.0) * 0.28
+                - Math.max(0.0, context.closureBps() - 12.0) * 1.5;
     }
 
     private static double breakAwayUtility(CombatContext context) {
-        return Mth.clamp((45.0 - context.distance()) * 3.4, 0.0, 120.0)
-                + Mth.clamp((context.closureBps() - 8.0) * 3.0, 0.0, 50.0);
+        return Mth.clamp((35.0 - context.distance()) * 4.2, 0.0, 120.0)
+                + Mth.clamp((context.closureBps() - 12.0) * 3.0, 0.0, 50.0);
     }
 
     private static double extendUtility(State state, CombatContext context) {
@@ -228,22 +235,14 @@ public final class AirCombatManeuverManager {
                     context.aim().aimPoint().y + 8.0,
                     Math.max(profile.cruiseSpeedBps() + 6.0, context.targetSpeedBps() + 5.0),
                     profile, 1.0f, "combat_intercept", "air_combat_intercept");
-            case ATTACK_APPROACH -> {
-                Vec3 targetForward = horizontal(target.getLookAngle());
-                if (targetForward.lengthSqr() < 1.0e-8) {
-                    targetForward = horizontal(target.getDeltaMovement());
-                }
-                targetForward = safeNormalize(targetForward, context.aim().direction());
-                Vec3 rearPoint = target.position().subtract(targetForward.scale(42.0)).add(0.0, 6.0, 0.0);
-                Vec3 direction = safeNormalize(rearPoint.subtract(snapshot.position()), context.aim().direction());
-                yield control(snapshot, direction, rearPoint.y,
-                        Math.max(profile.cruiseSpeedBps() + 3.0, context.targetSpeedBps() + 2.0),
-                        profile, 0.86f, "combat_attack_approach", "air_combat_approach");
-            }
+            case ATTACK_APPROACH -> control(snapshot, context.aim().direction(),
+                    context.aim().aimPoint().y + 4.0,
+                    Math.max(profile.cruiseSpeedBps() + 2.0, context.targetSpeedBps() + 4.0),
+                    profile, 0.75f, "combat_attack_approach", "air_combat_approach");
             case FIRING_PASS -> control(snapshot, context.aim().direction(),
                     context.aim().aimPoint().y,
-                    Math.max(profile.cruiseSpeedBps(), context.targetSpeedBps() + 1.5),
-                    profile, 0.72f, "combat_firing_pass", "air_combat_firing_pass");
+                    Math.max(profile.cruiseSpeedBps(), context.targetSpeedBps() + 3.0),
+                    profile, 0.62f, "combat_firing_pass", "air_combat_firing_pass");
             case BREAK_AWAY -> {
                 Vec3 relative = horizontal(target.position().subtract(aircraft.position()));
                 double side = Math.signum(snapshot.right().dot(relative));
