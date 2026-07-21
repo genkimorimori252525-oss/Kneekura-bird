@@ -269,7 +269,8 @@ public final class CombatWeaponManager {
             return true;
         }
         if (aircraft.isAlliedTo(candidate) || pilot.isAlliedTo(candidate)
-                || candidate.isAlliedTo(pilot)) {
+                || candidate.isAlliedTo(pilot)
+                || CombatFactionRelations.protectedFromFire(aircraft, pilot, candidate)) {
             return true;
         }
         return !(candidate instanceof Enemy)
