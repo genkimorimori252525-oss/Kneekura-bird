@@ -285,7 +285,7 @@ public final class EnergyFighterReengagementAdapter {
     private static double crossingTurnSign(FlightSnapshot snapshot, Vec3 direction,
                                            double targetRoll) {
         if (Math.abs(targetRoll) >= 4.0) {
-            return targetRoll < 0.0 ? 1.0 : -1.0;
+            return targetRoll < 0.0 ? -1.0 : 1.0;
         }
         Vec3 horizontalTarget = safeNormalize(horizontal(direction),
                 snapshot.horizontalForward());
