@@ -59,6 +59,7 @@ public final class EnergyFighterCounterattackGate {
                             ? pursuitTarget : target;
                 })
                 .map(aircraft::distanceTo)
+                .map(Float::doubleValue)
                 .orElse(Double.POSITIVE_INFINITY);
     }
 
