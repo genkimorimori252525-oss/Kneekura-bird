@@ -39,6 +39,7 @@ public final class CombatWeaponManager {
     private static final double MIN_RANGE_BLOCKS = 18.0;
     private static final double MAX_RANGE_BLOCKS = 135.0;
     private static final double MAX_ANGLE_OFF_NOSE_DEG = 3.0;
+    private static final double MAX_RAW_TARGET_ANGLE_DEG = 45.0;
 
     private CombatWeaponManager() {
     }
@@ -106,6 +107,14 @@ public final class CombatWeaponManager {
         if (firingAngle > MAX_ANGLE_OFF_NOSE_DEG) {
             state.cancelBurst();
             state.inhibit(level, aircraft, "target_outside_nose_firing_cone");
+            return;
+        }
+        // A valid projectile intercept can mathematically lie ahead even after the target has
+        // crossed behind a fixed-gun fighter. Do not fire through that solution unless the actual
+        // target is still inside a broad forward hemisphere; the aircraft must first turn back in.
+        if (solution.angleOffNoseDeg() > MAX_RAW_TARGET_ANGLE_DEG) {
+            state.cancelBurst();
+            state.inhibit(level, aircraft, "target_currently_outside_forward_gun_hemisphere");
             return;
         }
 
