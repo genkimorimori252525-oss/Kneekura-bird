@@ -28,13 +28,13 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * <p>Firing requires a hostile solution, line of sight, a narrow nose angle, a safe range,
  * no protected living entity in the shot corridor, no immediate terrain conflict and available
- * ammunition. The policy uses three-volley bursts at the same four-tick cadence as the native
+ * ammunition. The policy uses two-volley bursts at the same four-tick cadence as the native
  * Warfare Wings machine-gun client logic.</p>
  */
 public final class CombatWeaponManager {
     private static final Map<UUID, State> STATES = new ConcurrentHashMap<>();
     private static final int SHOT_INTERVAL_TICKS = 4;
-    private static final int VOLLEYS_PER_BURST = 3;
+    private static final int VOLLEYS_PER_BURST = 2;
     private static final int BURST_COOLDOWN_TICKS = 18;
     private static final double MIN_RANGE_BLOCKS = 18.0;
     private static final double MAX_RANGE_BLOCKS = 135.0;
