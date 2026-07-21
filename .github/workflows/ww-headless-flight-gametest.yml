@@ -33,7 +33,7 @@ jobs:
     timeout-minutes: 45
     env:
       FLIGHT_TEST_TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.aircraft || 'warfare_wings:a6m' }}
-      FLIGHT_TEST_SCENARIO: ${{ github.event_name == 'workflow_dispatch' && inputs.scenario || 'landing' }}
+      FLIGHT_TEST_SCENARIO: ${{ github.event_name == 'workflow_dispatch' && inputs.scenario || 'turn' }}
     defaults:
       run:
         working-directory: ww-debug-benchmark
