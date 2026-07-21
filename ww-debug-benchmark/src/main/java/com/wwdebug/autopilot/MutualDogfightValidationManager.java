@@ -31,6 +31,7 @@ final class MutualDogfightValidationManager {
     private static final String HOSTILE_RED = "wwcombat:hostile:red";
     private static final String HOSTILE_BLUE = "wwcombat:hostile:blue";
     private static final int COMBAT_WINDOW_TICKS = 760;
+    private static final int MISSING_ENTITY_GRACE_TICKS = 40;
     private static final Map<UUID, Scene> SCENES = new ConcurrentHashMap<>();
 
     private static final Field SESSIONS = field(AutonomousFlightManager.class, "SESSIONS");
@@ -66,11 +67,24 @@ final class MutualDogfightValidationManager {
             return;
         }
 
-        Entity opponent = level.getEntity(scene.opponentUuid);
+        Entity opponent = scene.opponent;
         if (opponent == null || opponent.isRemoved()) {
-            finish(level, aircraft, scene, phase, "opponent_removed_before_window_end");
-            return;
+            Entity reloaded = scene.opponentUuid == null ? null : level.getEntity(scene.opponentUuid);
+            if (reloaded != null && !reloaded.isRemoved()) {
+                scene.opponent = reloaded;
+                opponent = reloaded;
+                scene.missingEntityTicks = 0;
+            } else if (++scene.missingEntityTicks <= MISSING_ENTITY_GRACE_TICKS) {
+                return;
+            } else {
+                completeScene(level, aircraft, scene, phase,
+                        "opponent_missing_after_grace_period");
+                return;
+            }
+        } else {
+            scene.missingEntityTicks = 0;
         }
+
         scene.ageTicks++;
         if (CombatAwarenessManager.currentSolution(aircraft.getUUID())
                 .map(solution -> solution.targetUuid().equals(scene.opponentPilotUuid))
@@ -107,9 +121,7 @@ final class MutualDogfightValidationManager {
                     phase);
         }
         if (scene.ageTicks >= COMBAT_WINDOW_TICKS) {
-            cleanupOpponent(opponent);
-            clearFaction(aircraft, RED_FACTION, HOSTILE_BLUE);
-            finish(level, aircraft, scene, phase, "combat_window_complete");
+            completeScene(level, aircraft, scene, phase, "combat_window_complete");
         }
     }
 
@@ -129,6 +141,7 @@ final class MutualDogfightValidationManager {
                 new ResourceLocation("warfare_wings", "p47n"));
         Entity opponent = opponentType == null ? null : opponentType.create(level);
         if (opponent == null) {
+            clearFaction(primary, RED_FACTION, HOSTILE_BLUE);
             scene.completed = true;
             AutopilotLogManager.writeEvent(level.getServer(), primary,
                     "mutual_dogfight_validation_setup_failed", "could_not_create_p47n", phase);
@@ -144,9 +157,9 @@ final class MutualDogfightValidationManager {
         }
         forward = forward.normalize();
         Vec3 right = new Vec3(-forward.z, 0.0, forward.x).normalize();
-        Vec3 opponentDirection = forward.scale(-0.32).subtract(right.scale(0.95)).normalize();
-        Vec3 opponentPosition = primary.position().add(forward.scale(142.0))
-                .add(right.scale(58.0)).add(0.0, 14.0, 0.0);
+        Vec3 opponentPosition = primary.position().add(forward.scale(92.0))
+                .add(right.scale(25.0)).add(0.0, 8.0, 0.0);
+        Vec3 opponentDirection = primary.position().subtract(opponentPosition).normalize();
 
         opponent.setCustomName(Component.literal("AUTOPILOT TEST MUTUAL BLUE P47N"));
         opponent.setCustomNameVisible(true);
@@ -159,6 +172,7 @@ final class MutualDogfightValidationManager {
         Villager opponentPilot = EntityType.VILLAGER.create(level);
         if (opponentPilot == null) {
             opponent.discard();
+            clearFaction(primary, RED_FACTION, HOSTILE_BLUE);
             scene.completed = true;
             AutopilotLogManager.writeEvent(level.getServer(), primary,
                     "mutual_dogfight_validation_setup_failed", "could_not_create_opponent_pilot", phase);
@@ -174,6 +188,7 @@ final class MutualDogfightValidationManager {
         if (!opponentPilot.startRiding(opponent, true)) {
             opponentPilot.discard();
             opponent.discard();
+            clearFaction(primary, RED_FACTION, HOSTILE_BLUE);
             scene.completed = true;
             AutopilotLogManager.writeEvent(level.getServer(), primary,
                     "mutual_dogfight_validation_setup_failed", "could_not_mount_opponent_pilot", phase);
@@ -183,6 +198,7 @@ final class MutualDogfightValidationManager {
         if (!ReflectiveArmament.equipTestMachineGun(opponent, 48)) {
             opponentPilot.discard();
             opponent.discard();
+            clearFaction(primary, RED_FACTION, HOSTILE_BLUE);
             scene.completed = true;
             AutopilotLogManager.writeEvent(level.getServer(), primary,
                     "mutual_dogfight_validation_setup_failed", "could_not_arm_opponent", phase);
@@ -201,6 +217,7 @@ final class MutualDogfightValidationManager {
 
         scene.started = true;
         scene.primaryPilotUuid = primaryPilot.getUUID();
+        scene.opponent = opponent;
         scene.opponentUuid = opponent.getUUID();
         scene.opponentPilotUuid = opponentPilot.getUUID();
         scene.minimumSeparation = primary.distanceTo(opponent);
@@ -239,6 +256,21 @@ final class MutualDogfightValidationManager {
         } catch (IllegalAccessException exception) {
             throw new IllegalStateException("Could not seed mutual-dogfight opponent", exception);
         }
+    }
+
+    private static void completeScene(ServerLevel level, Entity primary, Scene scene,
+                                      FlightPhase phase, String reason) {
+        Entity opponent = scene.opponent;
+        if (opponent != null && !opponent.isRemoved()) {
+            cleanupOpponent(opponent);
+        } else if (scene.opponentUuid != null) {
+            Entity loaded = level.getEntity(scene.opponentUuid);
+            if (loaded != null && !loaded.isRemoved()) {
+                cleanupOpponent(loaded);
+            }
+        }
+        clearFaction(primary, RED_FACTION, HOSTILE_BLUE);
+        finish(level, primary, scene, phase, reason);
     }
 
     private static void finish(ServerLevel level, Entity primary, Scene scene,
@@ -324,13 +356,19 @@ final class MutualDogfightValidationManager {
         if (scene == null) {
             return;
         }
+        Entity opponent = scene.opponent;
+        if (opponent != null && !opponent.isRemoved()) {
+            cleanupOpponent(opponent);
+        }
     }
 
     private static final class Scene {
         private UUID primaryPilotUuid;
+        private Entity opponent;
         private UUID opponentUuid;
         private UUID opponentPilotUuid;
         private int ageTicks;
+        private int missingEntityTicks;
         private int primaryTrackTicks;
         private int opponentTrackTicks;
         private int primaryCombatTicks;
