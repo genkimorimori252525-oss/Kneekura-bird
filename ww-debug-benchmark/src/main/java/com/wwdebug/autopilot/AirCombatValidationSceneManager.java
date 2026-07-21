@@ -18,6 +18,7 @@ final class AirCombatValidationSceneManager {
     private static final String TEST_NAME_PREFIX = "AUTOPILOT TEST ";
     private static final String AIR_TARGET_TAG = "wwcombat:air_target";
     private static final int COMBAT_WINDOW_TICKS = 620;
+    private static final int TARGET_LOOKUP_GRACE_TICKS = 30;
     private static final Map<UUID, Scene> SCENES = new ConcurrentHashMap<>();
 
     private AirCombatValidationSceneManager() {
@@ -42,9 +43,13 @@ final class AirCombatValidationSceneManager {
 
         Entity target = level.getEntity(scene.targetUuid);
         if (target == null || target.isRemoved()) {
-            finish(level, aircraft, scene, phase, "moving_target_missing");
+            scene.missingTicks++;
+            if (scene.missingTicks >= TARGET_LOOKUP_GRACE_TICKS) {
+                finish(level, aircraft, scene, phase, "moving_target_missing_after_grace");
+            }
             return;
         }
+        scene.missingTicks = 0;
         scene.ageTicks++;
         // Preserve a predictable straight target during the first doctrine milestone. A tiny
         // vertical sine wave later exercises lead prediction without turning this into evasion AI.
@@ -87,8 +92,8 @@ final class AirCombatValidationSceneManager {
         }
         forward = forward.normalize();
         Vec3 right = new Vec3(-forward.z, 0.0, forward.x).normalize();
-        Vec3 position = aircraft.position().add(forward.scale(142.0))
-                .add(right.scale(42.0)).add(0.0, 8.0, 0.0);
+        Vec3 position = aircraft.position().add(forward.scale(180.0))
+                .add(right.scale(18.0)).add(0.0, 6.0, 0.0);
 
         Zombie target = EntityType.ZOMBIE.create(level);
         if (target == null) {
@@ -113,12 +118,13 @@ final class AirCombatValidationSceneManager {
         scene.direction = forward;
         scene.speedBps = targetSpeed;
         scene.ageTicks = 0;
+        scene.missingTicks = 0;
         AutopilotLogManager.writeEvent(level.getServer(), aircraft,
                 "dogfight_validation_started",
                 "target_uuid=" + target.getUUID()
                         + ":initial_distance=" + round(aircraft.distanceTo(target))
-                        + ":lateral_offset=42.0"
-                        + ":vertical_offset=8.0"
+                        + ":lateral_offset=18.0"
+                        + ":vertical_offset=6.0"
                         + ":target_speed_bps=" + round(targetSpeed),
                 phase);
     }
@@ -148,6 +154,7 @@ final class AirCombatValidationSceneManager {
         private Vec3 direction = Vec3.ZERO;
         private double speedBps;
         private int ageTicks;
+        private int missingTicks;
         private boolean started;
         private boolean completed;
     }
