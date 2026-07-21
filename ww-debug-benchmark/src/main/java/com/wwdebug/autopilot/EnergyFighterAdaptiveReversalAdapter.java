@@ -13,24 +13,26 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Protects a successful energy-fighter reversal from stalling just outside attack setup.
+ * Protects a successful energy-fighter reversal through the fixed-gun attack setup.
  *
  * <p>The ordinary counterattack controller remains authoritative while the target angle is
  * improving. A broadside plateau may be tightened with a higher yo-yo, but once the fighter reaches
- * the near-setup sector this adapter stops all additional reversal logic and briefly points toward a
- * short future target position. The counterattack manager can then cross its normal 48-degree
- * transition boundary without a one-tick angle wobble causing a destructive turn flip.</p>
+ * the near-setup sector this adapter prevents another wide reversal and holds a high-authority
+ * crossing intercept. When the ordinary offensive selector creates its lead solution, this adapter
+ * follows that exact direction until weapon fire ends the counterattack or the short capture window
+ * expires.</p>
  */
 public final class EnergyFighterAdaptiveReversalAdapter {
     private static final int MIN_OBSERVATION_TICKS = 60;
     private static final int PLATEAU_TICKS = 10;
     private static final int MAX_OVERRIDE_TICKS = 120;
+    private static final int MAX_NEAR_SETUP_CAPTURE_TICKS = 70;
     private static final double REQUIRED_PROGRESS_DEG = 18.0;
     private static final double MAX_BEST_RAW_ANGLE_DEG = 105.0;
     private static final double MAX_START_RAW_ANGLE_DEG = 112.0;
     private static final double NEAR_SETUP_CAPTURE_ANGLE_DEG = 55.0;
     private static final double NEAR_SETUP_MAX_RAW_ANGLE_DEG = 64.0;
-    private static final double MANAGER_HANDOFF_RAW_ANGLE_DEG = 48.0;
+    private static final double NEAR_SETUP_ABORT_RAW_ANGLE_DEG = 105.0;
     private static final double YOYO_ALTITUDE_GAIN = 40.0;
     private static final Map<UUID, State> STATES = new ConcurrentHashMap<>();
 
@@ -82,25 +84,8 @@ public final class EnergyFighterAdaptiveReversalAdapter {
             state.plateauTicks++;
         }
 
-        // The manager evaluates first in the same tick. Once it can see <=48 degrees, stop
-        // overriding and let its normal ATTACK_SETUP transition and lead-aimed handoff proceed.
-        if (rawTargetAngle <= MANAGER_HANDOFF_RAW_ANGLE_DEG) {
-            if (state.overrideActive || state.nearSetupCapture) {
-                AutopilotLogManager.writeEvent(level.getServer(), aircraft,
-                        "energy_adaptive_reversal_handoff",
-                        description(state, rawTargetAngle)
-                                + ":reason=manager_attack_setup_boundary_reached",
-                        status.get().phase());
-            }
-            state.handedOff = true;
-            return false;
-        }
-        if (state.handedOff) {
-            return false;
-        }
-
-        // A fighter that has already reached roughly fifty degrees must not begin another wide
-        // reversal. Capture the nearly complete solution and drive it across the manager boundary.
+        // Once roughly aligned, capture the crossing and keep it through ATTACK_SETUP. The manager
+        // still runs first and may create its ordinary tactical lead solution during this window.
         if (!state.nearSetupCapture
                 && state.bestRawTargetAngle <= NEAR_SETUP_CAPTURE_ANGLE_DEG
                 && rawTargetAngle <= NEAR_SETUP_MAX_RAW_ANGLE_DEG) {
@@ -114,10 +99,26 @@ public final class EnergyFighterAdaptiveReversalAdapter {
                     status.get().phase());
         }
         if (state.nearSetupCapture) {
-            applyNearSetupCapture(level, aircraft, target.aircraft(), snapshot, profile,
+            boolean timedOut = state.overrideTicks >= MAX_NEAR_SETUP_CAPTURE_TICKS;
+            boolean passedBeyondRecovery = state.overrideTicks >= 20
+                    && rawTargetAngle >= NEAR_SETUP_ABORT_RAW_ANGLE_DEG;
+            if (timedOut || passedBeyondRecovery) {
+                state.handedOff = true;
+                AutopilotLogManager.writeEvent(level.getServer(), aircraft,
+                        "energy_near_setup_capture_end",
+                        description(state, rawTargetAngle)
+                                + ":reason=" + (timedOut
+                                ? "near_setup_capture_timeout" : "crossing_passed_beyond_recovery"),
+                        status.get().phase());
+                return false;
+            }
+            applyNearSetupCapture(level, aircraft, target, snapshot, profile,
                     targetDirection, rawTargetAngle, state, status.get().phase());
             state.overrideTicks++;
             return true;
+        }
+        if (state.handedOff) {
+            return false;
         }
 
         if (!state.overrideActive) {
@@ -162,46 +163,69 @@ public final class EnergyFighterAdaptiveReversalAdapter {
         return true;
     }
 
-    private static void applyNearSetupCapture(ServerLevel level, Entity aircraft, Entity target,
+    private static void applyNearSetupCapture(ServerLevel level, Entity aircraft, Target target,
                                               FlightSnapshot snapshot, FlightProfile profile,
                                               Vec3 targetDirection, double rawTargetAngle,
                                               State state, FlightPhase phase) {
-        Vec3 shortLeadPoint = target.getBoundingBox().getCenter()
-                .add(target.getDeltaMovement().scale(5.0));
-        Vec3 desired = safeNormalize(shortLeadPoint
-                .subtract(aircraft.getBoundingBox().getCenter()), targetDirection);
+        Optional<AirCombatManeuverManager.AimSolution> tacticalAim =
+                AirCombatManeuverManager.currentAim(aircraft.getUUID(), target.pilotUuid());
+        Vec3 desired = tacticalAim.map(AirCombatManeuverManager.AimSolution::direction)
+                .orElse(targetDirection);
         Vec3 horizontalDesired = safeNormalize(horizontal(desired), snapshot.horizontalForward());
         double desiredYaw = Math.toDegrees(Math.atan2(-horizontalDesired.x, horizontalDesired.z));
         double headingError = Mth.wrapDegrees((float) (desiredYaw - snapshot.yawDeg()));
-        float x = (float) Mth.clamp(headingError / 15.0, -0.92, 0.92);
+        float x = (float) Mth.clamp(headingError / 8.5, -0.96, 0.96);
 
-        double targetAltitude = target.position().y + 8.0;
+        double targetAltitude = tacticalAim.map(aim -> aim.aimPoint().y)
+                .orElse(target.aircraft().position().y + 4.0);
         double altitudeError = targetAltitude - snapshot.position().y;
-        double desiredPitch = Mth.clamp(-altitudeError * 0.22
-                + snapshot.verticalSpeedBps() * 0.24, -12.0, 8.0);
+        double desiredPitch = Mth.clamp(-altitudeError * 0.28
+                + snapshot.verticalSpeedBps() * 0.20, -14.0, 9.0);
         if (snapshot.speedBps() < profile.stallGuardSpeedBps() * 1.30) {
             desiredPitch = Math.max(desiredPitch, -2.5);
-            x *= 0.62f;
+            x *= 0.60f;
         }
-        float z = (float) Mth.clamp((desiredPitch - snapshot.pitchDeg()) / 14.0,
-                -0.84, 0.78);
-        double targetSpeed = Math.max(profile.stallGuardSpeedBps() * 2.4,
-                target.getDeltaMovement().horizontalDistance() * 20.0 + 1.0);
-        float engineTarget = snapshot.speedBps() > targetSpeed + 3.0 ? 0.22f : 0.68f;
+        float z = (float) Mth.clamp((desiredPitch - snapshot.pitchDeg()) / 11.0,
+                -0.90, 0.84);
+
+        double targetAircraftSpeed = target.aircraft().getDeltaMovement().horizontalDistance() * 20.0;
+        double targetSpeed = Math.max(profile.stallGuardSpeedBps() * 2.0,
+                targetAircraftSpeed + 0.5);
+        double closure = relativeClosureBps(aircraft, target.aircraft());
+        float engineTarget;
+        if (closure > 30.0 || snapshot.speedBps() > targetSpeed + 4.0) {
+            engineTarget = 0.05f;
+        } else if (snapshot.speedBps() < targetSpeed - 1.0) {
+            engineTarget = 0.85f;
+        } else {
+            engineTarget = 0.28f;
+        }
 
         FlightControlOutput output = new FlightControlOutput(x, 0.0f, z, engineTarget,
                 horizontalDesired, targetAltitude, targetSpeed, headingError, altitudeError,
                 targetSpeed - snapshot.speedBps(),
                 snapshot.speedBps() < profile.stallGuardSpeedBps(), false,
-                "energy_near_setup_capture", "protect_counterattack_transition_boundary");
+                "energy_near_setup_capture", "hold_crossing_until_fixed_gun_solution");
         ReflectiveAircraft.applyControl(aircraft, -output.x(), output.y(), output.z(),
                 output.engineTarget());
         AutopilotLogManager.writeControlAdapter(level.getServer(), aircraft, phase,
-                description(state, rawTargetAngle), snapshot, baseline(snapshot), output);
+                description(state, rawTargetAngle)
+                        + ":tactical_aim=" + tacticalAim.isPresent()
+                        + ":tactical_lead_angle=" + tacticalAim
+                        .map(AirCombatManeuverManager.AimSolution::angleOffNoseDeg)
+                        .map(EnergyFighterAdaptiveReversalAdapter::round).orElse(-1.0)
+                        + ":closure=" + round(closure),
+                snapshot, baseline(snapshot), output);
         if (state.statusTicks++ % 5 == 0) {
             AutopilotLogManager.writeEvent(level.getServer(), aircraft,
                     "energy_near_setup_capture_status",
-                    description(state, rawTargetAngle), phase);
+                    description(state, rawTargetAngle)
+                            + ":tactical_aim=" + tacticalAim.isPresent()
+                            + ":tactical_lead_angle=" + tacticalAim
+                            .map(AirCombatManeuverManager.AimSolution::angleOffNoseDeg)
+                            .map(EnergyFighterAdaptiveReversalAdapter::round).orElse(-1.0)
+                            + ":closure=" + round(closure),
+                    phase);
         }
     }
 
@@ -265,6 +289,16 @@ public final class EnergyFighterAdaptiveReversalAdapter {
                     }
                     return new Target(living.getUUID(), targetAircraft);
                 });
+    }
+
+    private static double relativeClosureBps(Entity defender, Entity attacker) {
+        Vec3 line = attacker.position().subtract(defender.position());
+        if (line.lengthSqr() < 1.0e-8) {
+            return 0.0;
+        }
+        Vec3 relativeVelocity = attacker.getDeltaMovement().subtract(defender.getDeltaMovement())
+                .scale(20.0);
+        return -relativeVelocity.dot(line.normalize());
     }
 
     private static double retainedTurnSign(FlightSnapshot snapshot, Vec3 targetDirection) {
