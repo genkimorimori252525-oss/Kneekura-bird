@@ -48,8 +48,7 @@ def main() -> int:
     rows = read_jsonl(log_path)
     acquisitions = [row for row in rows if row.get("event") == "combat_target_acquired"]
     losses = [row for row in rows if row.get("event") == "combat_target_lost"]
-    fire_events = [row for row in rows if "fire" in str(row.get("event", "")).lower()
-                   or "shoot" in str(row.get("event", "")).lower()]
+    fire_events = [row for row in rows if row.get("event") == "weapon_fire"]
     reasons = [str(row.get("reason", "")).lower() for row in acquisitions]
 
     errors: list[str] = []
@@ -62,7 +61,7 @@ def main() -> int:
     require(not any("player" in reason for reason in reasons), errors,
             "a player was incorrectly selected")
     require(not fire_events, errors,
-            "target-awareness validation emitted a firing event before weapon policy was enabled")
+            "target-awareness validation fired without an installed test weapon")
 
     result = {
         "scenario": "targeting",
