@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 KEYWORDS = (
-    "weapon", "gun", "cannon", "ammo", "ammunition", "bullet", "projectile",
+    "weapon", "gun", "cannon", "ammo", "ammunition", "gunpowder", "bullet", "projectile",
     "shoot", "shot", "fire", "attack", "target", "reload", "cooldown",
     "missile", "rocket", "bomb", "torpedo", "trigger", "magazine",
 )
@@ -42,7 +42,7 @@ def relevant_bytes(payload: bytes) -> list[str]:
 
 def javap(jar: Path, name: str) -> tuple[int, str, str]:
     process = subprocess.run(
-        ["javap", "-p", "-classpath", str(jar), name],
+        ["javap", "-p", "-c", "-constants", "-classpath", str(jar), name],
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -93,7 +93,8 @@ def main() -> int:
         0 if any(keyword in value["class_name"].lower() for keyword in KEYWORDS) else 1,
         value["class_name"],
     ))
-    truncated = len(candidates) > args.maximum_classes
+    original_candidate_count = len(candidates)
+    truncated = original_candidate_count > args.maximum_classes
     candidates = candidates[:args.maximum_classes]
 
     classes: list[dict[str, Any]] = []
@@ -124,7 +125,7 @@ def main() -> int:
     summary = {
         "jar": str(args.jar),
         "keywords": list(KEYWORDS),
-        "candidate_count_before_limit": len(candidates) if not truncated else f">={args.maximum_classes}",
+        "candidate_count_before_limit": original_candidate_count,
         "candidate_count": len(classes),
         "truncated": truncated,
         "classes_with_relevant_members": sum(bool(value["relevant_members"]) for value in classes),
