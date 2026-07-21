@@ -1,5 +1,6 @@
 package com.wwdebug.autopilot;
 
+import com.wwdebug.benchmark.ReflectiveAircraft;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
@@ -24,12 +25,15 @@ import java.util.UUID;
  *
  * <p>This layer never fires a weapon. It excludes players, neutral entities, passengers, tame
  * animals, scoreboard allies and same-faction entities. When either aircraft side declares a
- * combat faction, only an explicit directional hostile-faction tag permits acquisition. Unfactioned
- * ordinary mobs retain the legacy Enemy/active-attacker fallback.</p>
+ * combat faction, only an explicit directional hostile-faction tag permits acquisition. Airborne
+ * aircraft targets receive a longer awareness range than ordinary ground hostiles so both fighters
+ * can begin solving an intercept before collision avoidance necessarily takes control.</p>
  */
 final class CombatTargetSelector {
-    private static final double HORIZONTAL_RANGE = 192.0;
-    private static final double VERTICAL_RANGE = 96.0;
+    private static final String AIR_TARGET_TAG = "wwcombat:air_target";
+    private static final double GROUND_HORIZONTAL_RANGE = 192.0;
+    private static final double AIR_HORIZONTAL_RANGE = 280.0;
+    private static final double VERTICAL_RANGE = 120.0;
     private static final int RESCAN_TICKS = 10;
     private static final int LOST_GRACE_TICKS = 30;
 
@@ -51,13 +55,15 @@ final class CombatTargetSelector {
             Entity current = level.getEntity(state.targetUuid);
             if (current instanceof LivingEntity living && validTarget(aircraft, pilot, living)) {
                 Solution solution = solve(aircraft, pilot, living);
-                if (solution.lineOfSight() && solution.distanceBlocks() <= HORIZONTAL_RANGE * 1.15) {
+                if (solution.lineOfSight()
+                        && solution.distanceBlocks() <= acquisitionRange(living) * 1.15) {
                     state.lostTicks = 0;
                     if (state.rescanTicks > 0) {
                         return new Update(Optional.of(solution), false, false, "target_tracked");
                     }
                 } else if (++state.lostTicks <= LOST_GRACE_TICKS && state.rescanTicks > 0) {
-                    return new Update(Optional.of(solution), false, false, "target_temporarily_obscured");
+                    return new Update(Optional.of(solution), false, false,
+                            "target_temporarily_obscured");
                 }
             }
         }
@@ -67,11 +73,13 @@ final class CombatTargetSelector {
         }
         state.rescanTicks = RESCAN_TICKS;
 
-        AABB search = aircraft.getBoundingBox().inflate(HORIZONTAL_RANGE, VERTICAL_RANGE, HORIZONTAL_RANGE);
+        AABB search = aircraft.getBoundingBox().inflate(
+                AIR_HORIZONTAL_RANGE, VERTICAL_RANGE, AIR_HORIZONTAL_RANGE);
         List<LivingEntity> candidates = level.getEntitiesOfClass(
                 LivingEntity.class,
                 search,
                 candidate -> validTarget(aircraft, pilot, candidate)
+                        && candidate.distanceTo(aircraft) <= acquisitionRange(candidate)
         );
         Optional<Solution> selected = candidates.stream()
                 .map(candidate -> solve(aircraft, pilot, candidate))
@@ -97,6 +105,14 @@ final class CombatTargetSelector {
             return false;
         }
         return phase != FlightPhase.STALL_ENTRY && phase != FlightPhase.STALL_RECOVERY;
+    }
+
+    private static double acquisitionRange(LivingEntity candidate) {
+        Entity vehicle = candidate.getVehicle();
+        return ReflectiveAircraft.isAirplane(vehicle)
+                || candidate.getTags().contains(AIR_TARGET_TAG)
+                || (vehicle != null && vehicle.getTags().contains(AIR_TARGET_TAG))
+                ? AIR_HORIZONTAL_RANGE : GROUND_HORIZONTAL_RANGE;
     }
 
     private static boolean validTarget(Entity aircraft, LivingEntity pilot, LivingEntity candidate) {
