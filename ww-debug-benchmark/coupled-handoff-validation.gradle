@@ -6,26 +6,23 @@ import org.gradle.api.tasks.compile.JavaCompile
 tasks.withType(JavaCompile).configureEach {
     doFirst {
         File adapterSource = file('src/main/java/com/wwdebug/autopilot/EnergyFighterApexYawAdapter.java')
-        File combatSource = file('src/main/java/com/wwdebug/autopilot/AirCombatManeuverManager.java')
         String adapter = adapterSource.getText('UTF-8').replace('\r\n', '\n')
-        String combat = combatSource.getText('UTF-8').replace('\r\n', '\n')
 
         String oldConstants = [
                 '    private static final double ATTACK_MAX_RAW_ANGLE_DEG = 45.0;',
                 '    private static final double ATTACK_MAX_LEAD_ANGLE_DEG = 12.0;'
         ].join('\n')
         String newConstants = [
-                '    private static final double CAPTURE_IMPROVEMENT_EPSILON_DEG = 0.20;',
-                '    private static final double CAPTURE_MAX_REGRESSION_DEG = 3.0;',
-                '    private static final double CAPTURE_MAX_LEAD_REGRESSION_DEG = 4.0;',
-                '    private static final double CAPTURE_USEFUL_MAX_RAW_ANGLE_DEG = 62.0;',
-                '    private static final double CAPTURE_USEFUL_MAX_LEAD_ANGLE_DEG = 70.0;',
-                '    private static final double CAPTURE_HANDOFF_MIN_DISTANCE = 42.0;',
-                '    private static final double CAPTURE_HANDOFF_MAX_DISTANCE = 125.0;',
-                '    private static final double CAPTURE_HANDOFF_MIN_CLOSURE_BPS = -6.0;',
-                '    private static final double CAPTURE_HANDOFF_MAX_CLOSURE_BPS = 28.0;',
-                '    private static final int CAPTURE_MIN_HANDOFF_TICKS = 24;',
-                '    private static final int CAPTURE_STALL_TICKS = 4;',
+                '    private static final double CAPTURE_HORIZONTAL_IMPROVEMENT_EPSILON_DEG = 0.20;',
+                '    private static final double CAPTURE_REVERSAL_TRIGGER_REGRESSION_DEG = 4.0;',
+                '    private static final double CAPTURE_REVERSAL_MIN_DISTANCE = 55.0;',
+                '    private static final double CAPTURE_REVERSAL_MAX_DISTANCE = 125.0;',
+                '    private static final double CAPTURE_REVERSAL_MIN_CLOSURE_BPS = 8.0;',
+                '    private static final double CAPTURE_REVERSAL_INPUT = 0.94;',
+                '    private static final double CAPTURE_MAX_DESCENT_PITCH_DEG = 20.0;',
+                '    private static final int CAPTURE_REVERSAL_MIN_TICKS = 20;',
+                '    private static final int CAPTURE_REVERSAL_STALL_TICKS = 3;',
+                '    private static final int CAPTURE_REVERSAL_TIMEOUT_TICKS = 90;',
                 '',
                 '    private static final double ATTACK_MAX_RAW_ANGLE_DEG = 45.0;',
                 '    private static final double ATTACK_MAX_LEAD_ANGLE_DEG = 12.0;'
@@ -51,45 +48,137 @@ tasks.withType(JavaCompile).configureEach {
         ].join('\n')
         String newCapture = [
                 '        if (state.stage == Stage.CAPTURE) {',
-                '            if (rawAngle + CAPTURE_IMPROVEMENT_EPSILON_DEG',
-                '                    < state.bestCaptureRawAngle) {',
-                '                state.bestCaptureRawAngle = rawAngle;',
-                '                state.bestCaptureLeadAngle = leadAngle;',
-                '                state.captureStalledTicks = 0;',
-                '            } else if (state.stageTicks >= CAPTURE_MIN_HANDOFF_TICKS',
-                '                    && rawAngle <= state.bestCaptureRawAngle',
-                '                    + CAPTURE_MAX_REGRESSION_DEG) {',
-                '                state.captureStalledTicks++;',
+                '            double absoluteHorizontalError = Math.abs(horizontalLeadError);',
+                '            if (!state.captureTurnReversed) {',
+                '                if (absoluteHorizontalError + CAPTURE_HORIZONTAL_IMPROVEMENT_EPSILON_DEG',
+                '                        < state.bestCaptureHorizontalError) {',
+                '                    state.bestCaptureHorizontalError = absoluteHorizontalError;',
+                '                    state.captureHorizontalStalledTicks = 0;',
+                '                } else if (state.stageTicks >= CAPTURE_REVERSAL_MIN_TICKS',
+                '                        && absoluteHorizontalError >= state.bestCaptureHorizontalError',
+                '                        + CAPTURE_REVERSAL_TRIGGER_REGRESSION_DEG) {',
+                '                    state.captureHorizontalStalledTicks++;',
+                '                } else {',
+                '                    state.captureHorizontalStalledTicks = 0;',
+                '                }',
+                '',
+                '                boolean reverseAcrossTurn = target.lineOfSight()',
+                '                        && state.stageTicks >= CAPTURE_REVERSAL_MIN_TICKS',
+                '                        && state.captureHorizontalStalledTicks',
+                '                        >= CAPTURE_REVERSAL_STALL_TICKS',
+                '                        && distance >= CAPTURE_REVERSAL_MIN_DISTANCE',
+                '                        && distance <= CAPTURE_REVERSAL_MAX_DISTANCE',
+                '                        && closure >= CAPTURE_REVERSAL_MIN_CLOSURE_BPS;',
+                '                if (reverseAcrossTurn) {',
+                '                    state.captureTurnReversed = true;',
+                '                    state.captureReverseInputSign = -Math.copySign(',
+                '                            1.0, horizontalLeadError);',
+                '                    state.captureReverseTicks = 0;',
+                '                    writeEvent(level, aircraft, session.get().phase(),',
+                '                            "energy_coupled_capture_reversal", state, snapshot,',
+                '                            distance, rawAngle, leadAngle, closure,',
+                '                            threat.aimAngleDeg(), "horizontal_local_minimum_cross_turn");',
+                '                }',
                 '            } else {',
-                '                state.captureStalledTicks = 0;',
+                '                state.captureReverseTicks++;',
                 '            }',
                 '',
-                '            boolean localMinimumCapture = target.lineOfSight()',
-                '                    && state.stageTicks >= CAPTURE_MIN_HANDOFF_TICKS',
-                '                    && state.captureStalledTicks >= CAPTURE_STALL_TICKS',
-                '                    && state.bestCaptureRawAngle',
-                '                    <= CAPTURE_USEFUL_MAX_RAW_ANGLE_DEG',
-                '                    && state.bestCaptureLeadAngle',
-                '                    <= CAPTURE_USEFUL_MAX_LEAD_ANGLE_DEG',
-                '                    && rawAngle <= state.bestCaptureRawAngle',
-                '                    + CAPTURE_MAX_REGRESSION_DEG',
-                '                    && leadAngle <= state.bestCaptureLeadAngle',
-                '                    + CAPTURE_MAX_LEAD_REGRESSION_DEG',
-                '                    && distance >= CAPTURE_HANDOFF_MIN_DISTANCE',
-                '                    && distance <= CAPTURE_HANDOFF_MAX_DISTANCE',
-                '                    && closure >= CAPTURE_HANDOFF_MIN_CLOSURE_BPS',
-                '                    && closure <= CAPTURE_HANDOFF_MAX_CLOSURE_BPS;',
-                '            if (localMinimumCapture) {',
+                '            boolean attackSector = target.lineOfSight()',
+                '                    && rawAngle <= ATTACK_MAX_RAW_ANGLE_DEG',
+                '                    && leadAngle <= ATTACK_MAX_LEAD_ANGLE_DEG',
+                '                    && distance >= ATTACK_MIN_DISTANCE && distance <= ATTACK_MAX_DISTANCE',
+                '                    && closure >= ATTACK_MIN_CLOSURE_BPS',
+                '                    && closure <= ATTACK_MAX_CLOSURE_BPS;',
+                '            if (attackSector) {',
                 '                transition(level, aircraft, session.get().phase(), state, snapshot,',
                 '                        distance, rawAngle, leadAngle, closure, threat.aimAngleDeg(),',
-                '                        Stage.DOCTRINE, "capture_local_minimum_handoff");',
-                '                AirCombatManeuverManager.handoffToAttackApproach(',
-                '                        aircraft, target.pilotUuid());',
+                '                        Stage.DOCTRINE, "attack_sector_reached");',
+                '            } else if (state.captureTurnReversed',
+                '                    && state.captureReverseTicks >= CAPTURE_REVERSAL_TIMEOUT_TICKS) {',
+                '                finish(level, aircraft, session.get().phase(),',
+                '                        "capture_reversal_timeout", true);',
+                '                return false;',
                 '            } else if (state.stageTicks >= MAX_CAPTURE_TICKS || distance > 190.0) {',
                 '                finish(level, aircraft, session.get().phase(), "capture_timeout", true);',
                 '                return false;',
                 '            }',
                 '        }'
+        ].join('\n')
+
+        String oldApplyCapture = [
+                '    private static void applyCapture(ServerLevel level, Entity aircraft, Entity target,',
+                '                                     FlightSnapshot snapshot, FlightProfile profile,',
+                '                                     Vec3 leadDirection, double headingError,',
+                '                                     double yawRate, double pitchRate, State state,',
+                '                                     double rawAngle, double leadAngle, double closure,',
+                '                                     FlightPhase phase) {',
+                '        float x = (float) Mth.clamp(',
+                '                headingError / 18.0 - YAW_RATE_DAMPING * yawRate,',
+                '                -0.94, 0.94);',
+                '        double desiredPitch = desiredPitchDegrees(leadDirection);',
+                '        float z = (float) Mth.clamp(',
+                '                (desiredPitch - snapshot.pitchDeg()) / CAPTURE_PITCH_DIVISOR',
+                '                        - CAPTURE_PITCH_RATE_DAMPING * pitchRate,',
+                '                -0.88, 0.88);',
+                '        double targetAltitude = target.getBoundingBox().getCenter().y + 4.0;',
+                '        double altitudeError = targetAltitude - snapshot.position().y;',
+                '        double targetSpeed = Math.max(profile.cruiseSpeedBps(),',
+                '                target.getDeltaMovement().horizontalDistance() * 20.0 + 3.0);',
+                '        float engine = snapshot.speedBps() < targetSpeed - 1.0 ? 1.0f',
+                '                : snapshot.speedBps() > targetSpeed + 3.0 ? 0.30f : 0.65f;',
+                '        FlightControlOutput output = new FlightControlOutput(x, 0.0f, z, engine,',
+                '                leadDirection, targetAltitude, targetSpeed,',
+                '                headingError, altitudeError, targetSpeed - snapshot.speedBps(),',
+                '                snapshot.speedBps() < profile.stallGuardSpeedBps(), false,',
+                '                "energy_coupled_capture", "damped_vector_capture_after_climbing_turn");',
+                '        applyAndLog(level, aircraft, snapshot, output, state,',
+                '                rawAngle, leadAngle, closure, phase);',
+                '    }'
+        ].join('\n')
+        String newApplyCapture = [
+                '    private static void applyCapture(ServerLevel level, Entity aircraft, Entity target,',
+                '                                     FlightSnapshot snapshot, FlightProfile profile,',
+                '                                     Vec3 leadDirection, double headingError,',
+                '                                     double yawRate, double pitchRate, State state,',
+                '                                     double rawAngle, double leadAngle, double closure,',
+                '                                     FlightPhase phase) {',
+                '        float x;',
+                '        if (state.captureTurnReversed) {',
+                '            x = (float) (state.captureReverseInputSign * CAPTURE_REVERSAL_INPUT);',
+                '        } else {',
+                '            x = (float) Mth.clamp(',
+                '                    headingError / 18.0 - YAW_RATE_DAMPING * yawRate,',
+                '                    -0.94, 0.94);',
+                '        }',
+                '        double desiredPitch = desiredPitchDegrees(leadDirection);',
+                '        if (state.captureTurnReversed) {',
+                '            desiredPitch = Mth.clamp(desiredPitch, -8.0,',
+                '                    CAPTURE_MAX_DESCENT_PITCH_DEG);',
+                '        }',
+                '        float z = (float) Mth.clamp(',
+                '                (desiredPitch - snapshot.pitchDeg()) / CAPTURE_PITCH_DIVISOR',
+                '                        - CAPTURE_PITCH_RATE_DAMPING * pitchRate,',
+                '                -0.88, 0.88);',
+                '        double targetAltitude = target.getBoundingBox().getCenter().y + 4.0;',
+                '        double altitudeError = targetAltitude - snapshot.position().y;',
+                '        double targetSpeed = Math.max(profile.cruiseSpeedBps(),',
+                '                target.getDeltaMovement().horizontalDistance() * 20.0 + 3.0);',
+                '        float engine = snapshot.speedBps() < targetSpeed - 1.0 ? 1.0f',
+                '                : snapshot.speedBps() > targetSpeed + 3.0 ? 0.30f : 0.65f;',
+                '        if (state.captureTurnReversed) {',
+                '            engine = Math.max(engine, 0.65f);',
+                '        }',
+                '        FlightControlOutput output = new FlightControlOutput(x, 0.0f, z, engine,',
+                '                leadDirection, targetAltitude, targetSpeed,',
+                '                headingError, altitudeError, targetSpeed - snapshot.speedBps(),',
+                '                snapshot.speedBps() < profile.stallGuardSpeedBps(), false,',
+                '                "energy_coupled_capture",',
+                '                state.captureTurnReversed',
+                '                        ? "horizontal_local_minimum_cross_turn"',
+                '                        : "damped_vector_capture_after_climbing_turn");',
+                '        applyAndLog(level, aircraft, snapshot, output, state,',
+                '                rawAngle, leadAngle, closure, phase);',
+                '    }'
         ].join('\n')
 
         String oldDescriptionTail = [
@@ -99,9 +188,14 @@ tasks.withType(JavaCompile).configureEach {
         String newDescriptionTail = [
                 '                + ":turn_sign=" + state.turnSign',
                 '                + ":max_yaw_change=" + round(state.maxYawChangeDeg)',
-                '                + ":best_capture_raw_angle=" + round(state.bestCaptureRawAngle)',
-                '                + ":best_capture_lead_angle=" + round(state.bestCaptureLeadAngle)',
-                '                + ":capture_stalled_ticks=" + state.captureStalledTicks;'
+                '                + ":best_capture_horizontal_error="',
+                '                + round(state.bestCaptureHorizontalError)',
+                '                + ":capture_horizontal_stalled_ticks="',
+                '                + state.captureHorizontalStalledTicks',
+                '                + ":capture_turn_reversed=" + state.captureTurnReversed',
+                '                + ":capture_reverse_input_sign="',
+                '                + state.captureReverseInputSign',
+                '                + ":capture_reverse_ticks=" + state.captureReverseTicks;'
         ].join('\n')
 
         String oldStateFields = [
@@ -112,69 +206,41 @@ tasks.withType(JavaCompile).configureEach {
         String newStateFields = [
                 '        private double lastYawDeg;',
                 '        private double lastPitchDeg;',
-                '        private double bestCaptureRawAngle = Double.POSITIVE_INFINITY;',
-                '        private double bestCaptureLeadAngle = Double.POSITIVE_INFINITY;',
-                '        private int captureStalledTicks;',
+                '        private double bestCaptureHorizontalError = Double.POSITIVE_INFINITY;',
+                '        private double captureReverseInputSign;',
+                '        private int captureHorizontalStalledTicks;',
+                '        private int captureReverseTicks;',
+                '        private boolean captureTurnReversed;',
                 '        private int totalTicks;'
         ].join('\n')
 
-        String oldCurrentAim = [
-                '    public static Optional<AimSolution> currentAim(UUID aircraftUuid, UUID targetUuid) {',
-                '        AimSolution solution = AIM_SOLUTIONS.get(aircraftUuid);',
-                '        return solution != null && solution.targetUuid().equals(targetUuid)',
-                '                ? Optional.of(solution) : Optional.empty();',
-                '    }',
-                '',
-                '    private static AirCombatAction selectAction(State state, CombatContext context,'
-        ].join('\n')
-        String newCurrentAim = [
-                '    public static Optional<AimSolution> currentAim(UUID aircraftUuid, UUID targetUuid) {',
-                '        AimSolution solution = AIM_SOLUTIONS.get(aircraftUuid);',
-                '        return solution != null && solution.targetUuid().equals(targetUuid)',
-                '                ? Optional.of(solution) : Optional.empty();',
-                '    }',
-                '',
-                '    public static void handoffToAttackApproach(Entity aircraft, UUID targetUuid) {',
-                '        State state = STATES.computeIfAbsent(aircraft.getUUID(), ignored -> new State());',
-                '        state.action = AirCombatAction.ATTACK_APPROACH;',
-                '        state.targetUuid = targetUuid;',
-                '        state.actionTicks = 0;',
-                '        state.evaluationTicks = EVALUATION_INTERVAL_TICKS;',
-                '        state.statusTicks = 0;',
-                '        state.cooldowns.remove(AirCombatAction.ATTACK_APPROACH);',
-                '        AIM_SOLUTIONS.remove(aircraft.getUUID());',
-                '    }',
-                '',
-                '    private static AirCombatAction selectAction(State state, CombatContext context,'
-        ].join('\n')
-
-        boolean fullyApplied = adapter.contains('CAPTURE_IMPROVEMENT_EPSILON_DEG')
-                && adapter.contains('capture_local_minimum_handoff')
-                && combat.contains('handoffToAttackApproach')
+        boolean fullyApplied = adapter.contains('CAPTURE_REVERSAL_TRIGGER_REGRESSION_DEG')
+                && adapter.contains('horizontal_local_minimum_cross_turn')
+                && adapter.contains('captureTurnReversed')
         if (fullyApplied) {
-            logger.lifecycle('Coupled-climb local-minimum handoff experiment already applied in this workspace.')
+            logger.lifecycle('Coupled-climb horizontal cross-turn experiment already applied in this workspace.')
             return
         }
 
         int constantsCount = adapter.split(Pattern.quote(oldConstants), -1).length - 1
         int captureCount = adapter.split(Pattern.quote(oldCapture), -1).length - 1
+        int applyCaptureCount = adapter.split(Pattern.quote(oldApplyCapture), -1).length - 1
         int descriptionCount = adapter.split(Pattern.quote(oldDescriptionTail), -1).length - 1
         int stateCount = adapter.split(Pattern.quote(oldStateFields), -1).length - 1
-        int currentAimCount = combat.split(Pattern.quote(oldCurrentAim), -1).length - 1
-        if (constantsCount != 1 || captureCount != 1 || descriptionCount != 1
-                || stateCount != 1 || currentAimCount != 1) {
-            throw new GradleException('Refusing local-minimum handoff experiment: '
-                    + "constants=${constantsCount}, capture=${captureCount}, description=${descriptionCount}, "
-                    + "state=${stateCount}, manager=${currentAimCount}")
+        if (constantsCount != 1 || captureCount != 1 || applyCaptureCount != 1
+                || descriptionCount != 1 || stateCount != 1) {
+            throw new GradleException('Refusing horizontal cross-turn experiment: '
+                    + "constants=${constantsCount}, capture=${captureCount}, "
+                    + "applyCapture=${applyCaptureCount}, description=${descriptionCount}, "
+                    + "state=${stateCount}")
         }
 
         adapter = adapter.replace(oldConstants, newConstants)
                 .replace(oldCapture, newCapture)
+                .replace(oldApplyCapture, newApplyCapture)
                 .replace(oldDescriptionTail, newDescriptionTail)
                 .replace(oldStateFields, newStateFields)
-        combat = combat.replace(oldCurrentAim, newCurrentAim)
         adapterSource.setText(adapter, 'UTF-8')
-        combatSource.setText(combat, 'UTF-8')
-        logger.lifecycle('Applied exact CAPTURE local-minimum ATTACK_APPROACH handoff to validation workspace.')
+        logger.lifecycle('Applied CAPTURE horizontal-local-minimum cross-turn experiment.')
     }
 }
