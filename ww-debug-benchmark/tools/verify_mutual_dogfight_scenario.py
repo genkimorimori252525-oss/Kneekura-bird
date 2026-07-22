@@ -51,6 +51,47 @@ def require(condition: bool, errors: list[str], message: str) -> None:
         errors.append(message)
 
 
+def latest_telemetry_session(
+        root: Path,
+) -> tuple[Path | None, tuple[Path, list[dict[str, Any]]] | None,
+           tuple[Path, list[dict[str, Any]]] | None]:
+    sessions: list[
+        tuple[int, Path, tuple[Path, list[dict[str, Any]]],
+              tuple[Path, list[dict[str, Any]]]]
+    ] = []
+    for aircraft_dir in root.rglob("aircraft"):
+        if not aircraft_dir.is_dir():
+            continue
+        primary_entry = None
+        opponent_entry = None
+        freshness = 0
+        for path in aircraft_dir.glob("*.jsonl"):
+            rows = read_jsonl(path)
+            name = next(
+                (str(row.get("aircraft_name")) for row in rows
+                 if row.get("aircraft_name")),
+                path.name,
+            )
+            try:
+                freshness = max(freshness, path.stat().st_mtime_ns)
+            except OSError:
+                pass
+            if name.startswith("AUTOPILOT TEST warfare_wings:a6m"):
+                primary_entry = (path, rows)
+            elif "MUTUAL BLUE P47N" in name:
+                opponent_entry = (path, rows)
+        if primary_entry is not None and opponent_entry is not None:
+            sessions.append((freshness, aircraft_dir.parent,
+                             primary_entry, opponent_entry))
+
+    if not sessions:
+        return None, None, None
+    _, session_path, primary_entry, opponent_entry = max(
+        sessions, key=lambda entry: (entry[0], str(entry[1]))
+    )
+    return session_path, primary_entry, opponent_entry
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, required=True)
@@ -58,24 +99,14 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
-    logs: dict[str, tuple[Path, list[dict[str, Any]]]] = {}
-    for path in args.root.rglob("aircraft/*.jsonl"):
-        rows = read_jsonl(path)
-        name = next((str(row.get("aircraft_name")) for row in rows if row.get("aircraft_name")), path.name)
-        logs[name] = (path, rows)
-
-    primary_entry = next(
-        ((path, rows) for name, (path, rows) in logs.items()
-         if name.startswith("AUTOPILOT TEST warfare_wings:a6m")),
-        None,
-    )
-    opponent_entry = next(
-        ((path, rows) for name, (path, rows) in logs.items()
-         if "MUTUAL BLUE P47N" in name),
-        None,
-    )
+    telemetry_session, primary_entry, opponent_entry = latest_telemetry_session(args.root)
     primary_rows = primary_entry[1] if primary_entry else []
     opponent_rows = opponent_entry[1] if opponent_entry else []
+    primary_uuid = next(
+        (str(row.get("aircraft_uuid")) for row in primary_rows
+         if row.get("aircraft_uuid")),
+        None,
+    )
 
     started = [row for row in primary_rows if row.get("event") == "mutual_dogfight_validation_started"]
     completed = [row for row in primary_rows if row.get("event") == "mutual_dogfight_validation_completed"]
@@ -140,6 +171,8 @@ def main() -> int:
     opponent_acquisition_reasons = [str(row.get("reason", "")) for row in opponent_acquisitions]
 
     errors: list[str] = []
+    require(args.gradle_status == 0, errors,
+            f"headless GameTest process failed with status {args.gradle_status}")
     require(bool(primary_rows), errors, "primary A6M telemetry was not produced")
     require(bool(opponent_rows), errors, "opposing P-47N telemetry was not produced")
     require(bool(started), errors, "mutual dogfight scene never started")
@@ -181,14 +214,26 @@ def main() -> int:
         require(min(opponent_speeds) >= 8.5, errors,
                 f"P-47N speed became unsafe: {min(opponent_speeds):.2f} bps")
 
-    summary_paths = list(args.root.rglob("validation-summary-*.json"))
-    summary_path = max(summary_paths, key=lambda path: path.stat().st_mtime) if summary_paths else None
+    summary_paths = sorted(
+        args.root.rglob("validation-summary-*.json"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    summary_path = None
     summary: dict[str, Any] = {}
-    if summary_path:
+    for candidate_path in summary_paths:
         try:
-            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            candidate = json.loads(candidate_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
-            summary = {}
+            continue
+        candidate_results = candidate.get("results") or []
+        if primary_uuid is not None and not any(
+                str(row.get("aircraft_uuid")) == primary_uuid
+                for row in candidate_results):
+            continue
+        summary_path = candidate_path
+        summary = candidate
+        break
     results = summary.get("results") or []
     require(summary.get("state") == "complete", errors,
             "primary post-combat mission summary was not complete")
@@ -201,8 +246,10 @@ def main() -> int:
         "errors": errors,
         "metrics": {
             "gradle_status": args.gradle_status,
+            "telemetry_session": str(telemetry_session) if telemetry_session else None,
             "primary_log": str(primary_entry[0]) if primary_entry else None,
             "opponent_log": str(opponent_entry[0]) if opponent_entry else None,
+            "primary_uuid": primary_uuid,
             "start_tick": start_tick,
             "completion_tick": completion_tick,
             "minimum_separation": min_separation,

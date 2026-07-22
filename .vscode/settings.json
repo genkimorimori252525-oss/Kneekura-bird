@@ -1,0 +1,14 @@
+{
+  "java.configuration.runtimes": [
+    {
+      "name": "JavaSE-17",
+      "path": "C:\\Program Files\\Java\\jdk-17",
+      "default": true
+    }
+  ],
+  "java.import.gradle.version": "8.8",
+  "java.import.gradle.java.home": "C:\\Program Files\\Java\\jdk-17",
+  "gradle.nestedProjects": [
+    "ww-debug-benchmark"
+  ]
+}

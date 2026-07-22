@@ -39,6 +39,29 @@ The simulator is a fast logic and envelope check. It checks phase reachability, 
 
 The jar is written to `build/libs/wwdebug_benchmark-1.0.0.jar`.
 
+### Local VS Code tasks
+
+The repository-level `.vscode` configuration pins this project to JDK 17 and Gradle 8.8.
+Open **Tasks: Run Task** in VS Code to run:
+
+- `WW: P-47 replay checks` for the lightweight trajectory-model regressions;
+- `WW: Deterministic flight simulation` for the 12-case mission envelope;
+- `WW: Build` for the default local build task;
+- `WW: Headless dogfight_mutual + verify` for build, a windowless Minecraft
+  `dogfight_mutual` run, and telemetry verification in sequence.
+
+The tasks use the cached Gradle 8.8 distribution and fail with status `127` plus a clear
+message if it is unavailable. The headless task requires the two exact runtime jars listed
+below in `flight-test-mods/`. It does not dispatch, poll, or otherwise consume GitHub Actions.
+
+Relevant local outputs are:
+
+```text
+build/reports/flight-simulation/report.json
+run-gametest/scenario-verification-dogfight_mutual-local.json
+run-gametest/world/wwdebug/autopilot/
+```
+
 ## Headless real-physics GameTest
 
 The Forge GameTest server runs the real Minecraft server, real Warfare Wings entities, real Immersive Aircraft physics, the real `tickPilot()` path, and the autonomous-flight Mixin without opening a game window.
