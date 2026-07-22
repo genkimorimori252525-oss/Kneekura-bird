@@ -18,9 +18,9 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Converts a completed energy-fighter extension into a bounded crossing re-entry.
  *
- * <p>At the measured broadside minimum, the controller performs a short oblique lag-yoyo:
- * one second of shallow climbing lag with full yaw authority, followed by a sustained low-speed
- * lag arc. Actual firing, terrain, collision, line-of-sight, friendly-fire, and rear-target checks
+ * <p>At the measured broadside minimum, the controller performs a short oblique lag-yoyo,
+ * sustains a low-speed outer arc, and reverses only after closure has been removed and the target
+ * is aft. Actual firing, terrain, collision, line-of-sight, friendly-fire, and rear-target checks
  * remain authoritative outside this controller.</p>
  */
 public final class EnergyFighterReengagementAdapter {
@@ -52,6 +52,12 @@ public final class EnergyFighterReengagementAdapter {
     private static final double ATTACK_MAX_CLOSURE_BPS = 28.0;
     private static final int MIN_ARC_TICKS = 4;
     private static final int MAX_ARC_TICKS = 260;
+    private static final int REVERSAL_MIN_ARC_TICKS = 20;
+    private static final double REVERSAL_MIN_RAW_ANGLE_DEG = 100.0;
+    private static final double REVERSAL_MAX_CLOSURE_BPS = 5.0;
+    private static final double REVERSAL_MIN_DISTANCE = 30.0;
+    private static final double REVERSAL_MAX_DISTANCE = 55.0;
+    private static final int MAX_REVERSAL_TICKS = 210;
     private static final int MAX_TOTAL_TICKS = 380;
 
     private static final Map<UUID, State> STATES = new ConcurrentHashMap<>();
@@ -179,6 +185,11 @@ public final class EnergyFighterReengagementAdapter {
         }
 
         if (state.stage == Stage.ARC) {
+            boolean reversalReady = state.stageTicks >= REVERSAL_MIN_ARC_TICKS
+                    && rawAngle >= REVERSAL_MIN_RAW_ANGLE_DEG
+                    && closure <= REVERSAL_MAX_CLOSURE_BPS
+                    && distance >= REVERSAL_MIN_DISTANCE
+                    && distance <= REVERSAL_MAX_DISTANCE;
             boolean attackSector = state.stageTicks >= MIN_ARC_TICKS
                     && target.lineOfSight()
                     && rawAngle <= ATTACK_MAX_RAW_ANGLE_DEG
@@ -191,8 +202,31 @@ public final class EnergyFighterReengagementAdapter {
                         distance, rawAngle, predictedLeadAngle, closure,
                         threat.aimAngleDeg(), Stage.DOCTRINE,
                         "predicted_lead_inside_attack_sector");
+            } else if (reversalReady) {
+                transition(level, aircraft, status.get().phase(), state, snapshot,
+                        distance, rawAngle, predictedLeadAngle, closure,
+                        threat.aimAngleDeg(), Stage.REVERSAL,
+                        "closure_bled_target_aft");
             } else if (state.stageTicks >= MAX_ARC_TICKS || distance > 190.0) {
                 finish(level, aircraft, status.get().phase(), "lag_arc_window_expired");
+                return false;
+            }
+        }
+
+        if (state.stage == Stage.REVERSAL) {
+            boolean attackSector = target.lineOfSight()
+                    && rawAngle <= ATTACK_MAX_RAW_ANGLE_DEG
+                    && predictedLeadAngle <= ATTACK_MAX_LEAD_ANGLE_DEG
+                    && distance >= ATTACK_MIN_DISTANCE && distance <= ATTACK_MAX_DISTANCE
+                    && closure >= ATTACK_MIN_CLOSURE_BPS
+                    && closure <= ATTACK_MAX_CLOSURE_BPS;
+            if (attackSector) {
+                transition(level, aircraft, status.get().phase(), state, snapshot,
+                        distance, rawAngle, predictedLeadAngle, closure,
+                        threat.aimAngleDeg(), Stage.DOCTRINE,
+                        "delayed_reversal_reached_attack_sector");
+            } else if (state.stageTicks >= MAX_REVERSAL_TICKS || distance > 190.0) {
+                finish(level, aircraft, status.get().phase(), "reversal_window_expired");
                 return false;
             }
         }
@@ -206,6 +240,9 @@ public final class EnergyFighterReengagementAdapter {
                     rawAngle, predictedLeadAngle, closure, state, status.get().phase());
         } else if (state.stage == Stage.ARC) {
             applyArc(level, aircraft, snapshot, profile, targetDirection,
+                    rawAngle, predictedLeadAngle, closure, state, status.get().phase());
+        } else if (state.stage == Stage.REVERSAL) {
+            applyReversal(level, aircraft, snapshot, profile, targetDirection,
                     rawAngle, predictedLeadAngle, closure, state, status.get().phase());
         } else {
             AirCombatManeuverManager.applyControl(aircraft);
@@ -362,6 +399,39 @@ public final class EnergyFighterReengagementAdapter {
                 targetSpeed - snapshot.speedBps(),
                 snapshot.speedBps() < profile.stallGuardSpeedBps(), false,
                 "energy_sustained_lag_arc", "full_bank_low_speed_arc");
+        applyAndLog(level, aircraft, snapshot, output, state, rawAngle,
+                predictedLeadAngle, closure, phase);
+    }
+
+    private static void applyReversal(ServerLevel level, Entity aircraft,
+                                      FlightSnapshot snapshot, FlightProfile profile,
+                                      Vec3 targetDirection, double rawAngle,
+                                      double predictedLeadAngle, double closure,
+                                      State state, FlightPhase phase) {
+        Vec3 horizontalDesired = safeNormalize(horizontal(targetDirection),
+                snapshot.horizontalForward());
+        double headingError = headingError(snapshot, horizontalDesired);
+        float x = (float) (-state.turnSign * 0.92);
+        double targetAltitude = state.lagStartAltitude + 5.0;
+        double altitudeError = targetAltitude - snapshot.position().y;
+        double desiredPitch = Mth.clamp(-altitudeError * 0.22
+                + snapshot.verticalSpeedBps() * 0.25, -8.0, 7.0);
+        float z = (float) Mth.clamp((desiredPitch - snapshot.pitchDeg()) / 14.0,
+                -0.82, 0.82);
+        double targetSpeed = SPEED_FLOOR_BPS;
+        float engineTarget;
+        if (snapshot.speedBps() > SPEED_FLOOR_BPS + 2.0) {
+            engineTarget = 0.12f;
+        } else if (snapshot.speedBps() < SPEED_FLOOR_BPS - 0.5) {
+            engineTarget = 1.0f;
+        } else {
+            engineTarget = 0.45f;
+        }
+        FlightControlOutput output = new FlightControlOutput(x, 0.0f, z, engineTarget,
+                horizontalDesired, targetAltitude, targetSpeed, headingError, altitudeError,
+                targetSpeed - snapshot.speedBps(),
+                snapshot.speedBps() < profile.stallGuardSpeedBps(), false,
+                "energy_delayed_reversal", "reverse_after_closure_bleed");
         applyAndLog(level, aircraft, snapshot, output, state, rawAngle,
                 predictedLeadAngle, closure, phase);
     }
@@ -589,6 +659,7 @@ public final class EnergyFighterReengagementAdapter {
         CROSSING,
         LAG,
         ARC,
+        REVERSAL,
         DOCTRINE
     }
 
