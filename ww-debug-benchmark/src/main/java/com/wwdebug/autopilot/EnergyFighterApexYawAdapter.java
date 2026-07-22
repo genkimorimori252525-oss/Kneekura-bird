@@ -32,20 +32,20 @@ public final class EnergyFighterApexYawAdapter {
     private static final double START_MIN_ENERGY_RATIO = 1.0;
     private static final double START_MIN_AGL = 90.0;
 
-    private static final double CLIMB_TARGET_PITCH_DEG = -34.0;
-    private static final double YAW_TRIGGER_PITCH_DEG = -20.0;
+    private static final double CLIMB_TARGET_PITCH_DEG = -22.0;
+    private static final double YAW_TRIGGER_PITCH_DEG = -2.0;
     private static final int MIN_CLIMB_TICKS = 8;
     private static final int MAX_CLIMB_TICKS = 54;
 
-    private static final double PIVOT_COMPLETE_HEADING_DEG = 28.0;
+    private static final double PIVOT_COMPLETE_HEADING_DEG = 65.0;
     private static final int MIN_PIVOT_TICKS = 8;
     private static final int MAX_PIVOT_TICKS = 96;
-    private static final double PIVOT_INPUT_DIVISOR = 26.0;
-    private static final double YAW_RATE_DAMPING = 0.16;
+    private static final double PIVOT_INPUT_DIVISOR = 22.0;
+    private static final double YAW_RATE_DAMPING = 0.05;
 
     private static final double LEAD_TICKS = 8.0;
-    private static final double CAPTURE_PITCH_DIVISOR = 11.0;
-    private static final double CAPTURE_PITCH_RATE_DAMPING = 0.20;
+    private static final double CAPTURE_PITCH_DIVISOR = 10.0;
+    private static final double CAPTURE_PITCH_RATE_DAMPING = 0.10;
     private static final int MAX_CAPTURE_TICKS = 190;
     private static final int MAX_TOTAL_TICKS = 390;
     private static final int COOLDOWN_TICKS = 120;
