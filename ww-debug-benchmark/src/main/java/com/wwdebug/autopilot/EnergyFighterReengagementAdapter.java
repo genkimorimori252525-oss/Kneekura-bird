@@ -41,7 +41,7 @@ public final class EnergyFighterReengagementAdapter {
     private static final int MAX_LOOP_TICKS = 140;
     private static final double LOOP_COMPLETE_ANGLE_DEG = 160.0;
     private static final double LOOP_ROLL_INPUT = 0.30;
-    private static final double LOOP_SPEED_BPS = 22.0;
+    private static final double LOOP_SPEED_BPS = 34.0;
     private static final double RECOVERY_SPEED_BPS = 18.0;
     private static final int MAX_RECOVERY_TICKS = 220;
     private static final double LEAD_TICKS = 10.0;
@@ -292,15 +292,14 @@ public final class EnergyFighterReengagementAdapter {
         float x = (float) (-state.turnSign * LOOP_ROLL_INPUT);
         float z = -0.95f;
         double targetSpeed = LOOP_SPEED_BPS;
-        float engineTarget = snapshot.speedBps() > LOOP_SPEED_BPS + 3.0 ? 0.18f
-                : snapshot.speedBps() < LOOP_SPEED_BPS - 1.0 ? 1.0f : 0.62f;
+        float engineTarget = 1.0f;
         Vec3 desired = state.loopStartForward.scale(-1.0);
-        double targetAltitude = state.loopStartAltitude + 70.0;
+        double targetAltitude = state.loopStartAltitude + 90.0;
         FlightControlOutput output = new FlightControlOutput(x, 0.0f, z, engineTarget,
                 desired, targetAltitude, targetSpeed, 0.0,
                 targetAltitude - snapshot.position().y, targetSpeed - snapshot.speedBps(),
                 snapshot.speedBps() < profile.stallGuardSpeedBps(), false,
-                "energy_oblique_half_loop", "pull_through_opposite_yaw_bias");
+                "energy_oblique_half_loop", "full_power_pull_through_opposite_yaw_bias");
         applyAndLog(level, aircraft, snapshot, output, state, rawAngle,
                 predictedLeadAngle, closure, phase);
     }
