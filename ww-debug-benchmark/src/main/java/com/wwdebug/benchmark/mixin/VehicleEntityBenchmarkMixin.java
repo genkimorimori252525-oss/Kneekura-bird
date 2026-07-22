@@ -7,6 +7,7 @@ import com.wwdebug.autopilot.AutopilotWheelLockAdapter;
 import com.wwdebug.autopilot.CombatAwarenessManager;
 import com.wwdebug.autopilot.CombatWeaponManager;
 import com.wwdebug.autopilot.DefensiveAirCombatManager;
+import com.wwdebug.autopilot.EnergyFighterPulloutAdapter;
 import com.wwdebug.autopilot.EnergyFighterReengagementAdapter;
 import com.wwdebug.autopilot.FormationFlightManager;
 import com.wwdebug.benchmark.BenchmarkManager;
@@ -29,14 +30,17 @@ public abstract class VehicleEntityBenchmarkMixin {
         // Formation collision avoidance has already been applied at this point. Do not let combat
         // overwrite it while the shared CPA probe is dangerous.
         if (!AirspaceSafetyProbe.collisionRisk(aircraft)) {
-            // The bounded energy-fighter controller owns crossing, oblique lag, predicted-lead
-            // pursuit, and final alignment as one deterministic control layer.
-            boolean reengagementControl =
-                    EnergyFighterReengagementAdapter.applyControl(aircraft);
-            if (!reengagementControl) {
-                DefensiveAirCombatManager.applyControl(aircraft);
-                if (!DefensiveAirCombatManager.active(aircraft)) {
-                    AirCombatManeuverManager.applyControl(aircraft);
+            // A steep post-reversal dive must be stabilized before either the bounded re-entry
+            // controller or ordinary combat doctrine can select another manoeuvre.
+            boolean pulloutControl = EnergyFighterPulloutAdapter.applyControl(aircraft);
+            if (!pulloutControl) {
+                boolean reengagementControl =
+                        EnergyFighterReengagementAdapter.applyControl(aircraft);
+                if (!reengagementControl) {
+                    DefensiveAirCombatManager.applyControl(aircraft);
+                    if (!DefensiveAirCombatManager.active(aircraft)) {
+                        AirCombatManeuverManager.applyControl(aircraft);
+                    }
                 }
             }
         }
