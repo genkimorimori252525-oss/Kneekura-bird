@@ -23,10 +23,11 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 concurrency:
   group: ww-local-self-hosted-validation
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   validate:
@@ -102,6 +103,30 @@ jobs:
           Write-Host "Validation ref: $ref"
           Write-Host "Aircraft: $aircraft"
           Write-Host "Run GameTest: $runGameTest"
+
+      - name: Report validation start
+        uses: actions/github-script@v7
+        env:
+          REQUEST_REF: ${{ steps.request.outputs.ref }}
+          REQUEST_AIRCRAFT: ${{ steps.request.outputs.aircraft }}
+          REQUEST_GAMETEST: ${{ steps.request.outputs.run_gametest }}
+        with:
+          script: |
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              '## Local validation started',
+              '',
+              `- ref: \`${process.env.REQUEST_REF}\``,
+              `- aircraft: \`${process.env.REQUEST_AIRCRAFT}\``,
+              `- GameTest: \`${process.env.REQUEST_GAMETEST}\``,
+              `- run: ${runUrl}`,
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 7,
+              body,
+            });
 
       - name: Checkout requested repository ref
         uses: actions/checkout@v4
@@ -248,3 +273,32 @@ jobs:
             Get-Content headless-flight.log -Tail 320
           }
           exit 1
+
+      - name: Report validation finish
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          REQUEST_REF: ${{ steps.request.outputs.ref }}
+          REQUEST_AIRCRAFT: ${{ steps.request.outputs.aircraft }}
+          REQUEST_GAMETEST: ${{ steps.request.outputs.run_gametest }}
+          JOB_STATUS: ${{ job.status }}
+        with:
+          script: |
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              '## Local validation finished',
+              '',
+              `- status: \`${process.env.JOB_STATUS}\``,
+              `- ref: \`${process.env.REQUEST_REF || 'unresolved'}\``,
+              `- aircraft: \`${process.env.REQUEST_AIRCRAFT || 'unresolved'}\``,
+              `- GameTest: \`${process.env.REQUEST_GAMETEST || 'unresolved'}\``,
+              `- run: ${runUrl}`,
+              '',
+              'Build logs and GameTest diagnostics are attached to the workflow run when produced.',
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 7,
+              body,
+            });
