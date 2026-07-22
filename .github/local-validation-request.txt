@@ -1,4 +1,4 @@
-# Local validation request f75d1066 retry-2
-ref=agent/p47-coupled-climb-selfhosted
+# Local validation request powered-lag-climb-1
+ref=1fc17d2afcae94a4226fa64d2babb12f16508b4f
 aircraft=warfare_wings:a6m
 gametest=true
