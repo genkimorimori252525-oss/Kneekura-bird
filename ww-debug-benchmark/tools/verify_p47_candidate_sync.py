@@ -25,8 +25,8 @@ CANDIDATE_CONSTANTS = {
     "capture_pitch_damping": "CAPTURE_PITCH_RATE_DAMPING",
     "yaw_damping": "YAW_RATE_DAMPING",
     "lead_ticks": "LEAD_TICKS",
-    "crossing_entry_min_raw_angle": "CROSSING_ENTRY_MIN_RAW_ANGLE_DEG",
-    "crossing_entry_max_raw_angle": "CROSSING_ENTRY_MAX_RAW_ANGLE_DEG",
+    "crossing_entry_min_horizontal_angle": "CROSSING_ENTRY_MIN_HORIZONTAL_ANGLE_DEG",
+    "crossing_entry_max_horizontal_angle": "CROSSING_ENTRY_MAX_HORIZONTAL_ANGLE_DEG",
     "crossing_entry_min_closure": "CROSSING_ENTRY_MIN_CLOSURE_BPS",
     "crossing_improvement_epsilon": "CROSSING_IMPROVEMENT_EPSILON_DEG_PER_TICK",
     "crossing_stall_ticks": "CROSSING_STALL_TICKS",
@@ -109,6 +109,16 @@ def main() -> int:
 
     if "boolean crossingStalled = isP47n(profile)" not in java_text:
         errors.append("crossing-lag hypothesis is not explicitly restricted to P-47N")
+    if "boolean crossingCorridorPreviouslySeen = state.crossingCorridorSeen" not in java_text:
+        errors.append("horizontal crossing corridor is not latched before plateau confirmation")
+    if "horizontalRawAngle >= CROSSING_ENTRY_MIN_HORIZONTAL_ANGLE_DEG" not in java_text:
+        errors.append("crossing corridor is not driven by the horizontal raw target angle")
+    if java_text.count("state.stage == Stage.PIVOT && isP47n(profile)") < 2:
+        errors.append("crossing corridor latch and plateau confirmation are not P-47N-only")
+    if java_text.count("closure >= CROSSING_ENTRY_MIN_CLOSURE_BPS") < 3:
+        errors.append("non-negative closure is not retained at corridor, plateau, and handoff")
+    if '"energy_coupled_climb_crossing_corridor_latched"' not in java_text:
+        errors.append("crossing corridor latch telemetry event is missing")
     if "!isP47n(profile) || P47_LEGACY_HEADING_CAPTURE_ENABLED" not in java_text:
         errors.append("P-47N legacy heading-capture switch is not connected")
     attack_gate_index = java_text.find("boolean attackSector")

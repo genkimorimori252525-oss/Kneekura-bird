@@ -12,6 +12,7 @@ from analyze_coupled_climb_trajectory import (
     physics_tick,
     qualifies_for_headless,
     selected_candidate_defaults,
+    update_crossing_progress,
 )
 
 
@@ -45,8 +46,8 @@ class CoupledClimbTrajectoryCalibrationTest(unittest.TestCase):
         self.assertFalse(args.p47_legacy_heading_capture_enabled)
         self.assertEqual(args.rotation_decay, 0.97)
         mapping = {
-            "crossing_entry_min_raw_angle": "crossing_entry_min_raw_angle",
-            "crossing_entry_max_raw_angle": "crossing_entry_raw_angle",
+            "crossing_entry_min_horizontal_angle": "crossing_entry_min_horizontal_angle",
+            "crossing_entry_max_horizontal_angle": "crossing_entry_horizontal_angle",
             "crossing_entry_min_closure": "crossing_entry_min_closure",
             "crossing_improvement_epsilon": "crossing_improvement_epsilon",
             "crossing_stall_ticks": "crossing_stall_ticks",
@@ -62,6 +63,39 @@ class CoupledClimbTrajectoryCalibrationTest(unittest.TestCase):
         }
         for selected_name, argument_name in mapping.items():
             self.assertEqual(getattr(args, argument_name), selected[selected_name])
+
+    def test_crossing_corridor_is_latched_before_later_plateau(self) -> None:
+        seen = False
+        stall_ticks = 0
+        samples = (
+            (89.0, 0.40, 7.0),
+            (80.0, 0.08, 8.0),
+            (78.0, 0.04, 8.0),
+        )
+        results = []
+        for horizontal_angle, improvement, closure in samples:
+            seen, stall_ticks = update_crossing_progress(
+                "PIVOT", 20, seen, stall_ticks,
+                horizontal_angle, improvement, closure,
+                83.0, 92.0, 0.0, 0.10,
+            )
+            results.append((seen, stall_ticks))
+
+        self.assertEqual(results, [(True, 0), (True, 1), (True, 2)])
+
+        seen, stall_ticks = update_crossing_progress(
+            "PIVOT", 20, False, 0, 89.0, 0.0, -0.1,
+            83.0, 92.0, 0.0, 0.10,
+        )
+        self.assertFalse(seen)
+        self.assertEqual(stall_ticks, 0)
+
+        seen, stall_ticks = update_crossing_progress(
+            "LAG", 0, True, 2, 70.0, 0.0, 5.0,
+            83.0, 92.0, 0.0, 0.10,
+        )
+        self.assertTrue(seen)
+        self.assertEqual(stall_ticks, 0)
 
     def test_pr9_tick_1245_matches_tick_1246(self) -> None:
         # Preserved PR #9 dogfight_mutual telemetry. The initial smoothed inputs are

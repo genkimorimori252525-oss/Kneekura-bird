@@ -58,6 +58,39 @@ def closure_bps(defender: angular.Vec, defender_velocity: angular.Vec,
     return -relative.scale(20.0).dot(line.normalized())
 
 
+def update_crossing_progress(
+    stage: str,
+    stage_ticks: int,
+    corridor_seen: bool,
+    stall_ticks: int,
+    horizontal_raw_angle: float,
+    raw_angle_improvement: float | None,
+    closure: float,
+    minimum_horizontal_angle: float,
+    maximum_horizontal_angle: float,
+    minimum_closure: float,
+    improvement_epsilon: float,
+    minimum_pivot_ticks: int = 8,
+) -> tuple[bool, int]:
+    """Latch the horizontal crossing corridor, then confirm a later 3-D plateau."""
+    if stage != "PIVOT":
+        return corridor_seen, 0
+    corridor_previously_seen = corridor_seen
+    if (
+        stage_ticks >= minimum_pivot_ticks
+        and minimum_horizontal_angle <= horizontal_raw_angle <= maximum_horizontal_angle
+        and closure >= minimum_closure
+    ):
+        corridor_seen = True
+    stalled = (
+        corridor_previously_seen
+        and closure >= minimum_closure
+        and raw_angle_improvement is not None
+        and abs(raw_angle_improvement) <= improvement_epsilon
+    )
+    return corridor_seen, stall_ticks + 1 if stalled else 0
+
+
 def qualifies_for_headless(
     first_attack: dict | None,
     minimum_speed_bps: float | None,
@@ -122,8 +155,8 @@ def selected_candidate_defaults() -> dict[str, float | int | bool]:
         "yaw_damping": 0.05,
         "lead_ticks": 8.0,
         "crossing_lag_enabled": True,
-        "crossing_entry_min_raw_angle": 83.0,
-        "crossing_entry_max_raw_angle": 92.0,
+        "crossing_entry_min_horizontal_angle": 83.0,
+        "crossing_entry_max_horizontal_angle": 92.0,
         "crossing_entry_min_closure": 0.0,
         "crossing_improvement_epsilon": 0.10,
         "crossing_stall_ticks": 2,
@@ -285,6 +318,8 @@ def simulate(args: argparse.Namespace) -> dict:
     previous_yaw = state.yaw
     previous_pitch = state.pitch
     previous_raw_angle = None
+    crossing_corridor_seen = False
+    crossing_corridor_latch_tick = None
     crossing_stall_ticks = 0
     rows: list[dict] = []
     first_attack = None
@@ -307,6 +342,9 @@ def simulate(args: argparse.Namespace) -> dict:
             aircraft_forward, lead_direction
         )
         raw_angle = angular.angle_degrees(aircraft_forward, raw_direction)
+        horizontal_raw_angle = abs(angular.signed_horizontal_angle(
+            aircraft_forward, raw_direction
+        ))
         raw_angle_improvement = (
             None
             if previous_raw_angle is None
@@ -330,17 +368,22 @@ def simulate(args: argparse.Namespace) -> dict:
         previous_pitch = state.pitch
         previous_yaw = state.yaw
 
-        if (
-            stage == "PIVOT"
-            and args.crossing_entry_min_raw_angle
-            <= raw_angle
-            <= args.crossing_entry_raw_angle
-            and raw_angle_improvement is not None
-            and abs(raw_angle_improvement) <= args.crossing_improvement_epsilon
-        ):
-            crossing_stall_ticks += 1
-        else:
-            crossing_stall_ticks = 0
+        crossing_corridor_previously_seen = crossing_corridor_seen
+        crossing_corridor_seen, crossing_stall_ticks = update_crossing_progress(
+            stage,
+            stage_ticks,
+            crossing_corridor_seen,
+            crossing_stall_ticks,
+            horizontal_raw_angle,
+            raw_angle_improvement,
+            closure,
+            args.crossing_entry_min_horizontal_angle,
+            args.crossing_entry_horizontal_angle,
+            args.crossing_entry_min_closure,
+            args.crossing_improvement_epsilon,
+        )
+        if crossing_corridor_seen and not crossing_corridor_previously_seen:
+            crossing_corridor_latch_tick = tick
 
         attack_sector = (
             raw_angle <= 45.0
@@ -360,7 +403,14 @@ def simulate(args: argparse.Namespace) -> dict:
             "distance": distance,
             "closure_bps": closure,
             "raw_angle": raw_angle,
+            "horizontal_raw_angle": horizontal_raw_angle,
             "raw_angle_improvement": raw_angle_improvement,
+            "crossing_corridor_seen": crossing_corridor_seen,
+            "crossing_corridor_latch_tick": crossing_corridor_latch_tick,
+            "crossing_corridor_age_ticks": (
+                None if crossing_corridor_latch_tick is None
+                else tick - crossing_corridor_latch_tick
+            ),
             "crossing_stall_ticks": crossing_stall_ticks,
             "lead_angle": lead_angle,
             "horizontal_lead_error": horizontal_error,
@@ -392,7 +442,6 @@ def simulate(args: argparse.Namespace) -> dict:
                 args.crossing_lag
                 and stage_ticks >= 8
                 and crossing_stall_ticks >= args.crossing_stall_ticks
-                and raw_angle <= args.crossing_entry_raw_angle
                 and closure >= args.crossing_entry_min_closure
             )
             if energy_guard:
@@ -587,8 +636,8 @@ def simulate(args: argparse.Namespace) -> dict:
         "control_decay_per_tick": (1.0 - args.friction) * args.rotation_decay,
         "crossing_lag": {
             "enabled": args.crossing_lag,
-            "entry_raw_angle": args.crossing_entry_raw_angle,
-            "entry_min_raw_angle": args.crossing_entry_min_raw_angle,
+            "entry_horizontal_angle": args.crossing_entry_horizontal_angle,
+            "entry_min_horizontal_angle": args.crossing_entry_min_horizontal_angle,
             "entry_min_closure": args.crossing_entry_min_closure,
             "improvement_epsilon_deg_per_tick": args.crossing_improvement_epsilon,
             "stall_ticks": args.crossing_stall_ticks,
@@ -649,14 +698,14 @@ def build_parser() -> argparse.ArgumentParser:
         default=selected["crossing_lag_enabled"],
     )
     parser.add_argument(
-        "--crossing-entry-raw-angle",
+        "--crossing-entry-horizontal-angle",
         type=float,
-        default=selected["crossing_entry_max_raw_angle"],
+        default=selected["crossing_entry_max_horizontal_angle"],
     )
     parser.add_argument(
-        "--crossing-entry-min-raw-angle",
+        "--crossing-entry-min-horizontal-angle",
         type=float,
-        default=selected["crossing_entry_min_raw_angle"],
+        default=selected["crossing_entry_min_horizontal_angle"],
     )
     parser.add_argument(
         "--crossing-entry-min-closure",

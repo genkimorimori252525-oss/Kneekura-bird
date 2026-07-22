@@ -44,8 +44,8 @@ public final class EnergyFighterApexYawAdapter {
     private static final double PIVOT_INPUT_DIVISOR = 22.0;
     private static final double YAW_RATE_DAMPING = 0.05;
 
-    private static final double CROSSING_ENTRY_MIN_RAW_ANGLE_DEG = 83.0;
-    private static final double CROSSING_ENTRY_MAX_RAW_ANGLE_DEG = 92.0;
+    private static final double CROSSING_ENTRY_MIN_HORIZONTAL_ANGLE_DEG = 83.0;
+    private static final double CROSSING_ENTRY_MAX_HORIZONTAL_ANGLE_DEG = 92.0;
     private static final double CROSSING_ENTRY_MIN_CLOSURE_BPS = 0.0;
     private static final double CROSSING_IMPROVEMENT_EPSILON_DEG_PER_TICK = 0.10;
     private static final int CROSSING_STALL_TICKS = 2;
@@ -117,6 +117,8 @@ public final class EnergyFighterApexYawAdapter {
         Vec3 approachLeadDirection = leadDirection(
                 aircraft, target.aircraft(), targetDirection, APPROACH_LEAD_TICKS);
         double rawAngle = angleDegrees(snapshot.forward(), targetDirection);
+        double horizontalRawAngle = Math.abs(signedHorizontalAngle(
+                snapshot.horizontalForward(), targetDirection));
         double leadAngle = angleDegrees(snapshot.forward(), leadDirection);
         double distance = aircraft.distanceTo(target.aircraft());
         double closure = relativeClosureBps(aircraft, target.aircraft());
@@ -139,6 +141,7 @@ public final class EnergyFighterApexYawAdapter {
                     ReflectiveArmament.estimatedShotsRemaining(aircraft), turnSign,
                     snapshot.position().y, snapshot.altitudeAboveGround(),
                     snapshot.yawDeg(), snapshot.pitchDeg(), rawAngle);
+            state.lastHorizontalRawAngleDeg = horizontalRawAngle;
             STATES.put(aircraft.getUUID(), state);
             DefensiveAirCombatManager.clear(aircraft.getUUID());
             AirCombatManeuverManager.clear(aircraft.getUUID());
@@ -173,10 +176,26 @@ public final class EnergyFighterApexYawAdapter {
         state.lastRawAngleDeg = rawAngle;
         state.lastPitchDeg = snapshot.pitchDeg();
         state.lastYawDeg = snapshot.yawDeg();
+        state.lastHorizontalRawAngleDeg = horizontalRawAngle;
 
-        if (state.stage == Stage.PIVOT
-                && rawAngle >= CROSSING_ENTRY_MIN_RAW_ANGLE_DEG
-                && rawAngle <= CROSSING_ENTRY_MAX_RAW_ANGLE_DEG
+        boolean crossingCorridorPreviouslySeen = state.crossingCorridorSeen;
+        if (state.stage == Stage.PIVOT && isP47n(profile)
+                && state.stageTicks >= MIN_PIVOT_TICKS
+                && !state.crossingCorridorSeen
+                && horizontalRawAngle >= CROSSING_ENTRY_MIN_HORIZONTAL_ANGLE_DEG
+                && horizontalRawAngle <= CROSSING_ENTRY_MAX_HORIZONTAL_ANGLE_DEG
+                && closure >= CROSSING_ENTRY_MIN_CLOSURE_BPS) {
+            state.crossingCorridorSeen = true;
+            state.crossingCorridorLatchStageTick = state.stageTicks;
+            state.crossingCorridorLatchTotalTick = state.totalTicks;
+            writeEvent(level, aircraft, session.get().phase(),
+                    "energy_coupled_climb_crossing_corridor_latched",
+                    state, snapshot, distance, rawAngle, leadAngle, closure,
+                    threat.aimAngleDeg(), "horizontal_raw_crossing_corridor_reached");
+        }
+        if (state.stage == Stage.PIVOT && isP47n(profile)
+                && crossingCorridorPreviouslySeen
+                && closure >= CROSSING_ENTRY_MIN_CLOSURE_BPS
                 && Math.abs(state.lastRawAngleImprovementDeg)
                 <= CROSSING_IMPROVEMENT_EPSILON_DEG_PER_TICK) {
             state.crossingStallTicks++;
@@ -228,7 +247,7 @@ public final class EnergyFighterApexYawAdapter {
             } else if (crossingStalled) {
                 transition(level, aircraft, session.get().phase(), state, snapshot,
                         distance, rawAngle, leadAngle, closure, threat.aimAngleDeg(),
-                        Stage.LAG, "crossing_angle_stalled");
+                        Stage.LAG, "crossing_corridor_plateau_confirmed");
             } else if (headingCaptured
                     && (!isP47n(profile) || P47_LEGACY_HEADING_CAPTURE_ENABLED)) {
                 transition(level, aircraft, session.get().phase(), state, snapshot,
@@ -557,7 +576,14 @@ public final class EnergyFighterApexYawAdapter {
                 + ":total_ticks=" + state.totalTicks
                 + ":stage_ticks=" + state.stageTicks
                 + ":raw_target_angle=" + round(rawAngle)
+                + ":horizontal_raw_target_angle=" + round(state.lastHorizontalRawAngleDeg)
                 + ":raw_angle_improvement=" + round(state.lastRawAngleImprovementDeg)
+                + ":crossing_corridor_seen=" + state.crossingCorridorSeen
+                + ":crossing_corridor_latch_stage_tick="
+                + state.crossingCorridorLatchStageTick
+                + ":crossing_corridor_age_ticks="
+                + (state.crossingCorridorLatchTotalTick < 0 ? -1
+                : state.totalTicks - state.crossingCorridorLatchTotalTick)
                 + ":crossing_stall_ticks=" + state.crossingStallTicks
                 + ":predicted_lead_angle=" + round(leadAngle)
                 + ":closure=" + round(closure)
@@ -759,7 +785,11 @@ public final class EnergyFighterApexYawAdapter {
         private double lastYawDeg;
         private double lastPitchDeg;
         private double lastRawAngleDeg;
+        private double lastHorizontalRawAngleDeg;
         private double lastRawAngleImprovementDeg;
+        private boolean crossingCorridorSeen;
+        private int crossingCorridorLatchStageTick = -1;
+        private int crossingCorridorLatchTotalTick = -1;
         private int totalTicks;
         private int stageTicks;
         private int statusTicks;
