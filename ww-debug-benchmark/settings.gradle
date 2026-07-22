@@ -7,3 +7,9 @@ pluginManagement {
 }
 
 rootProject.name = 'ww-debug-benchmark'
+
+gradle.beforeProject { project ->
+    if (project.path == ':') {
+        project.apply from: new File(settingsDir, 'coupled-handoff-validation.gradle')
+    }
+}
