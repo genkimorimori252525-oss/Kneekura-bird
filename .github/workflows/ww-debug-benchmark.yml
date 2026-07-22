@@ -2,6 +2,8 @@ name: WW Debug Benchmark build
 
 on:
   push:
+    branches:
+      - main
     paths:
       - 'ww-debug-benchmark/**'
       - '.github/workflows/ww-debug-benchmark.yml'
@@ -25,6 +27,10 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.8'
+      - name: Validate P-47N replay model and candidate safety gates
+        run: |
+          python tools/test_coupled_climb_trajectory.py
+          python tools/verify_p47_candidate_sync.py
       - name: Build benchmark mod and run deterministic flight simulation
         id: benchmark-build
         continue-on-error: true
