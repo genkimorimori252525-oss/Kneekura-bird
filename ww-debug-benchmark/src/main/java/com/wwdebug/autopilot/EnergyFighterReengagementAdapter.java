@@ -16,7 +16,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Converts recovered separation into a bounded crossing, powered wingover, and lead recovery.
+ * Converts recovered separation into an early powered reversal and high-energy lead recovery.
  * Safety and actual weapon gates remain authoritative outside this controller.
  */
 public final class EnergyFighterReengagementAdapter {
@@ -36,11 +36,10 @@ public final class EnergyFighterReengagementAdapter {
     private static final int MIN_CROSS_TICKS = 20;
     private static final int MAX_CROSS_TICKS = 150;
 
-    private static final int MIN_WINGOVER_TICKS = 20;
-    private static final int MAX_WINGOVER_TICKS = 60;
-    private static final double WINGOVER_RELEASE_RAW_ANGLE_DEG = 115.0;
-    private static final double WINGOVER_RELEASE_CLOSURE_BPS = 0.0;
-    private static final double WINGOVER_RELEASE_SPEED_FACTOR = 2.20;
+    private static final int MIN_WINGOVER_TICKS = 70;
+    private static final int MAX_WINGOVER_TICKS = 170;
+    private static final double WINGOVER_COMPLETE_ANGLE_DEG = 150.0;
+    private static final double WINGOVER_DESCENDING_FORWARD_Y = -0.10;
     private static final double WINGOVER_SPEED_BPS = 34.0;
     private static final double LEAD_TICKS = 10.0;
     private static final int MAX_RECOVERY_TICKS = 220;
@@ -181,18 +180,16 @@ public final class EnergyFighterReengagementAdapter {
 
         if (state.stage == Stage.WINGOVER) {
             state.wingoverAngle = angleDegrees(state.wingoverStartForward, snapshot.forward());
-            boolean closureRemoved = state.stageTicks >= MIN_WINGOVER_TICKS
-                    && closure <= WINGOVER_RELEASE_CLOSURE_BPS
-                    && rawAngle >= WINGOVER_RELEASE_RAW_ANGLE_DEG
-                    && snapshot.speedBps()
-                    >= profile.stallGuardSpeedBps() * WINGOVER_RELEASE_SPEED_FACTOR;
-            if (closureRemoved) {
+            boolean descendingReversal = state.stageTicks >= MIN_WINGOVER_TICKS
+                    && state.wingoverAngle >= WINGOVER_COMPLETE_ANGLE_DEG
+                    && snapshot.forward().y <= WINGOVER_DESCENDING_FORWARD_Y;
+            if (descendingReversal) {
                 transition(level, aircraft, status.get().phase(), state, snapshot,
                         distance, rawAngle, predictedLeadAngle, closure,
                         threat.aimAngleDeg(), Stage.RECOVERY,
-                        "powered_wingover_closure_removed");
+                        "early_vertical_reversal_descending_complete");
             } else if (state.stageTicks >= MAX_WINGOVER_TICKS) {
-                finish(level, aircraft, status.get().phase(), "wingover_release_not_reached");
+                finish(level, aircraft, status.get().phase(), "wingover_reversal_incomplete");
                 return false;
             }
         }
@@ -208,9 +205,9 @@ public final class EnergyFighterReengagementAdapter {
                 transition(level, aircraft, status.get().phase(), state, snapshot,
                         distance, rawAngle, predictedLeadAngle, closure,
                         threat.aimAngleDeg(), Stage.DOCTRINE,
-                        "wingover_recovery_reached_attack_sector");
+                        "high_energy_recovery_reached_attack_sector");
             } else if (state.stageTicks >= MAX_RECOVERY_TICKS || distance > 190.0) {
-                finish(level, aircraft, status.get().phase(), "wingover_recovery_expired");
+                finish(level, aircraft, status.get().phase(), "high_energy_recovery_expired");
                 return false;
             }
         }
@@ -307,7 +304,7 @@ public final class EnergyFighterReengagementAdapter {
                 0.0, targetAltitude - snapshot.position().y,
                 WINGOVER_SPEED_BPS - snapshot.speedBps(),
                 snapshot.speedBps() < profile.stallGuardSpeedBps(), false,
-                "energy_powered_wingover", "release_when_closure_removed");
+                "energy_early_vertical_reversal", "full_power_pull_through_to_descent");
         applyAndLog(level, aircraft, snapshot, output, state, rawAngle,
                 predictedLeadAngle, closure, phase);
     }
@@ -334,7 +331,7 @@ public final class EnergyFighterReengagementAdapter {
                 predictedLeadDirection, targetAltitude, targetSpeed,
                 headingError, altitudeError, targetSpeed - snapshot.speedBps(),
                 snapshot.speedBps() < profile.stallGuardSpeedBps(), false,
-                "energy_wingover_recovery", "accelerating_descent_to_predicted_lead");
+                "energy_high_energy_recovery", "accelerating_descent_to_predicted_lead");
         applyAndLog(level, aircraft, snapshot, output, state, rawAngle,
                 predictedLeadAngle, closure, phase);
     }
@@ -375,7 +372,7 @@ public final class EnergyFighterReengagementAdapter {
                 horizontalDesired, targetAltitude, targetSpeed, headingError, altitudeError,
                 targetSpeed - snapshot.speedBps(),
                 snapshot.speedBps() < profile.stallGuardSpeedBps(), false,
-                "energy_wingover_final_alignment", "forward_alignment");
+                "energy_high_energy_final_alignment", "forward_alignment");
         applyAndLog(level, aircraft, snapshot, output, state, rawAngle,
                 aim.get().angleOffNoseDeg(), closure, phase);
     }
