@@ -4,196 +4,128 @@ Last updated: 2026-07-22 (Asia/Tokyo)
 
 ## Read first
 
-Follow `/AGENTS.md` before changing code. The hard session limits are 60 minutes, 8 remote CI attempts, 10 changed files, and 800 added/changed lines, with a mandatory checkpoint at 30 minutes or 4 CI attempts.
+Follow `/AGENTS.md` before changing code. The user waived the normal session/time/CI-attempt limits for completing the current P-47N mutual-dogfight qualification, but all safety and firing invariants remain mandatory.
 
-## Repository state
+GitHub-hosted Actions capacity is currently exhausted. A workflow that ends before creating steps or logs is an execution-capacity failure, not a code result. Do not trigger repeated hosted runs, mark a behavior PR ready, or merge unexecuted behavior changes.
 
-- `main` contains merged PR #4 at commit `8a91e7e44d8050505cd3ec948a2ed3c263ec342c`.
-- PR #4 established doctrine-specific fighter combat, the neutral opposed opening, stale rear-threat release, fixed-gun rear-target rejection, and initial P-47N re-engagement safeguards.
-- The remaining acceptance gap is still `dogfight_mutual`: the A6M fires legitimately, but the P-47N has not fired in the same passing run.
+## Parent task
 
-## Active focused PR
+Complete autonomous flight, mission and combat AI for all 24 base aircraft.
 
-- PR #6: `Add bounded P-47N re-engagement`
-- Draft branch: `agent/mutual-p47-counterattack-minimal`
-- Current head: `257d300feccf9087e5c1804bc035a37b2542dc5a`
-- Current scope: 3 changed files, 725 additions, 5 deletions.
-- Current files:
-  - `EnergyFighterReengagementAdapter.java`
-  - `EnergyFighterForwardAlignmentAdapter.java`
-  - `VehicleEntityBenchmarkMixin.java`
-- Normal benchmark build and deterministic simulation pass.
-- Keep PR #6 Draft. Do not merge until both aircraft fire in one run and the result is repeated for stability.
+The immediate blocker before returning to the 24-aircraft matrix is the reciprocal fighter qualification `dogfight_mutual`:
 
-The branch was intentionally returned to `257d300f` after the 8-attempt session. Later experiment commits and workflow artifacts remain available by SHA/run ID, but they are not the recommended coding baseline.
+- the A6M has fired legitimately in preserved real-physics runs;
+- the P-47N has not yet fired in the same passing run;
+- safety, mission return, landing and parking have remained broadly stable;
+- the missing capability is conversion of a safe P-47N extension into a legitimate firing pass against a reacting A6M.
 
-## Current best focused candidate
+## Current working line
 
-Commit: `257d300feccf9087e5c1804bc035a37b2542dc5a`
+Do not resume from the old oversized experimental PRs.
 
-Observed targeted result:
+- Draft PR #9: full-loop and closure-release research history.
+- Draft PR #13: near-vertical apex-yaw research history; its hosted checks never started because Actions minutes were exhausted.
+- Active un-PR'd branch: `agent/p47-coupled-climb-replay`.
+- Production adapter: `EnergyFighterApexYawAdapter.java`.
+- Latest selected-constant implementation commit: `5fee5f21e845753fb4d8949dd853191feeb3e5c0`.
 
-- A6M fire count: 7
-- P-47N fire count: 0
-- minimum separation: 11.79 blocks
-- maximum separation: 158.44 blocks
-- no ground contact for either aircraft
-- primary mission returned to a passing parked result
-- only behavioral acceptance failure: P-47N produced no firing event
+The branch intentionally remains without a PR so changes under `ww-debug-benchmark/**` do not trigger more unstartable hosted workflows.
 
-This candidate adaptively hands off the crossing near the measured 83–90 degree sector. It is the smallest stable point from the latest session, even though the ordinary energy-fighter doctrine then chooses `REPOSITION` and loses the geometry.
+## Established root cause
 
-Useful artifact:
+P-47N failure is not adequately explained by one bad angle threshold.
 
-- workflow run: `29855959212`
-- results artifact: `8505326040`
+- Pure horizontal pursuit preserves bearing but overshoots because closure remains high.
+- Reversing the horizontal turn discards bearing.
+- A completed vertical loop or near-vertical climb converts too much useful separation into altitude and delays yaw because Immersive Aircraft smooths X/Z input over ten ticks.
+- The required maneuver is a **shallow coupled climbing turn**: begin yaw while converting only a limited amount of closure into altitude, then finish with measured lead capture.
 
-## Latest session: eight targeted CI attempts
+The exact Immersive Aircraft 1.20.1 input and physics order has been inspected and modeled: input interpolation, yaw/pitch, lift-based velocity conversion, glide, friction, horizontal/vertical decay, speed-dependent gravity, thrust and engine response.
 
-### Attempt 1 — adaptive crossing handoff
+## Selected candidate
 
-- commit: `257d300feccf9087e5c1804bc035a37b2542dc5a`
-- adaptive handoff activated near the broadside minimum
-- A6M fired 7 times; P-47N fired 0 times
-- ordinary energy doctrine selected `REPOSITION` and the raw target angle worsened
-- retained as the current branch head because it was small, safe, and stable
+Machine-readable source of truth:
 
-### Attempt 2 — same-direction lead pursuit
+`ww-debug-benchmark/tools/p47_coupled_climb_candidate.json`
 
-- commit: `0e68272dedc1c414c1fc6c45411eaefe0ae5449e`
-- a custom lead approach continued the crossing turn
-- lead/raw angle worsened from roughly 89 degrees toward 132 degrees
-- conclusion: following the same horizontal circle after the local minimum does not convert the geometry
+Parameters:
 
-### Attempt 3 — reverse horizontal turn
+- climb target pitch: `-22 deg`;
+- yaw trigger pitch: `-2 deg`, after minimum 8-tick commitment;
+- pivot-to-capture heading error: `65 deg`;
+- pivot divisor: `22`;
+- capture pitch divisor: `10`;
+- capture pitch-rate damping: `0.10`;
+- yaw-rate damping: `0.05`;
+- lead horizon: `8 ticks`.
 
-- commit: `63b89acee3484fdb7f963c8a65944d1326ea02bd`
-- the controller reversed the turn at the local minimum
-- raw target angle worsened from roughly 81 degrees toward 170 degrees
-- conclusion: a simple left/right reversal is not the missing behavior
+The production adapter contains the same values. Commit `5fee5f21` was inspected after the full-file update and changes only these seven constants; attack and safety gates were unchanged.
 
-### Attempt 4 — late high-yoyo capture
+## Pre-flight evidence
 
-- commit: `eec52a6f40fe7fa3207f10872d4d27d5482391ce`
-- high-yoyo began around raw angle 99.5 degrees and closure 8.6 bps
-- closure could be reduced, but turn authority fell and best angle stopped near 95 degrees
-- conclusion: the maneuver started too late and coupled speed loss with insufficient turning
+Tools on the active branch:
 
-### Attempt 5 — earlier capture
+- `analyze_apex_yaw_replay.py`: exact 10-tick orientation/input replay;
+- `batch_apex_yaw_replay.py`: multi-session angular and recorded static-gate replay;
+- `analyze_coupled_climb_trajectory.py`: advances modeled P-47N position, velocity, attitude, thrust, drag, glide and gravity;
+- `test_coupled_climb_trajectory.py`: one-tick calibration against preserved PR #9 Forge telemetry;
+- `verify_p47_candidate_sync.py`: verifies JSON/Java candidate equality and pins safety/firing constants;
+- `P47_COUPLED_CLIMB_REPLAY.md`: evidence and limitations.
 
-- commit: `cf9664fb97f4cca121e7c09afd746f4cf2423d7d`
-- capture began near raw angle 108.8 degrees and closure 3.2 bps
-- a start/release threshold contradiction caused the energy-bleed phase to be skipped
-- best angle reached about 94.8 degrees before defensive priority returned
+Calibration reproduces one preserved real-physics tick to:
 
-### Attempt 6 — sustained high-yoyo
+- yaw/pitch: five decimal places;
+- engine power: six decimal places;
+- position: within `0.005` blocks;
+- velocity: within `0.005` blocks/tick.
 
-- commit: `78902005ec2fe29a479f3784ea8fd3d0682406ab`
-- corrected the threshold contradiction
-- closure was reduced from about 13.4 bps to 2.3 bps
-- speed/turn protection then reduced yaw authority; best angle was about 92.3 degrees and later worsened
+After removing a duplicate PR #8 trajectory, the selected candidate reaches the standard angle/range/closure attack sector in all nine unique preserved trajectories in the calibrated model.
 
-### Attempt 7 — powered high-yoyo
+Modeled aggregate envelope:
 
-- commit: `1ee8f962f87d4a50520f01a2d5d12653e00f4ce0`
-- preserved engine power and yaw rate during the climb
-- best raw target angle reached 79.83 degrees
-- closure still increased to roughly 17.4 bps while the P-47N remained in the same horizontal turning circle
-- the aircraft passed the useful geometry without firing
-- A6M fired 3 times; P-47N fired 0 times
-- minimum separation 10.86 blocks; maximum separation 158.44 blocks; no ground contact
+- minimum speed about `17.5 bps`;
+- minimum separation about `17.2 blocks`;
+- maximum separation about `149.7 blocks`;
+- attack-sector arrival `135..245 ticks` after re-entry start.
 
-Useful artifact:
+This is not a qualification pass. The A6M reaction, real LOS, threat arbitration, terrain, collision and weapon release require the Forge server.
 
-- workflow run: `29859047267`
-- results artifact: `8506580265`
+## Safety invariants
 
-### Attempt 8 — vertical zoom and lead re-entry
+Never weaken these merely to make the qualification pass:
 
-- experiment commit: `f35cca4436e6bf73351e8f471862f309864068fc`
-- the controller left the horizontal crossing circle in a short vertical zoom
-- closure dropped from 14.35 bps to -2.0 bps
-- raw target angle regressed from 86.91 degrees to 121.52 degrees during the zoom
-- the later lead re-entry improved only to 108.96 degrees before timing out
-- A6M fired 6 times; P-47N fired 0 times
-- minimum separation 11.66 blocks; maximum separation 158.44 blocks
-- no ground contact; primary mission returned and parked
-- only verifier error remained `P-47N never fired at the A6M`
-
-Useful artifact:
-
-- workflow run: `29859888869`
-- results artifact: `8506900520`
-
-## Root cause now established
-
-This is not primarily a threshold-selection problem.
-
-- Horizontal pursuit can preserve bearing progress, but it cannot remove closure before overshoot.
-- Reversing the horizontal turn loses the geometry immediately.
-- Continuous high-yoyo control remains inside the A6M turning circle; powered variants preserve turn rate but closure still grows.
-- A wings-level vertical zoom removes closure successfully, but discards too much bearing and leaves the target behind the usable attack sector.
-
-The missing behavior is a coupled three-dimensional trajectory that controls **closure and bearing together**. It should retain the target near the measured 80–90 degree sector while converting excess horizontal closure into altitude, then re-enter with a genuine predicted lead solution.
-
-## Mandatory next workflow
-
-Do not immediately add another production controller and do not start with another remote GameTest.
-
-1. Download the preserved attempt 7 and attempt 8 result artifacts.
-2. Build a deterministic telemetry-replay or geometry-analysis tool under `ww-debug-benchmark/tools/`.
-3. Feed it the P-47N and A6M JSONL frames around the crossing minimum.
-4. Plot or calculate, tick by tick:
-   - relative position and velocity;
-   - raw target angle and predicted lead angle;
-   - closure;
-   - horizontal and vertical speed;
-   - yaw rate, pitch rate, roll, and altitude difference.
-5. Use the replay to compare an **oblique lag-yoyo** against the failed controls. The candidate should:
-   - keep raw target angle approximately in the 80–90 degree sector;
-   - drive closure toward zero;
-   - avoid joining the A6M horizontal turning circle;
-   - retain sufficient speed and yaw authority;
-   - hand off only when predicted lead angle is inside a real attack sector.
-6. Run static/deterministic checks first. Use one targeted remote GameTest only after the replay shows simultaneous improvement in closure and bearing.
-
-Do not resume blind threshold tuning. If the replay cannot produce a plausible coupled trajectory, stop and reconsider the aircraft control model rather than adding another adapter layer.
-
-## Closed experiment directions
-
-- Do not change the neutral opening offset. Lateral 75 was unsafe and lateral 110 caused excessive separation; retain the merged 55-block opening.
-- Do not bypass collision avoidance.
-- Do not weaken the real firing gates.
-- Do not retry simple same-turn pursuit, simple opposite-turn pursuit, or wings-level vertical zoom as standalone fixes.
-- Do not append experiments to oversized PR #5.
-
-## Oversized research PR
-
-- PR #5, `Recover energy fighters from stale defensive extensions`, remains an open Draft research branch: `agent/energy-fighter-counterattack-recovery`.
-- It grew to roughly 40 commits, 12 changed files, and more than 2,000 additions.
-- Use it only for telemetry and comparison history.
-
-## Safety and acceptance criteria
-
-A candidate is not complete until one run satisfies all of the following:
-
-- neutral opposed opening; no initial rear free shot;
-- A6M fires at least once through the real weapon manager;
-- P-47N fires at least once through the real weapon manager;
-- no fixed-gun firing at a target behind the aircraft;
-- both aircraft perform autonomous attack and defensive behavior;
+- terrain and collision avoidance retain control priority;
+- no player-pilot takeover;
+- credible close threats release the maneuver to defensive combat;
+- real LOS, range, friendly-fire and fixed-gun cone checks remain authoritative;
+- no rear-target firing;
+- no scripted shot or free initial rear-quarter shot;
+- minimum safe separation remains at least 8 blocks;
 - no ground contact or aircraft collision;
-- minimum separation at least 8 blocks;
-- maximum separation at most 480 blocks;
-- P-47N remains inside the useful simulation area;
-- primary aircraft resumes the normal mission and returns/lands/parks;
-- the targeted result is repeated for stability before the full regression matrix.
+- primary mission must resume and finish with return, landing and parking.
 
-## Useful references
+## Exact next validation
 
-- merged baseline: `8a91e7e44d8050505cd3ec948a2ed3c263ec342c`
-- active focused PR: `#6`
-- active branch: `agent/mutual-p47-counterattack-minimal`
-- recommended current head: `257d300feccf9087e5c1804bc035a37b2542dc5a`
-- research PR: `#5`
-- research branch: `agent/energy-fighter-counterattack-recovery`
+When any real execution path becomes available:
+
+1. run `python tools/test_coupled_climb_trajectory.py`;
+2. run `python tools/verify_p47_candidate_sync.py`;
+3. run ordinary benchmark build and deterministic mission simulation;
+4. run exactly one targeted `dogfight_mutual` Forge GameTest;
+5. inspect legitimate A6M/P-47N fire counts, control transitions, minimum and maximum separation, minimum speed, AGL, ground contact and collision;
+6. if both fighters fire safely, repeat the same targeted test for stability;
+7. only after the repeat passes, run the full regression matrix;
+8. build a clean focused PR from current `main`, carrying only the required production/controller, deterministic-opening and validation changes—not the research history.
+
+If the targeted run fails, analyze its saved telemetry before changing code. Do not return to blind threshold tuning.
+
+## Return to the 24-aircraft parent task
+
+After reciprocal P-47N/A6M qualification and full regression pass:
+
+1. verify all 24 measured profiles load correctly;
+2. validate non-combat autonomy: takeoff, climb, cruise, turn, stall recovery;
+3. validate doctrine split across all fighters: `turn_fighter`, `energy_fighter`, balanced fallback;
+4. validate terrain avoidance, landing and fuel management;
+5. validate targeting, pursuit, firing, defensive behavior and formation by role;
+6. run the complete aircraft-by-scenario matrix and fix only profile/role-specific failures without weakening global safety.
