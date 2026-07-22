@@ -9,6 +9,7 @@ import com.wwdebug.autopilot.CombatWeaponManager;
 import com.wwdebug.autopilot.DefensiveAirCombatManager;
 import com.wwdebug.autopilot.EnergyFighterReengagementAdapter;
 import com.wwdebug.autopilot.FormationFlightManager;
+import com.wwdebug.autopilot.MutualDogfightMissionHoldAdapter;
 import com.wwdebug.benchmark.BenchmarkManager;
 import net.minecraft.world.entity.Entity;
 import org.spongepowered.asm.mixin.Mixin;
@@ -25,6 +26,7 @@ public abstract class VehicleEntityBenchmarkMixin {
         Entity aircraft = (Entity) (Object) this;
         BenchmarkManager.applyControl(aircraft);
         AutonomousFlightManager.applyControl(aircraft);
+        MutualDogfightMissionHoldAdapter.apply(aircraft);
         FormationFlightManager.applyControl(aircraft);
         // Formation collision avoidance has already been applied at this point. Do not let combat
         // overwrite it while the shared CPA probe is dangerous.
