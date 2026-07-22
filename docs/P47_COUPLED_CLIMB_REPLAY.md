@@ -33,15 +33,18 @@ The calibration covers the P-47N constants used by the trajectory replay:
 
 ## Selected candidate
 
+The machine-readable source of truth is `tools/p47_coupled_climb_candidate.json`.
+
 The current modeled candidate is deliberately shallow and coupled:
 
 - climb target pitch: `-22 deg`;
-- yaw begins after the minimum eight-tick commitment, without waiting for a near-vertical apex;
+- yaw trigger pitch: `-2 deg`, after the minimum eight-tick commitment;
 - pivot hands to lead capture at `65 deg` horizontal lead error;
-- pivot input divisor: `38`;
-- capture pitch divisor: `12`;
+- pivot input divisor: `22`;
+- capture pitch divisor: `10`;
 - capture pitch-rate damping: `0.10`;
-- yaw-rate damping: `0.0`.
+- yaw-rate damping: `0.05`;
+- lead horizon: `8 ticks`.
 
 This is not a loop. It starts turning while converting a limited amount of horizontal closure into altitude, then lets the lead-capture controller finish the intercept.
 
@@ -56,21 +59,21 @@ Ten downloaded artifacts were examined. PR #8 attempts 4 and 5 contain the same 
 
 Aggregate modeled safety envelope across the nine unique trajectories:
 
-- minimum speed: `18.55 bps`;
-- minimum separation: `17.36 blocks`;
-- maximum separation: `149.65 blocks`;
+- minimum speed: about `17.5 bps`;
+- minimum separation: about `17.2 blocks`;
+- maximum separation: about `149.7 blocks`;
 - modeled firing-window delay: `135..245 ticks` after re-entry start.
 
 Representative modeled firing windows ranged from:
 
 - fast capture: range about `50..57`, closure about `26`, speed about `41 bps`;
-- slower recovered capture: range about `60..116`, closure about `5..20`, speed about `18.6..21.6 bps`.
+- slower recovered capture: range about `58..116`, closure about `5..20`, speed about `17.5..21.6 bps`.
 
 ## Why this supersedes the previous candidate
 
 The earlier `-34 deg / -20 deg / 28 deg` coupled-climb candidate still held the climb too long and frequently timed out in pivot. The subsequent `-30 deg / -8 deg / 35 deg` candidate improved angular capture but remained inconsistent once the P-47N trajectory itself was resimulated.
 
-The selected `-22 deg / immediate-overlap / 65 deg` candidate succeeded across every unique preserved trajectory in the calibrated model while staying above stall guard and within the accepted separation envelope.
+The selected `-22 deg / -2 deg / 65 deg` candidate succeeded across every unique preserved trajectory in the calibrated model while staying above stall guard and within the accepted separation envelope.
 
 ## Required next validation
 
