@@ -32,12 +32,25 @@ Commit `f5f96130` extended the reciprocal combat window from 1,000 to 2,000 tick
 
 This is a test-harness self-interference bug, not evidence that the combat controller should be retuned.
 
+## Permanent diagnostic rule from this incident
+
+Before changing aircraft behavior after any targeted-scenario failure, inspect the validation harness first:
+
+1. Confirm the scenario emitted start, periodic ownership/status, completion, cleanup, and release events in the expected order.
+2. Confirm the base mission did not advance into unrelated turn, stall, return, or landing phases while scenario-specific controllers owned flight input.
+3. Whenever a scenario window is extended, recalculate the complete time budget: scenario duration plus cleanup, return, approach, landing, braking, and parking, all inside phase, mission, and GameTest timeouts.
+4. If aggregate counters are zero while periodic telemetry is nonzero, or an aircraft aborts in an unrelated base phase before scenario completion, classify the run as a harness failure until disproved.
+5. Only after the harness is shown to be internally consistent may telemetry be used to justify combat-controller or threshold changes.
+
+This reusable rule is also recorded in the repository-wide `/AGENTS.md` under `Validation-harness integrity`.
+
 ## Parked no-CI implementation branch
 
 - Branch: `agent/mutual-dogfight-mission-hold`.
 - Based on PR #8 head `f5f96130`.
 - Adapter commit: `715cea06d08f63a53e415aeff8cb38db265d8dcc`.
 - Integration commit: `a59d9dc4ce84d92845328fbd0ef78e40b360fd59`.
+- Repository-rule sync commit: `09ee7cf3a276a21d7a4c3d4b2d26ba5c4c2b851d`.
 - No pull request was opened, so no GitHub-hosted workflow was triggered.
 
 The new test-only `MutualDogfightMissionHoldAdapter`:
