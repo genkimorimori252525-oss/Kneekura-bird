@@ -29,7 +29,6 @@ public final class EnergyFighterReengagementAdapter {
     private static final double START_MIN_ENERGY_RATIO = 1.02;
 
     private static final double FORWARD_HANDOFF_ANGLE_DEG = 60.0;
-    private static final double ADAPTIVE_HANDOFF_MIN_ANGLE_DEG = 83.0;
     private static final double ADAPTIVE_HANDOFF_MAX_ANGLE_DEG = 90.0;
     private static final double IMPROVEMENT_EPSILON_DEG = 0.35;
     private static final double ADAPTIVE_MAX_REGRESSION_DEG = 2.5;
@@ -153,7 +152,6 @@ public final class EnergyFighterReengagementAdapter {
                     && rawAngle <= FORWARD_HANDOFF_ANGLE_DEG
                     && distance >= 22.0 && distance <= 170.0;
             boolean adaptiveHandoff = state.stageTicks >= MIN_CROSS_TICKS
-                    && state.bestRawAngle >= ADAPTIVE_HANDOFF_MIN_ANGLE_DEG
                     && state.bestRawAngle <= ADAPTIVE_HANDOFF_MAX_ANGLE_DEG
                     && rawAngle <= state.bestRawAngle + ADAPTIVE_MAX_REGRESSION_DEG
                     && state.stalledTicks >= ADAPTIVE_STALL_TICKS
