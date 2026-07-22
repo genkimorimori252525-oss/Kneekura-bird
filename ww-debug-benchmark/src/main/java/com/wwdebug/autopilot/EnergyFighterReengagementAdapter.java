@@ -19,9 +19,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * Converts a completed energy-fighter extension into a bounded crossing re-entry.
  *
  * <p>At the measured broadside minimum, the controller performs a short oblique lag-yoyo:
- * one second of shallow climbing lag with half yaw authority, followed by pursuit of a
- * half-second predicted lead point. Actual firing, terrain, collision, line-of-sight,
- * friendly-fire, and rear-target checks remain authoritative outside this controller.</p>
+ * one second of shallow climbing lag with full yaw authority, followed by a sustained low-speed
+ * lag arc. Actual firing, terrain, collision, line-of-sight, friendly-fire, and rear-target checks
+ * remain authoritative outside this controller.</p>
  */
 public final class EnergyFighterReengagementAdapter {
     private static final double START_MIN_DISTANCE = 88.0;
@@ -39,7 +39,7 @@ public final class EnergyFighterReengagementAdapter {
     private static final int MAX_CROSS_TICKS = 150;
 
     private static final int LAG_TICKS = 20;
-    private static final double LAG_YAW_FRACTION = 0.50;
+    private static final double LAG_YAW_FRACTION = 1.00;
     private static final double LAG_CLIMB_ANGLE_DEG = 8.0;
     private static final double LEAD_TICKS = 10.0;
     private static final double SPEED_FLOOR_BPS = 18.0;
@@ -50,8 +50,8 @@ public final class EnergyFighterReengagementAdapter {
     private static final double ATTACK_MAX_DISTANCE = 125.0;
     private static final double ATTACK_MIN_CLOSURE_BPS = -6.0;
     private static final double ATTACK_MAX_CLOSURE_BPS = 28.0;
-    private static final int MIN_PURSUIT_TICKS = 4;
-    private static final int MAX_PURSUIT_TICKS = 300;
+    private static final int MIN_ARC_TICKS = 4;
+    private static final int MAX_ARC_TICKS = 260;
     private static final int MAX_TOTAL_TICKS = 380;
 
     private static final Map<UUID, State> STATES = new ConcurrentHashMap<>();
@@ -175,11 +175,11 @@ public final class EnergyFighterReengagementAdapter {
         if (state.stage == Stage.LAG && state.stageTicks >= LAG_TICKS) {
             transition(level, aircraft, status.get().phase(), state, snapshot,
                     distance, rawAngle, predictedLeadAngle, closure,
-                    threat.aimAngleDeg(), Stage.PURSUIT, "bounded_oblique_lag_complete");
+                    threat.aimAngleDeg(), Stage.ARC, "bounded_oblique_lag_complete");
         }
 
-        if (state.stage == Stage.PURSUIT) {
-            boolean attackSector = state.stageTicks >= MIN_PURSUIT_TICKS
+        if (state.stage == Stage.ARC) {
+            boolean attackSector = state.stageTicks >= MIN_ARC_TICKS
                     && target.lineOfSight()
                     && rawAngle <= ATTACK_MAX_RAW_ANGLE_DEG
                     && predictedLeadAngle <= ATTACK_MAX_LEAD_ANGLE_DEG
@@ -191,8 +191,8 @@ public final class EnergyFighterReengagementAdapter {
                         distance, rawAngle, predictedLeadAngle, closure,
                         threat.aimAngleDeg(), Stage.DOCTRINE,
                         "predicted_lead_inside_attack_sector");
-            } else if (state.stageTicks >= MAX_PURSUIT_TICKS || distance > 190.0) {
-                finish(level, aircraft, status.get().phase(), "pursuit_window_expired");
+            } else if (state.stageTicks >= MAX_ARC_TICKS || distance > 190.0) {
+                finish(level, aircraft, status.get().phase(), "lag_arc_window_expired");
                 return false;
             }
         }
@@ -204,10 +204,9 @@ public final class EnergyFighterReengagementAdapter {
         } else if (state.stage == Stage.LAG) {
             applyLag(level, aircraft, snapshot, profile, targetDirection,
                     rawAngle, predictedLeadAngle, closure, state, status.get().phase());
-        } else if (state.stage == Stage.PURSUIT) {
-            applyPursuit(level, aircraft, target.aircraft(), snapshot, profile,
-                    predictedLeadDirection, rawAngle, predictedLeadAngle, closure,
-                    state, status.get().phase());
+        } else if (state.stage == Stage.ARC) {
+            applyArc(level, aircraft, snapshot, profile, targetDirection,
+                    rawAngle, predictedLeadAngle, closure, state, status.get().phase());
         } else {
             AirCombatManeuverManager.applyControl(aircraft);
             applyFinalAlignment(level, aircraft, target, snapshot, profile,
@@ -326,52 +325,43 @@ public final class EnergyFighterReengagementAdapter {
                 desired, targetAltitude, targetSpeed, headingError,
                 targetAltitude - snapshot.position().y, targetSpeed - snapshot.speedBps(),
                 snapshot.speedBps() < profile.stallGuardSpeedBps(), false,
-                "energy_oblique_lag", "shallow_climb_half_yaw");
+                "energy_oblique_lag", "shallow_climb_full_yaw");
         applyAndLog(level, aircraft, snapshot, output, state, rawAngle,
                 predictedLeadAngle, closure, phase);
     }
 
-    private static void applyPursuit(ServerLevel level, Entity aircraft, Entity target,
-                                     FlightSnapshot snapshot, FlightProfile profile,
-                                     Vec3 desired, double rawAngle,
-                                     double predictedLeadAngle, double closure,
-                                     State state, FlightPhase phase) {
-        Vec3 horizontalDesired = safeNormalize(horizontal(desired), snapshot.horizontalForward());
+    private static void applyArc(ServerLevel level, Entity aircraft,
+                                 FlightSnapshot snapshot, FlightProfile profile,
+                                 Vec3 targetDirection, double rawAngle,
+                                 double predictedLeadAngle, double closure,
+                                 State state, FlightPhase phase) {
+        Vec3 horizontalDesired = safeNormalize(horizontal(targetDirection),
+                snapshot.horizontalForward());
         double headingError = headingError(snapshot, horizontalDesired);
-        float x = (float) Mth.clamp(headingError / 16.0, -0.94, 0.94);
+        float x = (float) (state.turnSign * 0.92);
 
-        Vec3 leadPoint = target.getBoundingBox().getCenter()
-                .add(target.getDeltaMovement().scale(LEAD_TICKS));
-        double targetAltitude = leadPoint.y;
+        double targetAltitude = state.lagStartAltitude + 5.0;
         double altitudeError = targetAltitude - snapshot.position().y;
-        double desiredPitch = Mth.clamp(-altitudeError * 0.26
-                + snapshot.verticalSpeedBps() * 0.25, -12.0, 10.0);
-        if (snapshot.speedBps() < SPEED_FLOOR_BPS) {
-            desiredPitch = Math.max(desiredPitch, -2.0);
-            x *= 0.65f;
-        }
-        float z = (float) Mth.clamp((desiredPitch - snapshot.pitchDeg()) / 12.0,
-                -0.88, 0.88);
+        double desiredPitch = Mth.clamp(-altitudeError * 0.22
+                + snapshot.verticalSpeedBps() * 0.25, -8.0, 7.0);
+        float z = (float) Mth.clamp((desiredPitch - snapshot.pitchDeg()) / 14.0,
+                -0.82, 0.82);
 
-        double targetSpeed = Math.max(SPEED_FLOOR_BPS,
-                target.getDeltaMovement().horizontalDistance() * 20.0);
+        double targetSpeed = SPEED_FLOOR_BPS;
         float engineTarget;
-        if (closure > ATTACK_MAX_CLOSURE_BPS || snapshot.speedBps() > targetSpeed + 2.0) {
-            engineTarget = 0.18f;
-        } else if (snapshot.speedBps() < targetSpeed - 1.0) {
-            engineTarget = 0.85f;
+        if (snapshot.speedBps() > SPEED_FLOOR_BPS + 2.0) {
+            engineTarget = 0.12f;
+        } else if (snapshot.speedBps() < SPEED_FLOOR_BPS - 0.5) {
+            engineTarget = 1.0f;
         } else {
             engineTarget = 0.45f;
         }
-        if (snapshot.speedBps() < SPEED_FLOOR_BPS) {
-            engineTarget = 1.0f;
-        }
 
         FlightControlOutput output = new FlightControlOutput(x, 0.0f, z, engineTarget,
-                desired, targetAltitude, targetSpeed, headingError, altitudeError,
+                horizontalDesired, targetAltitude, targetSpeed, headingError, altitudeError,
                 targetSpeed - snapshot.speedBps(),
                 snapshot.speedBps() < profile.stallGuardSpeedBps(), false,
-                "energy_oblique_lead_pursuit", "half_second_predicted_lead");
+                "energy_sustained_lag_arc", "full_bank_low_speed_arc");
         applyAndLog(level, aircraft, snapshot, output, state, rawAngle,
                 predictedLeadAngle, closure, phase);
     }
@@ -598,7 +588,7 @@ public final class EnergyFighterReengagementAdapter {
     private enum Stage {
         CROSSING,
         LAG,
-        PURSUIT,
+        ARC,
         DOCTRINE
     }
 
