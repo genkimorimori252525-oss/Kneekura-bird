@@ -10,7 +10,7 @@ The default P-47N constants come from Warfare Wings 1.1.4 and Immersive Aircraft
 
 1. glide contribution and velocity-to-nose conversion;
 2. drag, horizontal/vertical decay, and speed-dependent airplane gravity;
-3. yaw/pitch update from the previous smoothed X/Z input;
+3. friction/rotation decay of the smoothed X/Z input, then yaw/pitch update;
 4. thrust along the updated aircraft forward vector;
 5. movement;
 6. input and engine-power interpolation for the next tick.
@@ -59,9 +59,14 @@ def closure_bps(defender: angular.Vec, defender_velocity: angular.Vec,
 
 
 def infer_initial_smoothing(first: angular.Frame, second: angular.Frame,
-                            yaw_speed: float, pitch_speed: float) -> tuple[float, float]:
-    smoothed_x = angular.wrap_degrees(second.yaw - first.yaw) / yaw_speed
-    smoothed_z = (second.pitch - first.pitch) / pitch_speed
+                            yaw_speed: float, pitch_speed: float,
+                            friction: float,
+                            rotation_decay: float) -> tuple[float, float]:
+    decay = (1.0 - friction) * rotation_decay
+    if abs(decay) <= 1.0e-12:
+        raise ValueError("control decay must be non-zero")
+    smoothed_x = angular.wrap_degrees(second.yaw - first.yaw) / (yaw_speed * decay)
+    smoothed_z = (second.pitch - first.pitch) / (pitch_speed * decay)
     return smoothed_x, smoothed_z
 
 
@@ -123,6 +128,7 @@ def physics_tick(
     glide_factor: float,
     horizontal_decay: float,
     vertical_decay: float,
+    rotation_decay: float,
     yaw_speed: float,
     pitch_speed: float,
     engine_reaction_steps: float,
@@ -158,9 +164,13 @@ def physics_tick(
         velocity.z * decay * horizontal_decay,
     )
 
-    # AircraftEntity.updateController uses the smoothed input from the previous tick.
-    yaw = angular.wrap_degrees(state.yaw + yaw_speed * state.smoothed_x)
-    pitch = state.pitch + pitch_speed * state.smoothed_z
+    # InventoryVehicleEntity.applyFriction decays the interpolated controls before
+    # AircraftEntity.updateController consumes them in the same tick.
+    control_decay = decay * rotation_decay
+    decayed_smoothed_x = state.smoothed_x * control_decay
+    decayed_smoothed_z = state.smoothed_z * control_decay
+    yaw = angular.wrap_degrees(state.yaw + yaw_speed * decayed_smoothed_x)
+    pitch = state.pitch + pitch_speed * decayed_smoothed_z
 
     # AirplaneEntity.updateController adds thrust after the orientation update.
     thrust_direction = angular.forward(yaw, pitch)
@@ -169,8 +179,8 @@ def physics_tick(
     position = state.position + velocity
 
     # VehicleEntity and EngineVehicle update their interpolators at the end of tick.
-    smoothed_x = 0.9 * state.smoothed_x + 0.1 * command_x
-    smoothed_z = 0.9 * state.smoothed_z + 0.1 * command_z
+    smoothed_x = 0.9 * decayed_smoothed_x + 0.1 * command_x
+    smoothed_z = 0.9 * decayed_smoothed_z + 0.1 * command_z
     engine_power = state.engine_power + (
         engine_target - state.engine_power
     ) / engine_reaction_steps
@@ -197,7 +207,8 @@ def simulate(args: argparse.Namespace) -> dict:
     initial = p47_frames[args.start_tick]
     following = p47_frames[args.start_tick + 1]
     smoothed_x, smoothed_z = infer_initial_smoothing(
-        initial, following, args.yaw_speed, args.pitch_speed
+        initial, following, args.yaw_speed, args.pitch_speed,
+        args.friction, args.rotation_decay
     )
     measured_engine_power = read_frame_engine_power(args.p47, args.start_tick)
     initial_engine_power = args.initial_engine_power
@@ -356,6 +367,7 @@ def simulate(args: argparse.Namespace) -> dict:
             glide_factor=args.glide_factor,
             horizontal_decay=args.horizontal_decay,
             vertical_decay=args.vertical_decay,
+            rotation_decay=args.rotation_decay,
             yaw_speed=args.yaw_speed,
             pitch_speed=args.pitch_speed,
             engine_reaction_steps=args.engine_reaction_steps,
@@ -379,6 +391,7 @@ def simulate(args: argparse.Namespace) -> dict:
         "maximum_distance": max((row["distance"] for row in rows), default=None),
         "minimum_pitch": min((row["pitch"] for row in rows), default=None),
         "maximum_pitch": max((row["pitch"] for row in rows), default=None),
+        "control_decay_per_tick": (1.0 - args.friction) * args.rotation_decay,
         "warning": "Target response, LOS, terrain, collision, and threat arbitration are not resimulated.",
         "rows": rows,
     }
@@ -414,6 +427,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--glide-factor", type=float, default=0.055)
     parser.add_argument("--horizontal-decay", type=float, default=0.97)
     parser.add_argument("--vertical-decay", type=float, default=0.97)
+    parser.add_argument("--rotation-decay", type=float, default=0.97)
     parser.add_argument("--yaw-speed", type=float, default=2.5)
     parser.add_argument("--pitch-speed", type=float, default=2.4)
     parser.add_argument("--engine-reaction-steps", type=float, default=100.0)

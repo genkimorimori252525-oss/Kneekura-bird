@@ -6,9 +6,10 @@ candidates that cannot rotate the P-47N into a firing sector even when the prese
 P-47N/A6M positions are reused.
 
 The orientation model follows Immersive Aircraft 1.20.1:
-  smooth = 0.9 * smooth + 0.1 * command
-  yaw += yaw_speed * logical_x_smooth
-  pitch += pitch_speed * z_smooth
+  decayed = smooth * (1 - friction) * rotation_decay
+  yaw += yaw_speed * logical_x_decayed
+  pitch += pitch_speed * z_decayed
+  smooth = 0.9 * decayed + 0.1 * command
 
 The benchmark adapter inverts logical X before calling the native API, while the
 aircraft subtracts native X from yaw. The two inversions therefore produce the
@@ -152,6 +153,8 @@ def simulate(
     max_ticks: int,
     yaw_speed: float,
     pitch_speed: float,
+    friction: float,
+    rotation_decay: float,
 ) -> dict:
     initial = p47_frames[start_tick]
     yaw = initial.yaw
@@ -221,8 +224,11 @@ def simulate(
                 0.88,
             )
 
-        # VehicleEntity updates orientation with the previous smoothed input,
-        # then updates the 10-tick interpolator at the end of the tick.
+        # InventoryVehicleEntity decays the previous smoothed input before the
+        # controller consumes it, then updates the interpolator at tick end.
+        control_decay = (1.0 - friction) * rotation_decay
+        smoothed_x *= control_decay
+        smoothed_z *= control_decay
         yaw += yaw_speed * smoothed_x
         pitch += pitch_speed * smoothed_z
         smoothed_x = 0.9 * smoothed_x + 0.1 * x_command
@@ -289,6 +295,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-ticks", type=int, default=220)
     parser.add_argument("--yaw-speed", type=float, default=2.5)
     parser.add_argument("--pitch-speed", type=float, default=2.4)
+    parser.add_argument("--friction", type=float, default=0.013)
+    parser.add_argument("--rotation-decay", type=float, default=0.97)
     parser.add_argument("--climb-pitch", type=float, default=-34.0)
     parser.add_argument("--yaw-trigger-pitch", type=float, default=-20.0)
     parser.add_argument("--pivot-complete-heading", type=float, default=28.0)
@@ -314,6 +322,8 @@ def main() -> int:
         max_ticks=args.max_ticks,
         yaw_speed=args.yaw_speed,
         pitch_speed=args.pitch_speed,
+        friction=args.friction,
+        rotation_decay=args.rotation_decay,
     )
     summary = {key: value for key, value in result.items() if key != "rows"}
     print(json.dumps(summary, indent=2, sort_keys=True))
