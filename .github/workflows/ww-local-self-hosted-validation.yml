@@ -37,7 +37,7 @@ jobs:
        github.event.issue.number == 7 &&
        github.event.comment.user.login == 'genkimorimori252525-oss' &&
        startsWith(github.event.comment.body, '/validate-local'))
-    runs-on: [self-hosted, Windows, X64, ww-local]
+    runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 110
     defaults:
       run:
