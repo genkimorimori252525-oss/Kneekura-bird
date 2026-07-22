@@ -40,6 +40,16 @@ Run checks in this order:
 
 Do not use the expensive headless GameTest as the first diagnostic tool for every small threshold change. Add telemetry or deterministic assertions first when the cause is unclear.
 
+## Validation-harness integrity
+
+- Before attributing a targeted-scenario failure to aircraft control or combat behavior, prove that the harness reached its intended start, retained scenario ownership, emitted its completion event, performed cleanup, and released the surviving aircraft back to the base mission.
+- Whenever a combat window, retry allowance, or scenario duration is increased, audit every enclosing limit: GameTest timeout, global mission timeout, phase-specific timeout, opponent lifetime, cleanup time, and the return/landing/parking budget. The scenario window must leave enough time for all acceptance-tail work.
+- Check whether the ordinary validation mission continues advancing underneath scenario-specific control. If the scenario owns flight inputs, unrelated base phases such as turns, stall tests, return, or landing must be paused or shown to be explicitly compatible.
+- Treat missing completion events, zero aggregate counters despite nonzero periodic status telemetry, premature cleanup, or aborts in unrelated base-mission phases as validation-harness failures first—not as evidence for retuning behavior thresholds.
+- Reconstruct the exact tick order of scenario start, phase transitions, safety events, completion, cleanup, and terminal state before selecting the next behavioral hypothesis.
+- Add explicit telemetry or deterministic assertions for scenario start, ownership, completion, release, and remaining mission-time budget whenever those facts are not already observable.
+- Keep harness corrections isolated to test-only code. They must not weaken production firing gates, terrain avoidance, collision avoidance, player-control exclusion, or any acceptance criterion.
+
 ## CI monitoring and owner reporting
 
 - CI polling must be bounded. Check an in-progress workflow only a small number of times, then return a visible status checkpoint instead of silently repeating sleep-and-poll cycles.
