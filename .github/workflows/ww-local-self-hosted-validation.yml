@@ -1,6 +1,10 @@
 name: WW Local Windows Self-Hosted Validation
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/local-validation-request.txt'
   workflow_dispatch:
     inputs:
       ref:
@@ -32,6 +36,7 @@ concurrency:
 jobs:
   validate:
     if: >-
+      (github.event_name == 'push' && github.actor == 'genkimorimori252525-oss') ||
       (github.event_name == 'workflow_dispatch' && github.actor == 'genkimorimori252525-oss') ||
       (github.event_name == 'issue_comment' &&
        github.event.issue.number == 7 &&
@@ -44,6 +49,13 @@ jobs:
         shell: powershell
 
     steps:
+      - name: Checkout request metadata
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+
       - name: Resolve and validate request
         id: request
         env:
@@ -60,6 +72,26 @@ jobs:
             if ($env:DISPATCH_REF) { $ref = $env:DISPATCH_REF.Trim() }
             if ($env:DISPATCH_AIRCRAFT) { $aircraft = $env:DISPATCH_AIRCRAFT.Trim() }
             if ($env:DISPATCH_GAMETEST) { $runGameTest = $env:DISPATCH_GAMETEST.Trim().ToLowerInvariant() }
+          }
+          elseif ($env:GITHUB_EVENT_NAME -eq 'push') {
+            $requestPath = Join-Path $env:GITHUB_WORKSPACE '.github\local-validation-request.txt'
+            if (-not (Test-Path $requestPath)) {
+              throw "Missing local validation request file: $requestPath"
+            }
+
+            $values = @{}
+            foreach ($line in Get-Content $requestPath) {
+              $trimmed = $line.Trim()
+              if (-not $trimmed -or $trimmed.StartsWith('#')) { continue }
+              if ($trimmed -notmatch '^([a-z_]+)=(.+)$') {
+                throw "Invalid request line: $trimmed"
+              }
+              $values[$Matches[1]] = $Matches[2].Trim()
+            }
+
+            if ($values.ContainsKey('ref')) { $ref = $values['ref'] }
+            if ($values.ContainsKey('aircraft')) { $aircraft = $values['aircraft'] }
+            if ($values.ContainsKey('gametest')) { $runGameTest = $values['gametest'].ToLowerInvariant() }
           }
           else {
             $tokens = @($env:COMMENT_BODY.Trim() -split '\s+')
