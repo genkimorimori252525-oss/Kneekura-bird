@@ -4,37 +4,75 @@ Last updated: 2026-07-22 (Asia/Tokyo)
 
 ## Read first
 
-Follow the repository-wide limits and workflow in `/AGENTS.md`. This file records current project state; update it whenever a substantial AI coding session ends.
+Follow `/AGENTS.md`. GitHub-hosted Actions minutes are currently exhausted, so do not open a new pull request, rerun workflows, or push no-op commits to an existing pull request. Preserve unvalidated work on a non-PR branch until a local, self-hosted, or restored hosted runner is available.
 
-## Repository state
+## Current validated baseline
 
-- `main` contains merged PR #4 at commit `8a91e7e44d8050505cd3ec948a2ed3c263ec342c`.
-- PR #4 established doctrine-specific fighter combat, a neutral opposed opening, stale rear-threat release, fixed-gun rear-target rejection, and initial P-47N re-engagement safeguards.
-- The remaining acceptance gap after PR #4 was `dogfight_mutual`: the A6M could fire, but the P-47N did not produce a legitimate firing event.
+- Focused Draft PR #8: `Convert P-47N crossing into an oblique lag-yoyo`.
+- PR branch: `agent/p47-oblique-lag-yoyo`.
+- Last inspected head: `f5f96130d2dbc5dcaf5a5950c8135dd5e2bb61ec`.
+- Normal benchmark build passed for that head.
+- Targeted `dogfight_mutual` physically ran and preserved telemetry, but verification failed.
+- A6M fire count: 4.
+- P-47N fire count: 0.
+- Minimum separation: 14.46 blocks.
+- Maximum separation: 192.72 blocks.
+- No ground frames were reported for the primary A6M; the disposable P-47N later entered an aborted stall-recovery state.
 
-## Oversized research PR
+Do not merge PR #8. Reciprocal legitimate firing has not passed or repeated.
 
-- PR #5, `Recover energy fighters from stale defensive extensions`, is an open Draft research branch: `agent/energy-fighter-counterattack-recovery`.
-- At the time of this handoff it had grown to roughly 40 commits, 12 changed files, and more than 2,000 added lines.
-- Do **not** continue appending experiments to PR #5. Use it only for telemetry, artifacts, and comparison history.
-- Its latest normal build passed, while the targeted `dogfight_mutual` qualification still failed.
+## Newly identified validation-harness failure
 
-## Findings worth preserving
+Commit `f5f96130` extended the reciprocal combat window from 1,000 to 2,000 ticks. The preserved telemetry shows that the ordinary validation mission continued advancing underneath combat control:
 
-1. The original P-47N failure was not a compile or weapon-API problem. It became trapped in defensive/extension control and failed to convert recovered separation into a forward firing solution.
-2. Starting counterattack too late (around or beyond 200 blocks) causes useless large-radius re-entry.
-3. A bounded high-yo-yo/reversal can bring the P-47N close to a valid nose solution.
-4. A short final-alignment controller can produce legitimate A6M firing without weakening the actual 3-degree weapon gate.
-5. Intermediate PR #5 revisions demonstrated each side firing separately:
-   - one revision produced P-47N fire while A6M remained at zero;
-   - another produced multiple A6M firing events while P-47N returned to zero.
-6. Therefore the next problem is simultaneous coexistence and control-layer arbitration, not proving that either aircraft can ever fire.
-7. UUID-dependent maneuver-side choices and uncontrolled opening variance can make runs diverge. Determinism must be checked before threshold tuning.
-8. Keep both aircraft in ticking chunks during the reciprocal qualification; otherwise a distant participant may freeze or lose useful combat time.
+- A6M: `CRUISE_OUTBOUND -> TURN_LEFT -> CRUISE_CROSS -> TURN_RIGHT -> STALL_SETUP`, then `STALL_SETUP -> ABORTED` at server tick 2654.
+- P-47N: progressed through the same base mission into `STALL_ENTRY` and `STALL_RECOVERY`, then `STALL_RECOVERY -> ABORTED` with ground contact at server tick 2226.
+- The last reciprocal-scene status was only age 1,880 ticks, so the 2,000-tick scene never completed.
+- Because the completion event was absent, the verifier reported zero aggregate tracking/combat ticks and no parked return even though the JSONL status events contained substantial tracking and combat control.
+
+This is a test-harness self-interference bug, not evidence that the combat controller should be retuned.
+
+## Parked no-CI implementation branch
+
+- Branch: `agent/mutual-dogfight-mission-hold`.
+- Based on PR #8 head `f5f96130`.
+- Adapter commit: `715cea06d08f63a53e415aeff8cb38db265d8dcc`.
+- Integration commit: `a59d9dc4ce84d92845328fbd0ef78e40b360fd59`.
+- No pull request was opened, so no GitHub-hosted workflow was triggered.
+
+The new test-only `MutualDogfightMissionHoldAdapter`:
+
+- activates only for the `dogfight_mutual` scenario;
+- requires the reciprocal-test aircraft name and exact red/blue mutual faction tags;
+- rejects player pilots;
+- holds only the background `AutopilotSession` phase at neutral `CRUISE_OUTBOUND` while combat tags are present;
+- resets phase-local turn/stall counters so base-mission timeouts cannot abort either combat participant;
+- does not alter combat input, weapon gates, terrain avoidance, collision avoidance, opening geometry, or firing safety;
+- releases automatically when the scene clears the mutual faction tags, allowing the primary aircraft to resume its normal validation mission.
+
+## Validation completed without Actions
+
+- Repository source was checked to confirm the reflected fields exist:
+  - `AutonomousFlightManager.SESSIONS`;
+  - `AutonomousFlightManager$SessionEntry.session`;
+  - `AutopilotSession.phase`, `phaseTicks`, `stableTicks`, `fallingTicks`, and `transitionReason`.
+- A Java 17 stubbed syntax/type-shape compilation of the new adapter and mixin integration passed.
+- Workflow lookup for commit `a59d9dc4` returned no runs.
+
+This is not equivalent to the real Forge build or GameTest. Treat the branch as unvalidated and do not merge it.
+
+## Required next checks when execution capacity returns
+
+1. Run the normal benchmark build on `agent/mutual-dogfight-mission-hold`.
+2. Run exactly one targeted `dogfight_mutual` GameTest.
+3. Confirm both aircraft remain in the held cruise phase throughout the combat window; no turn/stall phase transitions should occur before scene completion.
+4. Confirm the scene produces `mutual_dogfight_validation_completed`, cleans up the opponent, and the A6M resumes the normal mission and reaches `PARKED`.
+5. Re-evaluate the actual remaining behavioral failure from the new telemetry.
+6. Only if P-47N fire remains zero after the harness is valid, continue with one materially different combat hypothesis: release the powered wingover when closure has been removed while useful speed remains, then accelerate through measured-profile recovery rather than forcing a fixed full half-loop.
 
 ## Safety and acceptance criteria
 
-A candidate fix is not complete until a single run satisfies all of the following:
+A candidate is not complete until one run satisfies all of the following and the result is repeated:
 
 - neutral opposed opening; no initial rear free shot;
 - A6M fires at least once through the real weapon manager;
@@ -42,20 +80,13 @@ A candidate fix is not complete until a single run satisfies all of the followin
 - no fixed-gun firing at a target behind the aircraft;
 - both aircraft perform autonomous attack and defensive behavior;
 - no ground contact or aircraft collision;
-- P-47N does not extend indefinitely outside the useful simulation area;
-- after combat cleanup, the primary aircraft resumes the normal mission and returns/lands/parks;
-- targeted scenario is repeated for stability before restoring the full regression matrix.
+- minimum separation at least 8 blocks;
+- maximum separation at most 480 blocks;
+- P-47N remains inside the useful simulation area;
+- after combat cleanup, the primary aircraft resumes the normal mission and returns, lands, and parks.
 
-## Recommended next session
+## Research history
 
-1. Create a clean branch from current `main`, not from PR #5.
-2. Inspect PR #5 only to identify the smallest independently useful changes.
-3. First focused hypothesis: deterministic arbitration between energy-fighter recovery and final alignment, with only one controller allowed to own a tick.
-4. Limit the first patch to at most three production/test files and one targeted CI run.
-5. If both-fire coexistence is not achieved after three materially different runs, stop and report rather than extending the PR.
-
-## Useful references
-
-- Merged baseline: `8a91e7e44d8050505cd3ec948a2ed3c263ec342c`
-- Research PR: `#5`
-- Research branch: `agent/energy-fighter-counterattack-recovery`
+- PR #5 remains oversized research only. Do not append new experiments.
+- PR #6 is superseded research history.
+- PR #8 remains the current combat-controller evidence branch, but the no-CI harness fix is parked separately until validation capacity returns.
