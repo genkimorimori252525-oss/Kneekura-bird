@@ -184,13 +184,12 @@ public final class EnergyFighterReengagementAdapter {
         if (state.stage == Stage.WINGOVER) {
             state.wingoverAngle = angleDegrees(state.wingoverStartForward, snapshot.forward());
             boolean descendingReversal = state.stageTicks >= MIN_WINGOVER_TICKS
-                    && state.wingoverAngle >= WINGOVER_COMPLETE_ANGLE_DEG
                     && snapshot.forward().y <= WINGOVER_DESCENDING_FORWARD_Y;
             if (descendingReversal) {
                 transition(level, aircraft, status.get().phase(), state, snapshot,
                         distance, rawAngle, predictedLeadAngle, closure,
                         threat.aimAngleDeg(), Stage.RECOVERY,
-                        "phased_turn_vertical_reversal_complete");
+                        "descending_forward_vector_reached");
             } else if (state.stageTicks >= MAX_WINGOVER_TICKS) {
                 finish(level, aircraft, status.get().phase(), "wingover_reversal_incomplete");
                 return false;
