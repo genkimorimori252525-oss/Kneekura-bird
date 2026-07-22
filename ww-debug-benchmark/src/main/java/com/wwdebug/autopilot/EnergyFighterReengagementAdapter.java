@@ -38,12 +38,14 @@ public final class EnergyFighterReengagementAdapter {
 
     private static final int MIN_WINGOVER_TICKS = 70;
     private static final int MAX_WINGOVER_TICKS = 170;
-    private static final double WINGOVER_COMPLETE_ANGLE_DEG = 150.0;
     private static final double WINGOVER_DESCENDING_FORWARD_Y = -0.10;
     private static final double WINGOVER_SPEED_BPS = 34.0;
     private static final double WINGOVER_TURN_START_ANGLE_DEG = 95.0;
     private static final double WINGOVER_TURN_FULL_ANGLE_DEG = 145.0;
     private static final double WINGOVER_MAX_TURN_INPUT = 0.58;
+    private static final double WINGOVER_APEX_MIN_FORWARD_Y = 0.65;
+    private static final double WINGOVER_APEX_MAX_HORIZONTAL_LEAD_ANGLE_DEG = 50.0;
+    private static final double WINGOVER_APEX_MIN_HORIZONTAL_LENGTH_SQR = 0.04;
     private static final double LEAD_TICKS = 10.0;
     private static final int MAX_RECOVERY_TICKS = 220;
 
@@ -183,13 +185,22 @@ public final class EnergyFighterReengagementAdapter {
 
         if (state.stage == Stage.WINGOVER) {
             state.wingoverAngle = angleDegrees(state.wingoverStartForward, snapshot.forward());
+            Vec3 horizontalForward = horizontal(snapshot.forward());
+            double horizontalLeadAngle = angleDegrees(horizontalForward,
+                    horizontal(predictedLeadDirection));
+            boolean apexLeadCaptured = state.stageTicks >= MIN_WINGOVER_TICKS
+                    && snapshot.forward().y >= WINGOVER_APEX_MIN_FORWARD_Y
+                    && horizontalForward.lengthSqr() >= WINGOVER_APEX_MIN_HORIZONTAL_LENGTH_SQR
+                    && horizontalLeadAngle <= WINGOVER_APEX_MAX_HORIZONTAL_LEAD_ANGLE_DEG
+                    && distance >= 50.0 && distance <= 150.0;
             boolean descendingReversal = state.stageTicks >= MIN_WINGOVER_TICKS
                     && snapshot.forward().y <= WINGOVER_DESCENDING_FORWARD_Y;
-            if (descendingReversal) {
+            if (apexLeadCaptured || descendingReversal) {
                 transition(level, aircraft, status.get().phase(), state, snapshot,
                         distance, rawAngle, predictedLeadAngle, closure,
                         threat.aimAngleDeg(), Stage.RECOVERY,
-                        "descending_forward_vector_reached");
+                        apexLeadCaptured ? "apex_horizontal_lead_captured"
+                                : "descending_forward_vector_reached");
             } else if (state.stageTicks >= MAX_WINGOVER_TICKS) {
                 finish(level, aircraft, status.get().phase(), "wingover_reversal_incomplete");
                 return false;
