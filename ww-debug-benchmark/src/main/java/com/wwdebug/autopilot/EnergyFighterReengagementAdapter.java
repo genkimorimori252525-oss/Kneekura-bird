@@ -41,6 +41,8 @@ public final class EnergyFighterReengagementAdapter {
     private static final double WINGOVER_COMPLETE_ANGLE_DEG = 150.0;
     private static final double WINGOVER_DESCENDING_FORWARD_Y = -0.10;
     private static final double WINGOVER_SPEED_BPS = 34.0;
+    private static final double RECOVERY_DIRECTION_LOCK_RAW_ANGLE_DEG = 60.0;
+    private static final double RECOVERY_LOCK_MIN_ERROR_DEG = 45.0;
     private static final double LEAD_TICKS = 10.0;
     private static final int MAX_RECOVERY_TICKS = 220;
 
@@ -319,7 +321,7 @@ public final class EnergyFighterReengagementAdapter {
                                       State state, FlightPhase phase) {
         Vec3 horizontalDesired = safeNormalize(horizontal(predictedLeadDirection),
                 snapshot.horizontalForward());
-        double headingError = recoveryHeadingError(state, snapshot, horizontalDesired);
+        double headingError = recoveryHeadingError(state, snapshot, horizontalDesired, rawAngle);
         float x = (float) Mth.clamp(headingError / 28.0, -0.96, 0.96);
         double targetAltitude = target.getBoundingBox().getCenter().y;
         double altitudeError = targetAltitude - snapshot.position().y;
@@ -334,7 +336,7 @@ public final class EnergyFighterReengagementAdapter {
                 predictedLeadDirection, targetAltitude, targetSpeed,
                 headingError, altitudeError, targetSpeed - snapshot.speedBps(),
                 snapshot.speedBps() < profile.stallGuardSpeedBps(), false,
-                "energy_vector_recovery", "horizontal_forward_vector_bank");
+                "energy_locked_vector_recovery", "hold_turn_direction_until_forward_sector");
         applyAndLog(level, aircraft, snapshot, output, state, rawAngle,
                 predictedLeadAngle, closure, phase);
     }
@@ -387,16 +389,16 @@ public final class EnergyFighterReengagementAdapter {
                 target.getDeltaMovement().horizontalDistance() * 20.0 + 3.0);
     }
 
-    private static double recoveryHeadingError(State state, FlightSnapshot snapshot, Vec3 desired) {
+    private static double recoveryHeadingError(State state, FlightSnapshot snapshot,
+                                               Vec3 desired, double rawAngle) {
         double error = signedHorizontalAngle(snapshot.horizontalForward(), desired);
         if (state.recoveryTurnSign == 0.0 && Math.abs(error) > 1.0) {
             state.recoveryTurnSign = Math.copySign(1.0, error);
         }
-        if (Math.abs(error) >= 165.0 && state.recoveryTurnSign != 0.0) {
-            return state.recoveryTurnSign * 180.0;
-        }
-        if (Math.abs(error) >= 2.0 && Math.abs(error) <= 150.0) {
-            state.recoveryTurnSign = Math.copySign(1.0, error);
+        if (rawAngle > RECOVERY_DIRECTION_LOCK_RAW_ANGLE_DEG
+                && state.recoveryTurnSign != 0.0) {
+            return state.recoveryTurnSign
+                    * Math.max(RECOVERY_LOCK_MIN_ERROR_DEG, Math.abs(error));
         }
         return error;
     }
