@@ -1,4 +1,4 @@
-# Local validation request capture-entry-lag-1
+# Local validation request capture-entry-lag-2
 ref=b968462c8750f1909bc41d0d310447009c770431
 aircraft=warfare_wings:a6m
 gametest=true
