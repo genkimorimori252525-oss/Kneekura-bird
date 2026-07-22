@@ -22,6 +22,7 @@ public final class EnergyFighterPulloutAdapter {
     private static final double ACTIVATION_MAX_VERTICAL_SPEED_BPS = -20.0;
     private static final double ACTIVATION_MIN_PITCH_DEG = 70.0;
     private static final double ACTIVATION_MIN_AGL = 40.0;
+    private static final double MIN_REENGAGEMENT_START_AGL = 70.0;
     private static final int MIN_PULL_OUT_TICKS = 10;
     private static final int MAX_PULL_OUT_TICKS = 110;
     private static final double COMPLETE_MAX_ABS_PITCH_DEG = 18.0;
@@ -68,8 +69,7 @@ public final class EnergyFighterPulloutAdapter {
 
         if (state == null) {
             double pitch = Math.abs(Mth.wrapDegrees((float) snapshot.pitchDeg()));
-            if (!EnergyFighterReengagementAdapter.active(aircraft)
-                    || !AirCombatManeuverManager.active(aircraft)
+            if (!AirCombatManeuverManager.active(aircraft)
                     || snapshot.verticalSpeedBps() > ACTIVATION_MAX_VERTICAL_SPEED_BPS
                     || pitch < ACTIVATION_MIN_PITCH_DEG
                     || snapshot.altitudeAboveGround() < ACTIVATION_MIN_AGL) {
@@ -125,6 +125,21 @@ public final class EnergyFighterPulloutAdapter {
 
         state.ticks++;
         return true;
+    }
+
+    /**
+     * Prevents a new vertical re-entry from starting without enough terrain margin. An already
+     * active re-entry remains eligible so its own terrain and threat guards can finish cleanly.
+     */
+    public static boolean reengagementStartSafe(Entity aircraft) {
+        if (EnergyFighterReengagementAdapter.active(aircraft)) {
+            return true;
+        }
+        if (!ReflectiveAircraft.isAirplane(aircraft) || aircraft.onGround()) {
+            return true;
+        }
+        double agl = FlightSnapshot.capture(aircraft).altitudeAboveGround();
+        return !Double.isFinite(agl) || agl >= MIN_REENGAGEMENT_START_AGL;
     }
 
     private static Optional<Target> target(ServerLevel level, Entity aircraft) {
