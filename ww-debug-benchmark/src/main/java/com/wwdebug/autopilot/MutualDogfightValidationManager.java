@@ -163,6 +163,11 @@ final class MutualDogfightValidationManager {
                 .add(right.scale(2.0)).add(0.0, 2.0, 0.0);
         Vec3 opponentDirection = forward;
 
+        // Production manoeuvres choose complementary break/reposition sides by aircraft UUID order.
+        // Random spawn UUIDs therefore changed the entire qualification trajectory between runs.
+        // Give the disposable opponent the immediate ordered successor of the primary UUID so the
+        // side relation is stable while preserving distinct entity identities.
+        opponent.setUUID(orderedSuccessor(primary.getUUID()));
         opponent.setCustomName(Component.literal("AUTOPILOT TEST MUTUAL BLUE P47N"));
         opponent.setCustomNameVisible(true);
         opponent.setInvulnerable(true);
@@ -180,6 +185,7 @@ final class MutualDogfightValidationManager {
                     "mutual_dogfight_validation_setup_failed", "could_not_create_opponent_pilot", phase);
             return;
         }
+        opponentPilot.setUUID(orderedSuccessor(primaryPilot.getUUID()));
         opponentPilot.setNoAi(true);
         opponentPilot.setSilent(true);
         opponentPilot.setInvulnerable(true);
@@ -232,6 +238,7 @@ final class MutualDogfightValidationManager {
                         + ":opponent_uuid=" + opponent.getUUID()
                         + ":opponent_pilot_uuid=" + opponentPilot.getUUID()
                         + ":opponent_faction=blue"
+                        + ":uuid_order=" + primary.getUUID().compareTo(opponent.getUUID())
                         + ":initial_separation=" + round(primary.distanceTo(opponent))
                         + ":opponent_speed_bps=" + round(opponentSpeed),
                 phase);
@@ -317,6 +324,20 @@ final class MutualDogfightValidationManager {
             pilot.removeTag(factionTag);
             pilot.removeTag(hostileTag);
         }
+    }
+
+    private static UUID orderedSuccessor(UUID anchor) {
+        long most = anchor.getMostSignificantBits();
+        long least = anchor.getLeastSignificantBits();
+        if (least != Long.MAX_VALUE) {
+            return new UUID(most, least + 1L);
+        }
+        if (most != Long.MAX_VALUE) {
+            return new UUID(most + 1L, Long.MIN_VALUE);
+        }
+        // A random v4 UUID cannot realistically reach this signed maximum, but keep the method
+        // total and deterministic if a synthetic test ever supplies it.
+        return new UUID(Long.MIN_VALUE, Long.MIN_VALUE);
     }
 
     private static float yaw(Vec3 direction) {
