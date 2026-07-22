@@ -10,10 +10,12 @@ These instructions apply to every AI-assisted GitHub session in this repository.
 
 ## Mandatory time and scope limits
 
-- Stop an implementation loop after **20 minutes or 3 remote CI runs**, whichever happens first.
-- At the limit, report the current result, the exact failing acceptance condition, the best known commit, and the next single hypothesis. Do not keep tuning silently.
+- Stop an implementation loop after **60 minutes or 8 remote CI runs**, whichever happens first.
+- At **30 minutes or 4 remote CI runs**, pause for an internal checkpoint: compare against the best known commit, confirm that the current hypothesis is still materially different, and report progress to the owner before continuing.
+- At the final limit, report the current result, the exact failing acceptance condition, the best known commit, and the next single hypothesis. Do not keep tuning silently.
 - One commit should test one behavioral hypothesis.
-- If a proposed change is likely to exceed **5 files or 500 added/changed lines**, stop and split the design before implementation.
+- If a proposed change is likely to exceed **10 files or 800 added/changed lines**, stop and split the design before implementation.
+- Treat 10 files and 800 lines as hard ceilings, not targets. Prefer the smallest patch that can test the hypothesis.
 - If the same failure occurs twice, stop changing thresholds and revisit the design or test determinism.
 - If a previously passing metric regresses, return to the known-good commit before trying another behavior change.
 
@@ -37,6 +39,33 @@ Run checks in this order:
 5. Full regression matrix only after the target scenario passes.
 
 Do not use the expensive headless GameTest as the first diagnostic tool for every small threshold change. Add telemetry or deterministic assertions first when the cause is unclear.
+
+## Validation-harness integrity
+
+- Before attributing a targeted-scenario failure to aircraft control or combat behavior, prove that the harness reached its intended start, retained scenario ownership, emitted its completion event, performed cleanup, and released the surviving aircraft back to the base mission.
+- Whenever a combat window, retry allowance, or scenario duration is increased, audit every enclosing limit: GameTest timeout, global mission timeout, phase-specific timeout, opponent lifetime, cleanup time, and the return/landing/parking budget. The scenario window must leave enough time for all acceptance-tail work.
+- Check whether the ordinary validation mission continues advancing underneath scenario-specific control. If the scenario owns flight inputs, unrelated base phases such as turns, stall tests, return, or landing must be paused or shown to be explicitly compatible.
+- Treat missing completion events, zero aggregate counters despite nonzero periodic status telemetry, premature cleanup, or aborts in unrelated base-mission phases as validation-harness failures first—not as evidence for retuning behavior thresholds.
+- Reconstruct the exact tick order of scenario start, phase transitions, safety events, completion, cleanup, and terminal state before selecting the next behavioral hypothesis.
+- Add explicit telemetry or deterministic assertions for scenario start, ownership, completion, release, and remaining mission-time budget whenever those facts are not already observable.
+- Keep harness corrections isolated to test-only code. They must not weaken production firing gates, terrain avoidance, collision avoidance, player-control exclusion, or any acceptance criterion.
+
+## CI monitoring and owner reporting
+
+- CI polling must be bounded. Check an in-progress workflow only a small number of times, then return a visible status checkpoint instead of silently repeating sleep-and-poll cycles.
+- A workflow failure ends the waiting phase immediately. Switch to log and artifact analysis before starting another CI run.
+- Do not push a new commit merely to escape an in-progress or failed workflow. First record the exact result of the current commit.
+- Before the next behavioral hypothesis, report: current commit, build result, targeted scenario result, exact failing acceptance condition, preserved safety metrics, and the next single hypothesis.
+- If CI is still running when the interaction must pause, explicitly state that it remains in progress and identify the run being watched.
+- Never leave a tool call, polling message, or sleep operation as the final visible state of a work session. Close the session with a human-readable progress report.
+- Assistant execution does not continue in the background after a response turn ends or the owner sends a new message. Before a long wait, record the exact branch, commit, workflow run, and next action in the PR/Issue or handoff; on resumption, read that marker and continue rather than assuming the previous tool loop is still active.
+- GitHub email notifications and assistant-side CI monitoring are independent views of the same workflow. A failure email is not itself an assistant error; however, the assistant must still acknowledge and analyze that failure promptly.
+- If the owner reports receiving a GitHub Actions failure email, treat it as strong evidence that the run reached a terminal failure state. Fetch that run once to confirm, stop polling immediately, and move to logs and artifacts.
+- After a failure email or terminal CI result, do not issue another CI run until a human-readable checkpoint has been produced and the next materially different hypothesis has been identified.
+- Distinguish a workflow failure from a GitHub connector or network failure. Retry a connector/network read at most once; if it still fails, report the access failure instead of silently polling. A workflow failure should not be retried without code or a justified determinism check.
+- If new and previously runnable workflows fail before creating any steps or logs, check GitHub account usage or billing notifications before changing code. A 90% or 100% Actions-minutes email is an execution-capacity failure, not a code failure.
+- Once the included Actions minutes are exhausted, stop triggering GitHub-hosted runs. Preserve the unvalidated commit and PR, record the exact last validated telemetry, and continue only with an available local or self-hosted validation path. Do not generate no-op commits or repeated reruns because they cannot start a runner.
+- Never mark a PR ready or merge behavior changes while required checks are unexecuted because the Actions allowance is exhausted.
 
 ## Air-combat safety invariants
 
