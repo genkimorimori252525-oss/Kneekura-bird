@@ -4,178 +4,86 @@ Last updated: 2026-07-22 (Asia/Tokyo)
 
 ## Read first
 
-Follow `/AGENTS.md` before changing code. The hard session limits are 60 minutes, 8 remote CI attempts, 10 changed files, and 800 added/changed lines, with a mandatory checkpoint at 30 minutes or 4 CI attempts.
+Follow `/AGENTS.md` before changing code. GitHub-hosted Actions minutes are currently exhausted. Do not rerun hosted workflows, create no-op commits, mark unvalidated behavior ready, or merge required-check changes without an available execution path.
 
-## Repository state
+The selected replacement execution path is the owner's Windows 11 PC running an on-demand self-hosted GitHub Actions runner. The earlier Google Cloud plan is superseded and retained only as design history.
 
-- `main` contains merged PR #4 at commit `8a91e7e44d8050505cd3ec948a2ed3c263ec342c`.
-- PR #4 established doctrine-specific fighter combat, the neutral opposed opening, stale rear-threat release, fixed-gun rear-target rejection, and initial P-47N re-engagement safeguards.
-- The remaining acceptance gap is still `dogfight_mutual`: the A6M fires legitimately, but the P-47N has not fired in the same passing run.
+## Current validated combat baseline
 
-## Active focused PR
+- Focused Draft PR #8: `Convert P-47N crossing into an oblique lag-yoyo`.
+- PR branch: `agent/p47-oblique-lag-yoyo`.
+- Last inspected head: `f5f96130d2dbc5dcaf5a5950c8135dd5e2bb61ec`.
+- Normal benchmark build passed for that head.
+- Targeted `dogfight_mutual` physically ran and preserved telemetry, but verification failed.
+- A6M fire count: 4.
+- P-47N fire count: 0.
+- Minimum separation: 14.46 blocks.
+- Maximum separation: 192.72 blocks.
+- The disposable P-47N later entered an aborted stall-recovery state.
 
-- PR #6: `Add bounded P-47N re-engagement`
-- Draft branch: `agent/mutual-p47-counterattack-minimal`
-- Current head: `257d300feccf9087e5c1804bc035a37b2542dc5a`
-- Current scope: 3 changed files, 725 additions, 5 deletions.
-- Current files:
-  - `EnergyFighterReengagementAdapter.java`
-  - `EnergyFighterForwardAlignmentAdapter.java`
-  - `VehicleEntityBenchmarkMixin.java`
-- Normal benchmark build and deterministic simulation pass.
-- Keep PR #6 Draft. Do not merge until both aircraft fire in one run and the result is repeated for stability.
+Do not merge PR #8. Reciprocal legitimate firing has not passed or repeated.
 
-The branch was intentionally returned to `257d300f` after the 8-attempt session. Later experiment commits and workflow artifacts remain available by SHA/run ID, but they are not the recommended coding baseline.
+## Validation-harness failure discovered after PR #8
 
-## Current best focused candidate
+Commit `f5f96130` extended the reciprocal combat window from 1,000 to 2,000 ticks. Preserved telemetry proved that the ordinary validation mission continued advancing underneath combat control:
 
-Commit: `257d300feccf9087e5c1804bc035a37b2542dc5a`
+- A6M advanced through normal turn phases into `STALL_SETUP`, then aborted before scene completion.
+- P-47N advanced into `STALL_ENTRY` and `STALL_RECOVERY`, then aborted with ground contact.
+- The reciprocal scene reached only age 1,880 ticks and never emitted its completion event.
+- The verifier therefore reported zero aggregate tracking/combat counters despite nonzero periodic telemetry.
 
-Observed targeted result:
+This is a validation-harness self-interference bug, not evidence for further combat-threshold tuning.
 
-- A6M fire count: 7
-- P-47N fire count: 0
-- minimum separation: 11.79 blocks
-- maximum separation: 158.44 blocks
-- no ground contact for either aircraft
-- primary mission returned to a passing parked result
-- only behavioral acceptance failure: P-47N produced no firing event
+Repository-wide `/AGENTS.md` now requires harness start, ownership, completion, cleanup, release, and complete time-budget validation before aircraft behavior is retuned.
 
-This candidate adaptively hands off the crossing near the measured 83–90 degree sector. It is the smallest stable point from the latest session, even though the ordinary energy-fighter doctrine then chooses `REPOSITION` and loses the geometry.
+## Parked harness-fix branch
 
-Useful artifact:
+- Branch: `agent/mutual-dogfight-mission-hold`.
+- Based on PR #8 head `f5f96130`.
+- Adapter commit: `715cea06d08f63a53e415aeff8cb38db265d8dcc`.
+- Integration commit: `a59d9dc4ce84d92845328fbd0ef78e40b360fd59`.
+- Repository-rule sync commit: `09ee7cf3a276a21d7a4c3d4b2d26ba5c4c2b851d`.
+- Handoff commit: `c85b0bd53a8c8f3fb8b2633f15b43c857471dea4`.
+- No pull request was opened and no GitHub-hosted workflow was triggered.
 
-- workflow run: `29855959212`
-- results artifact: `8505326040`
+The test-only `MutualDogfightMissionHoldAdapter` activates only for `dogfight_mutual`, exact reciprocal test tags, and mob pilots. It holds the background `AutopilotSession` in neutral cruise while combat owns flight input, then releases automatically when combat tags are cleared. It does not weaken combat input, weapon gates, terrain avoidance, collision avoidance, player-control exclusion, opening geometry, or acceptance criteria.
 
-## Latest session: eight targeted CI attempts
+Static field inspection and a Java 17 stubbed syntax/type-shape compilation passed. This is not equivalent to the real Forge build or GameTest; the branch remains unvalidated.
 
-### Attempt 1 — adaptive crossing handoff
+## Windows self-hosted validation infrastructure
 
-- commit: `257d300feccf9087e5c1804bc035a37b2542dc5a`
-- adaptive handoff activated near the broadside minimum
-- A6M fired 7 times; P-47N fired 0 times
-- ordinary energy doctrine selected `REPOSITION` and the raw target angle worsened
-- retained as the current branch head because it was small, safe, and stable
+- Infrastructure branch: `agent/windows-self-hosted-validation`.
+- Workflow: `.github/workflows/ww-local-self-hosted-validation.yml`.
+- Setup guide: `docs/WINDOWS_SELF_HOSTED_VALIDATION.md`.
+- Workflow commit: `edb8b2686f12be6d303cab99123a1ab4858e4bc5`.
+- Guide commit: `a0cd6c61ac11ee293855bc5ea92cef4ec20b670b`.
 
-### Attempt 2 — same-direction lead pursuit
+The workflow is manual-only and restricted to GitHub actor `genkimorimori252525-oss`. It requires a Windows x64 self-hosted runner with the dedicated label `ww-local`. It checks out a requested same-repository ref with persisted credentials disabled, sets up Java 17, Python, and Gradle 8.8, runs the normal build and deterministic simulation, optionally runs `dogfight_mutual`, verifies the result, renders diagnostics, and uploads artifacts.
 
-- commit: `0e68272dedc1c414c1fc6c45411eaefe0ae5449e`
-- a custom lead approach continued the crossing turn
-- lead/raw angle worsened from roughly 89 degrees toward 132 degrees
-- conclusion: following the same horizontal circle after the local minimum does not convert the geometry
+The Windows workflow does not shut down, restart, sleep, or otherwise control the owner's PC. The runner should initially be started manually with `run.cmd` only for a requested validation and stopped with `Ctrl+C` afterward.
 
-### Attempt 3 — reverse horizontal turn
+The workflow exists only on a non-PR infrastructure branch. It will not be visible for normal dispatch until this reviewed infrastructure change reaches the default branch. Do not open a PR or merge it until the local runner is registered and the workflow has been reviewed for personal-PC safety.
 
-- commit: `63b89acee3484fdb7f963c8a65944d1326ea02bd`
-- the controller reversed the turn at the local minimum
-- raw target angle worsened from roughly 81 degrees toward 170 degrees
-- conclusion: a simple left/right reversal is not the missing behavior
+## Superseded Google Cloud plan
 
-### Attempt 4 — late high-yoyo capture
+- Historical branch: `agent/gcp-self-hosted-validation`.
+- Do not merge or run its GCP-specific workflow on the owner's PC.
+- In particular, its final VM-shutdown command is appropriate only to a disposable cloud VM, never a personal machine.
 
-- commit: `eec52a6f40fe7fa3207f10872d4d27d5482391ce`
-- high-yoyo began around raw angle 99.5 degrees and closure 8.6 bps
-- closure could be reduced, but turn authority fell and best angle stopped near 95 degrees
-- conclusion: the maneuver started too late and coupled speed loss with insufficient turning
+## Required next steps
 
-### Attempt 5 — earlier capture
-
-- commit: `cf9664fb97f4cca121e7c09afd746f4cf2423d7d`
-- capture began near raw angle 108.8 degrees and closure 3.2 bps
-- a start/release threshold contradiction caused the energy-bleed phase to be skipped
-- best angle reached about 94.8 degrees before defensive priority returned
-
-### Attempt 6 — sustained high-yoyo
-
-- commit: `78902005ec2fe29a479f3784ea8fd3d0682406ab`
-- corrected the threshold contradiction
-- closure was reduced from about 13.4 bps to 2.3 bps
-- speed/turn protection then reduced yaw authority; best angle was about 92.3 degrees and later worsened
-
-### Attempt 7 — powered high-yoyo
-
-- commit: `1ee8f962f87d4a50520f01a2d5d12653e00f4ce0`
-- preserved engine power and yaw rate during the climb
-- best raw target angle reached 79.83 degrees
-- closure still increased to roughly 17.4 bps while the P-47N remained in the same horizontal turning circle
-- the aircraft passed the useful geometry without firing
-- A6M fired 3 times; P-47N fired 0 times
-- minimum separation 10.86 blocks; maximum separation 158.44 blocks; no ground contact
-
-Useful artifact:
-
-- workflow run: `29859047267`
-- results artifact: `8506580265`
-
-### Attempt 8 — vertical zoom and lead re-entry
-
-- experiment commit: `f35cca4436e6bf73351e8f471862f309864068fc`
-- the controller left the horizontal crossing circle in a short vertical zoom
-- closure dropped from 14.35 bps to -2.0 bps
-- raw target angle regressed from 86.91 degrees to 121.52 degrees during the zoom
-- the later lead re-entry improved only to 108.96 degrees before timing out
-- A6M fired 6 times; P-47N fired 0 times
-- minimum separation 11.66 blocks; maximum separation 158.44 blocks
-- no ground contact; primary mission returned and parked
-- only verifier error remained `P-47N never fired at the A6M`
-
-Useful artifact:
-
-- workflow run: `29859888869`
-- results artifact: `8506900520`
-
-## Root cause now established
-
-This is not primarily a threshold-selection problem.
-
-- Horizontal pursuit can preserve bearing progress, but it cannot remove closure before overshoot.
-- Reversing the horizontal turn loses the geometry immediately.
-- Continuous high-yoyo control remains inside the A6M turning circle; powered variants preserve turn rate but closure still grows.
-- A wings-level vertical zoom removes closure successfully, but discards too much bearing and leaves the target behind the usable attack sector.
-
-The missing behavior is a coupled three-dimensional trajectory that controls **closure and bearing together**. It should retain the target near the measured 80–90 degree sector while converting excess horizontal closure into altitude, then re-enter with a genuine predicted lead solution.
-
-## Mandatory next workflow
-
-Do not immediately add another production controller and do not start with another remote GameTest.
-
-1. Download the preserved attempt 7 and attempt 8 result artifacts.
-2. Build a deterministic telemetry-replay or geometry-analysis tool under `ww-debug-benchmark/tools/`.
-3. Feed it the P-47N and A6M JSONL frames around the crossing minimum.
-4. Plot or calculate, tick by tick:
-   - relative position and velocity;
-   - raw target angle and predicted lead angle;
-   - closure;
-   - horizontal and vertical speed;
-   - yaw rate, pitch rate, roll, and altitude difference.
-5. Use the replay to compare an **oblique lag-yoyo** against the failed controls. The candidate should:
-   - keep raw target angle approximately in the 80–90 degree sector;
-   - drive closure toward zero;
-   - avoid joining the A6M horizontal turning circle;
-   - retain sufficient speed and yaw authority;
-   - hand off only when predicted lead angle is inside a real attack sector.
-6. Run static/deterministic checks first. Use one targeted remote GameTest only after the replay shows simultaneous improvement in closure and bearing.
-
-Do not resume blind threshold tuning. If the replay cannot produce a plausible coupled trajectory, stop and reconsider the aircraft control model rather than adding another adapter layer.
-
-## Closed experiment directions
-
-- Do not change the neutral opening offset. Lateral 75 was unsafe and lateral 110 caused excessive separation; retain the merged 55-block opening.
-- Do not bypass collision avoidance.
-- Do not weaken the real firing gates.
-- Do not retry simple same-turn pursuit, simple opposite-turn pursuit, or wings-level vertical zoom as standalone fixes.
-- Do not append experiments to oversized PR #5.
-
-## Oversized research PR
-
-- PR #5, `Recover energy fighters from stale defensive extensions`, remains an open Draft research branch: `agent/energy-fighter-counterattack-recovery`.
-- It grew to roughly 40 commits, 12 changed files, and more than 2,000 additions.
-- Use it only for telemetry and comparison history.
+1. On the owner's Windows PC, create a dedicated runner directory containing no personal files.
+2. In repository settings, register a Windows x64 self-hosted runner named `ww-local-runner` with additional label `ww-local`.
+3. Do not install it as a Windows service initially; run it manually in the foreground with `run.cmd`.
+4. Review and merge only the Windows infrastructure workflow to the default branch.
+5. Start the runner and dispatch one build-only validation first with `run_gametest=false`.
+6. If the build and deterministic simulation pass, dispatch exactly one `dogfight_mutual` run against `agent/mutual-dogfight-mission-hold`.
+7. Confirm both aircraft remain out of unrelated turn/stall phases, the scene emits completion and cleanup, and the A6M resumes the normal mission and reaches `PARKED`.
+8. Only after the harness is proven valid may the actual remaining P-47N firing behavior be changed.
 
 ## Safety and acceptance criteria
 
-A candidate is not complete until one run satisfies all of the following:
+A candidate is not complete until one run satisfies all of the following and the result is repeated:
 
 - neutral opposed opening; no initial rear free shot;
 - A6M fires at least once through the real weapon manager;
@@ -186,14 +94,10 @@ A candidate is not complete until one run satisfies all of the following:
 - minimum separation at least 8 blocks;
 - maximum separation at most 480 blocks;
 - P-47N remains inside the useful simulation area;
-- primary aircraft resumes the normal mission and returns/lands/parks;
-- the targeted result is repeated for stability before the full regression matrix.
+- after combat cleanup, the primary aircraft resumes the normal mission and returns, lands, and parks.
 
-## Useful references
+## Research history
 
-- merged baseline: `8a91e7e44d8050505cd3ec948a2ed3c263ec342c`
-- active focused PR: `#6`
-- active branch: `agent/mutual-p47-counterattack-minimal`
-- recommended current head: `257d300feccf9087e5c1804bc035a37b2542dc5a`
-- research PR: `#5`
-- research branch: `agent/energy-fighter-counterattack-recovery`
+- PR #5 remains oversized research only. Do not append new experiments.
+- PR #6 is superseded research history.
+- PR #8 remains the current combat-controller evidence branch but must not be merged.
