@@ -7,7 +7,6 @@ import com.wwdebug.autopilot.AutopilotWheelLockAdapter;
 import com.wwdebug.autopilot.CombatAwarenessManager;
 import com.wwdebug.autopilot.CombatWeaponManager;
 import com.wwdebug.autopilot.DefensiveAirCombatManager;
-import com.wwdebug.autopilot.EnergyFighterForwardAlignmentAdapter;
 import com.wwdebug.autopilot.EnergyFighterReengagementAdapter;
 import com.wwdebug.autopilot.FormationFlightManager;
 import com.wwdebug.benchmark.BenchmarkManager;
@@ -30,13 +29,11 @@ public abstract class VehicleEntityBenchmarkMixin {
         // Formation collision avoidance has already been applied at this point. Do not let combat
         // overwrite it while the shared CPA probe is dangerous.
         if (!AirspaceSafetyProbe.collisionRisk(aircraft)) {
-            // Preserve a short forward solution before defensive control can replace it. If that
-            // window is absent, the bounded extension recovery gets the next opportunity to own the
-            // tick. All ordinary doctrine control remains unchanged outside those narrow windows.
-            boolean forwardAlignment = EnergyFighterForwardAlignmentAdapter.applyControl(aircraft);
-            boolean reengagementControl = !forwardAlignment
-                    && EnergyFighterReengagementAdapter.applyControl(aircraft);
-            if (!forwardAlignment && !reengagementControl) {
+            // The bounded energy-fighter controller owns crossing, oblique lag, predicted-lead
+            // pursuit, and final alignment as one deterministic control layer.
+            boolean reengagementControl =
+                    EnergyFighterReengagementAdapter.applyControl(aircraft);
+            if (!reengagementControl) {
                 DefensiveAirCombatManager.applyControl(aircraft);
                 if (!DefensiveAirCombatManager.active(aircraft)) {
                     AirCombatManeuverManager.applyControl(aircraft);
