@@ -8,6 +8,7 @@ import com.wwdebug.autopilot.CombatAwarenessManager;
 import com.wwdebug.autopilot.CombatWeaponManager;
 import com.wwdebug.autopilot.DefensiveAirCombatManager;
 import com.wwdebug.autopilot.EnergyFighterReengagementAdapter;
+import com.wwdebug.autopilot.EnergyFighterWingoverVectorAdapter;
 import com.wwdebug.autopilot.FormationFlightManager;
 import com.wwdebug.benchmark.BenchmarkManager;
 import net.minecraft.world.entity.Entity;
@@ -29,11 +30,14 @@ public abstract class VehicleEntityBenchmarkMixin {
         // Formation collision avoidance has already been applied at this point. Do not let combat
         // overwrite it while the shared CPA probe is dangerous.
         if (!AirspaceSafetyProbe.collisionRisk(aircraft)) {
-            // The bounded energy-fighter controller owns crossing, oblique lag, predicted-lead
-            // pursuit, and final alignment as one deterministic control layer.
+            // The bounded energy-fighter controller owns crossing, wingover, recovery and final
+            // alignment. During WINGOVER only, replace Euler-yaw steering with the actual forward
+            // vector after the aircraft passes through the vertical.
             boolean reengagementControl =
                     EnergyFighterReengagementAdapter.applyControl(aircraft);
-            if (!reengagementControl) {
+            if (reengagementControl) {
+                EnergyFighterWingoverVectorAdapter.applyControl(aircraft);
+            } else {
                 DefensiveAirCombatManager.applyControl(aircraft);
                 if (!DefensiveAirCombatManager.active(aircraft)) {
                     AirCombatManeuverManager.applyControl(aircraft);
