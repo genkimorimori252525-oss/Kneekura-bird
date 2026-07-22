@@ -53,6 +53,9 @@ Do not use the expensive headless GameTest as the first diagnostic tool for ever
 - If the owner reports receiving a GitHub Actions failure email, treat it as strong evidence that the run reached a terminal failure state. Fetch that run once to confirm, stop polling immediately, and move to logs and artifacts.
 - After a failure email or terminal CI result, do not issue another CI run until a human-readable checkpoint has been produced and the next materially different hypothesis has been identified.
 - Distinguish a workflow failure from a GitHub connector or network failure. Retry a connector/network read at most once; if it still fails, report the access failure instead of silently polling. A workflow failure should not be retried without code or a justified determinism check.
+- If new and previously runnable workflows fail before creating any steps or logs, check GitHub account usage or billing notifications before changing code. A 90% or 100% Actions-minutes email is an execution-capacity failure, not a code failure.
+- Once the included Actions minutes are exhausted, stop triggering GitHub-hosted runs. Preserve the unvalidated commit and PR, record the exact last validated telemetry, and continue only with an available local or self-hosted validation path. Do not generate no-op commits or repeated reruns because they cannot start a runner.
+- Never mark a PR ready or merge behavior changes while required checks are unexecuted because the Actions allowance is exhausted.
 
 ## Air-combat safety invariants
 
