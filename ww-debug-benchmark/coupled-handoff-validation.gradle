@@ -1,12 +1,14 @@
 import java.util.regex.Pattern
 import org.gradle.api.tasks.compile.JavaCompile
 
-// Temporary experiment harness for one behavioral hypothesis. The repository source remains
-// unchanged; fresh validation workspaces apply this exact, checked replacement before compilation.
+// Temporary experiment harness for one behavioral hypothesis. The repository Java sources remain
+// unchanged; a fresh validation workspace applies these exact checked replacements before compile.
 tasks.withType(JavaCompile).configureEach {
     doFirst {
-        File source = file('src/main/java/com/wwdebug/autopilot/EnergyFighterApexYawAdapter.java')
-        String text = source.getText('UTF-8').replace('\r\n', '\n')
+        File adapterSource = file('src/main/java/com/wwdebug/autopilot/EnergyFighterApexYawAdapter.java')
+        File combatSource = file('src/main/java/com/wwdebug/autopilot/AirCombatManeuverManager.java')
+        String adapter = adapterSource.getText('UTF-8').replace('\r\n', '\n')
+        String combat = combatSource.getText('UTF-8').replace('\r\n', '\n')
 
         String oldConstants = [
                 '    private static final double ATTACK_MAX_RAW_ANGLE_DEG = 45.0;',
@@ -47,23 +49,61 @@ tasks.withType(JavaCompile).configureEach {
                 '            if (doctrineCaptureSector) {',
                 '                transition(level, aircraft, session.get().phase(), state, snapshot,',
                 '                        distance, rawAngle, leadAngle, closure, threat.aimAngleDeg(),',
-                '                        Stage.DOCTRINE, "capture_handoff_to_doctrine");'
+                '                        Stage.DOCTRINE, "capture_handoff_to_attack_approach");',
+                '                AirCombatManeuverManager.handoffToAttackApproach(',
+                '                        aircraft, target.pilotUuid());'
         ].join('\n')
 
-        if (text.contains('DOCTRINE_CAPTURE_MAX_RAW_ANGLE_DEG')
-                && text.contains('capture_handoff_to_doctrine')) {
-            logger.lifecycle('Coupled-climb doctrine-handoff experiment already applied in this workspace.')
+        String oldCurrentAim = [
+                '    public static Optional<AimSolution> currentAim(UUID aircraftUuid, UUID targetUuid) {',
+                '        AimSolution solution = AIM_SOLUTIONS.get(aircraftUuid);',
+                '        return solution != null && solution.targetUuid().equals(targetUuid)',
+                '                ? Optional.of(solution) : Optional.empty();',
+                '    }',
+                '',
+                '    private static AirCombatAction selectAction(State state, CombatContext context,'
+        ].join('\n')
+        String newCurrentAim = [
+                '    public static Optional<AimSolution> currentAim(UUID aircraftUuid, UUID targetUuid) {',
+                '        AimSolution solution = AIM_SOLUTIONS.get(aircraftUuid);',
+                '        return solution != null && solution.targetUuid().equals(targetUuid)',
+                '                ? Optional.of(solution) : Optional.empty();',
+                '    }',
+                '',
+                '    public static void handoffToAttackApproach(Entity aircraft, UUID targetUuid) {',
+                '        State state = STATES.computeIfAbsent(aircraft.getUUID(), ignored -> new State());',
+                '        state.action = AirCombatAction.ATTACK_APPROACH;',
+                '        state.targetUuid = targetUuid;',
+                '        state.actionTicks = 0;',
+                '        state.evaluationTicks = EVALUATION_INTERVAL_TICKS;',
+                '        state.statusTicks = 0;',
+                '        state.cooldowns.remove(AirCombatAction.ATTACK_APPROACH);',
+                '        AIM_SOLUTIONS.remove(aircraft.getUUID());',
+                '    }',
+                '',
+                '    private static AirCombatAction selectAction(State state, CombatContext context,'
+        ].join('\n')
+
+        boolean fullyApplied = adapter.contains('DOCTRINE_CAPTURE_MAX_RAW_ANGLE_DEG')
+                && adapter.contains('capture_handoff_to_attack_approach')
+                && combat.contains('handoffToAttackApproach')
+        if (fullyApplied) {
+            logger.lifecycle('Coupled-climb attack-approach handoff experiment already applied in this workspace.')
             return
         }
 
-        int constantsCount = text.split(Pattern.quote(oldConstants), -1).length - 1
-        int captureCount = text.split(Pattern.quote(oldCapture), -1).length - 1
-        if (constantsCount != 1 || captureCount != 1) {
-            throw new GradleException("Refusing capture-handoff experiment: constants=${constantsCount}, capture=${captureCount}")
+        int constantsCount = adapter.split(Pattern.quote(oldConstants), -1).length - 1
+        int captureCount = adapter.split(Pattern.quote(oldCapture), -1).length - 1
+        int currentAimCount = combat.split(Pattern.quote(oldCurrentAim), -1).length - 1
+        if (constantsCount != 1 || captureCount != 1 || currentAimCount != 1) {
+            throw new GradleException('Refusing attack-approach handoff experiment: '
+                    + "constants=${constantsCount}, capture=${captureCount}, manager=${currentAimCount}")
         }
 
-        text = text.replace(oldConstants, newConstants).replace(oldCapture, newCapture)
-        source.setText(text, 'UTF-8')
-        logger.lifecycle('Applied exact safe-capture doctrine handoff to validation workspace.')
+        adapter = adapter.replace(oldConstants, newConstants).replace(oldCapture, newCapture)
+        combat = combat.replace(oldCurrentAim, newCurrentAim)
+        adapterSource.setText(adapter, 'UTF-8')
+        combatSource.setText(combat, 'UTF-8')
+        logger.lifecycle('Applied exact safe-capture ATTACK_APPROACH handoff to validation workspace.')
     }
 }
