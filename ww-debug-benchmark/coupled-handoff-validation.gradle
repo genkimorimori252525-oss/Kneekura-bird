@@ -1,0 +1,69 @@
+import java.util.regex.Pattern
+import org.gradle.api.tasks.compile.JavaCompile
+
+// Temporary experiment harness for one behavioral hypothesis. The repository source remains
+// unchanged; fresh validation workspaces apply this exact, checked replacement before compilation.
+tasks.withType(JavaCompile).configureEach {
+    doFirst {
+        File source = file('src/main/java/com/wwdebug/autopilot/EnergyFighterApexYawAdapter.java')
+        String text = source.getText('UTF-8').replace('\r\n', '\n')
+
+        String oldConstants = [
+                '    private static final double ATTACK_MAX_RAW_ANGLE_DEG = 45.0;',
+                '    private static final double ATTACK_MAX_LEAD_ANGLE_DEG = 12.0;'
+        ].join('\n')
+        String newConstants = [
+                '    private static final double DOCTRINE_CAPTURE_MAX_RAW_ANGLE_DEG = 75.0;',
+                '    private static final double DOCTRINE_CAPTURE_MAX_LEAD_ANGLE_DEG = 80.0;',
+                '    private static final double DOCTRINE_CAPTURE_MIN_DISTANCE = 50.0;',
+                '    private static final double DOCTRINE_CAPTURE_MAX_DISTANCE = 125.0;',
+                '    private static final double DOCTRINE_CAPTURE_MIN_CLOSURE_BPS = -12.0;',
+                '    private static final double DOCTRINE_CAPTURE_MAX_CLOSURE_BPS = 28.0;',
+                '',
+                '    private static final double ATTACK_MAX_RAW_ANGLE_DEG = 45.0;',
+                '    private static final double ATTACK_MAX_LEAD_ANGLE_DEG = 12.0;'
+        ].join('\n')
+
+        String oldCapture = [
+                '            boolean attackSector = target.lineOfSight()',
+                '                    && rawAngle <= ATTACK_MAX_RAW_ANGLE_DEG',
+                '                    && leadAngle <= ATTACK_MAX_LEAD_ANGLE_DEG',
+                '                    && distance >= ATTACK_MIN_DISTANCE && distance <= ATTACK_MAX_DISTANCE',
+                '                    && closure >= ATTACK_MIN_CLOSURE_BPS',
+                '                    && closure <= ATTACK_MAX_CLOSURE_BPS;',
+                '            if (attackSector) {',
+                '                transition(level, aircraft, session.get().phase(), state, snapshot,',
+                '                        distance, rawAngle, leadAngle, closure, threat.aimAngleDeg(),',
+                '                        Stage.DOCTRINE, "attack_sector_reached");'
+        ].join('\n')
+        String newCapture = [
+                '            boolean doctrineCaptureSector = target.lineOfSight()',
+                '                    && rawAngle <= DOCTRINE_CAPTURE_MAX_RAW_ANGLE_DEG',
+                '                    && leadAngle <= DOCTRINE_CAPTURE_MAX_LEAD_ANGLE_DEG',
+                '                    && distance >= DOCTRINE_CAPTURE_MIN_DISTANCE',
+                '                    && distance <= DOCTRINE_CAPTURE_MAX_DISTANCE',
+                '                    && closure >= DOCTRINE_CAPTURE_MIN_CLOSURE_BPS',
+                '                    && closure <= DOCTRINE_CAPTURE_MAX_CLOSURE_BPS;',
+                '            if (doctrineCaptureSector) {',
+                '                transition(level, aircraft, session.get().phase(), state, snapshot,',
+                '                        distance, rawAngle, leadAngle, closure, threat.aimAngleDeg(),',
+                '                        Stage.DOCTRINE, "capture_handoff_to_doctrine");'
+        ].join('\n')
+
+        if (text.contains('DOCTRINE_CAPTURE_MAX_RAW_ANGLE_DEG')
+                && text.contains('capture_handoff_to_doctrine')) {
+            logger.lifecycle('Coupled-climb doctrine-handoff experiment already applied in this workspace.')
+            return
+        }
+
+        int constantsCount = text.split(Pattern.quote(oldConstants), -1).length - 1
+        int captureCount = text.split(Pattern.quote(oldCapture), -1).length - 1
+        if (constantsCount != 1 || captureCount != 1) {
+            throw new GradleException("Refusing capture-handoff experiment: constants=${constantsCount}, capture=${captureCount}")
+        }
+
+        text = text.replace(oldConstants, newConstants).replace(oldCapture, newCapture)
+        source.setText(text, 'UTF-8')
+        logger.lifecycle('Applied exact safe-capture doctrine handoff to validation workspace.')
+    }
+}
