@@ -15,18 +15,24 @@ tasks.withType(JavaCompile).configureEach {
                 '    private static final double ATTACK_MAX_LEAD_ANGLE_DEG = 12.0;'
         ].join('\n')
         String newConstants = [
-                '    private static final double DOCTRINE_CAPTURE_MAX_RAW_ANGLE_DEG = 75.0;',
-                '    private static final double DOCTRINE_CAPTURE_MAX_LEAD_ANGLE_DEG = 80.0;',
-                '    private static final double DOCTRINE_CAPTURE_MIN_DISTANCE = 50.0;',
-                '    private static final double DOCTRINE_CAPTURE_MAX_DISTANCE = 125.0;',
-                '    private static final double DOCTRINE_CAPTURE_MIN_CLOSURE_BPS = -12.0;',
-                '    private static final double DOCTRINE_CAPTURE_MAX_CLOSURE_BPS = 28.0;',
+                '    private static final double CAPTURE_IMPROVEMENT_EPSILON_DEG = 0.20;',
+                '    private static final double CAPTURE_MAX_REGRESSION_DEG = 3.0;',
+                '    private static final double CAPTURE_MAX_LEAD_REGRESSION_DEG = 4.0;',
+                '    private static final double CAPTURE_USEFUL_MAX_RAW_ANGLE_DEG = 62.0;',
+                '    private static final double CAPTURE_USEFUL_MAX_LEAD_ANGLE_DEG = 70.0;',
+                '    private static final double CAPTURE_HANDOFF_MIN_DISTANCE = 42.0;',
+                '    private static final double CAPTURE_HANDOFF_MAX_DISTANCE = 125.0;',
+                '    private static final double CAPTURE_HANDOFF_MIN_CLOSURE_BPS = -6.0;',
+                '    private static final double CAPTURE_HANDOFF_MAX_CLOSURE_BPS = 28.0;',
+                '    private static final int CAPTURE_MIN_HANDOFF_TICKS = 24;',
+                '    private static final int CAPTURE_STALL_TICKS = 4;',
                 '',
                 '    private static final double ATTACK_MAX_RAW_ANGLE_DEG = 45.0;',
                 '    private static final double ATTACK_MAX_LEAD_ANGLE_DEG = 12.0;'
         ].join('\n')
 
         String oldCapture = [
+                '        if (state.stage == Stage.CAPTURE) {',
                 '            boolean attackSector = target.lineOfSight()',
                 '                    && rawAngle <= ATTACK_MAX_RAW_ANGLE_DEG',
                 '                    && leadAngle <= ATTACK_MAX_LEAD_ANGLE_DEG',
@@ -36,22 +42,80 @@ tasks.withType(JavaCompile).configureEach {
                 '            if (attackSector) {',
                 '                transition(level, aircraft, session.get().phase(), state, snapshot,',
                 '                        distance, rawAngle, leadAngle, closure, threat.aimAngleDeg(),',
-                '                        Stage.DOCTRINE, "attack_sector_reached");'
+                '                        Stage.DOCTRINE, "attack_sector_reached");',
+                '            } else if (state.stageTicks >= MAX_CAPTURE_TICKS || distance > 190.0) {',
+                '                finish(level, aircraft, session.get().phase(), "capture_timeout", true);',
+                '                return false;',
+                '            }',
+                '        }'
         ].join('\n')
         String newCapture = [
-                '            boolean doctrineCaptureSector = target.lineOfSight()',
-                '                    && rawAngle <= DOCTRINE_CAPTURE_MAX_RAW_ANGLE_DEG',
-                '                    && leadAngle <= DOCTRINE_CAPTURE_MAX_LEAD_ANGLE_DEG',
-                '                    && distance >= DOCTRINE_CAPTURE_MIN_DISTANCE',
-                '                    && distance <= DOCTRINE_CAPTURE_MAX_DISTANCE',
-                '                    && closure >= DOCTRINE_CAPTURE_MIN_CLOSURE_BPS',
-                '                    && closure <= DOCTRINE_CAPTURE_MAX_CLOSURE_BPS;',
-                '            if (doctrineCaptureSector) {',
+                '        if (state.stage == Stage.CAPTURE) {',
+                '            if (rawAngle + CAPTURE_IMPROVEMENT_EPSILON_DEG',
+                '                    < state.bestCaptureRawAngle) {',
+                '                state.bestCaptureRawAngle = rawAngle;',
+                '                state.bestCaptureLeadAngle = leadAngle;',
+                '                state.captureStalledTicks = 0;',
+                '            } else if (state.stageTicks >= CAPTURE_MIN_HANDOFF_TICKS',
+                '                    && rawAngle <= state.bestCaptureRawAngle',
+                '                    + CAPTURE_MAX_REGRESSION_DEG) {',
+                '                state.captureStalledTicks++;',
+                '            } else {',
+                '                state.captureStalledTicks = 0;',
+                '            }',
+                '',
+                '            boolean localMinimumCapture = target.lineOfSight()',
+                '                    && state.stageTicks >= CAPTURE_MIN_HANDOFF_TICKS',
+                '                    && state.captureStalledTicks >= CAPTURE_STALL_TICKS',
+                '                    && state.bestCaptureRawAngle',
+                '                    <= CAPTURE_USEFUL_MAX_RAW_ANGLE_DEG',
+                '                    && state.bestCaptureLeadAngle',
+                '                    <= CAPTURE_USEFUL_MAX_LEAD_ANGLE_DEG',
+                '                    && rawAngle <= state.bestCaptureRawAngle',
+                '                    + CAPTURE_MAX_REGRESSION_DEG',
+                '                    && leadAngle <= state.bestCaptureLeadAngle',
+                '                    + CAPTURE_MAX_LEAD_REGRESSION_DEG',
+                '                    && distance >= CAPTURE_HANDOFF_MIN_DISTANCE',
+                '                    && distance <= CAPTURE_HANDOFF_MAX_DISTANCE',
+                '                    && closure >= CAPTURE_HANDOFF_MIN_CLOSURE_BPS',
+                '                    && closure <= CAPTURE_HANDOFF_MAX_CLOSURE_BPS;',
+                '            if (localMinimumCapture) {',
                 '                transition(level, aircraft, session.get().phase(), state, snapshot,',
                 '                        distance, rawAngle, leadAngle, closure, threat.aimAngleDeg(),',
-                '                        Stage.DOCTRINE, "capture_handoff_to_attack_approach");',
+                '                        Stage.DOCTRINE, "capture_local_minimum_handoff");',
                 '                AirCombatManeuverManager.handoffToAttackApproach(',
-                '                        aircraft, target.pilotUuid());'
+                '                        aircraft, target.pilotUuid());',
+                '            } else if (state.stageTicks >= MAX_CAPTURE_TICKS || distance > 190.0) {',
+                '                finish(level, aircraft, session.get().phase(), "capture_timeout", true);',
+                '                return false;',
+                '            }',
+                '        }'
+        ].join('\n')
+
+        String oldDescriptionTail = [
+                '                + ":turn_sign=" + state.turnSign',
+                '                + ":max_yaw_change=" + round(state.maxYawChangeDeg);'
+        ].join('\n')
+        String newDescriptionTail = [
+                '                + ":turn_sign=" + state.turnSign',
+                '                + ":max_yaw_change=" + round(state.maxYawChangeDeg)',
+                '                + ":best_capture_raw_angle=" + round(state.bestCaptureRawAngle)',
+                '                + ":best_capture_lead_angle=" + round(state.bestCaptureLeadAngle)',
+                '                + ":capture_stalled_ticks=" + state.captureStalledTicks;'
+        ].join('\n')
+
+        String oldStateFields = [
+                '        private double lastYawDeg;',
+                '        private double lastPitchDeg;',
+                '        private int totalTicks;'
+        ].join('\n')
+        String newStateFields = [
+                '        private double lastYawDeg;',
+                '        private double lastPitchDeg;',
+                '        private double bestCaptureRawAngle = Double.POSITIVE_INFINITY;',
+                '        private double bestCaptureLeadAngle = Double.POSITIVE_INFINITY;',
+                '        private int captureStalledTicks;',
+                '        private int totalTicks;'
         ].join('\n')
 
         String oldCurrentAim = [
@@ -84,26 +148,33 @@ tasks.withType(JavaCompile).configureEach {
                 '    private static AirCombatAction selectAction(State state, CombatContext context,'
         ].join('\n')
 
-        boolean fullyApplied = adapter.contains('DOCTRINE_CAPTURE_MAX_RAW_ANGLE_DEG')
-                && adapter.contains('capture_handoff_to_attack_approach')
+        boolean fullyApplied = adapter.contains('CAPTURE_IMPROVEMENT_EPSILON_DEG')
+                && adapter.contains('capture_local_minimum_handoff')
                 && combat.contains('handoffToAttackApproach')
         if (fullyApplied) {
-            logger.lifecycle('Coupled-climb attack-approach handoff experiment already applied in this workspace.')
+            logger.lifecycle('Coupled-climb local-minimum handoff experiment already applied in this workspace.')
             return
         }
 
         int constantsCount = adapter.split(Pattern.quote(oldConstants), -1).length - 1
         int captureCount = adapter.split(Pattern.quote(oldCapture), -1).length - 1
+        int descriptionCount = adapter.split(Pattern.quote(oldDescriptionTail), -1).length - 1
+        int stateCount = adapter.split(Pattern.quote(oldStateFields), -1).length - 1
         int currentAimCount = combat.split(Pattern.quote(oldCurrentAim), -1).length - 1
-        if (constantsCount != 1 || captureCount != 1 || currentAimCount != 1) {
-            throw new GradleException('Refusing attack-approach handoff experiment: '
-                    + "constants=${constantsCount}, capture=${captureCount}, manager=${currentAimCount}")
+        if (constantsCount != 1 || captureCount != 1 || descriptionCount != 1
+                || stateCount != 1 || currentAimCount != 1) {
+            throw new GradleException('Refusing local-minimum handoff experiment: '
+                    + "constants=${constantsCount}, capture=${captureCount}, description=${descriptionCount}, "
+                    + "state=${stateCount}, manager=${currentAimCount}")
         }
 
-        adapter = adapter.replace(oldConstants, newConstants).replace(oldCapture, newCapture)
+        adapter = adapter.replace(oldConstants, newConstants)
+                .replace(oldCapture, newCapture)
+                .replace(oldDescriptionTail, newDescriptionTail)
+                .replace(oldStateFields, newStateFields)
         combat = combat.replace(oldCurrentAim, newCurrentAim)
         adapterSource.setText(adapter, 'UTF-8')
         combatSource.setText(combat, 'UTF-8')
-        logger.lifecycle('Applied exact safe-capture ATTACK_APPROACH handoff to validation workspace.')
+        logger.lifecycle('Applied exact CAPTURE local-minimum ATTACK_APPROACH handoff to validation workspace.')
     }
 }
