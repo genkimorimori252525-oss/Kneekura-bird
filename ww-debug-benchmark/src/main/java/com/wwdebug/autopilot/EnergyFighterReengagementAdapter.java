@@ -41,9 +41,6 @@ public final class EnergyFighterReengagementAdapter {
     private static final double WINGOVER_COMPLETE_ANGLE_DEG = 150.0;
     private static final double WINGOVER_DESCENDING_FORWARD_Y = -0.10;
     private static final double WINGOVER_SPEED_BPS = 34.0;
-    private static final double WINGOVER_TURN_START_ANGLE_DEG = 95.0;
-    private static final double WINGOVER_TURN_FULL_ANGLE_DEG = 145.0;
-    private static final double WINGOVER_MAX_TURN_INPUT = 0.58;
     private static final double LEAD_TICKS = 10.0;
     private static final int MAX_RECOVERY_TICKS = 220;
 
@@ -190,7 +187,7 @@ public final class EnergyFighterReengagementAdapter {
                 transition(level, aircraft, status.get().phase(), state, snapshot,
                         distance, rawAngle, predictedLeadAngle, closure,
                         threat.aimAngleDeg(), Stage.RECOVERY,
-                        "phased_turn_vertical_reversal_complete");
+                        "pure_vertical_reversal_descending_complete");
             } else if (state.stageTicks >= MAX_WINGOVER_TICKS) {
                 finish(level, aircraft, status.get().phase(), "wingover_reversal_incomplete");
                 return false;
@@ -220,7 +217,7 @@ public final class EnergyFighterReengagementAdapter {
                     targetDirection, rawAngle, predictedLeadAngle, closure,
                     state, status.get().phase());
         } else if (state.stage == Stage.WINGOVER) {
-            applyWingover(level, aircraft, snapshot, profile, predictedLeadDirection, rawAngle,
+            applyWingover(level, aircraft, snapshot, profile, rawAngle,
                     predictedLeadAngle, closure, state, status.get().phase());
         } else if (state.stage == Stage.RECOVERY) {
             applyRecovery(level, aircraft, target.aircraft(), snapshot, profile,
@@ -301,28 +298,16 @@ public final class EnergyFighterReengagementAdapter {
 
     private static void applyWingover(ServerLevel level, Entity aircraft,
                                       FlightSnapshot snapshot, FlightProfile profile,
-                                      Vec3 predictedLeadDirection, double rawAngle,
-                                      double predictedLeadAngle, double closure,
+                                      double rawAngle, double predictedLeadAngle, double closure,
                                       State state, FlightPhase phase) {
-        Vec3 horizontalDesired = safeNormalize(horizontal(predictedLeadDirection),
-                snapshot.horizontalForward());
-        double headingError = headingError(snapshot, horizontalDesired);
-        double turnProgress = Mth.clamp(
-                (state.wingoverAngle - WINGOVER_TURN_START_ANGLE_DEG)
-                        / (WINGOVER_TURN_FULL_ANGLE_DEG - WINGOVER_TURN_START_ANGLE_DEG),
-                0.0, 1.0);
-        float x = (float) (Mth.clamp(headingError / 30.0,
-                -WINGOVER_MAX_TURN_INPUT, WINGOVER_MAX_TURN_INPUT) * turnProgress);
         double targetAltitude = state.wingoverStartAltitude + 90.0;
         FlightControlOutput output = new FlightControlOutput(
-                x, 0.0f, -0.95f, 1.0f,
+                0.0f, 0.0f, -0.95f, 1.0f,
                 state.wingoverStartForward.scale(-1.0), targetAltitude, WINGOVER_SPEED_BPS,
-                headingError, targetAltitude - snapshot.position().y,
+                0.0, targetAltitude - snapshot.position().y,
                 WINGOVER_SPEED_BPS - snapshot.speedBps(),
                 snapshot.speedBps() < profile.stallGuardSpeedBps(), false,
-                "energy_phased_turn_vertical_reversal",
-                turnProgress > 0.0 ? "turn_toward_predicted_lead_after_apex"
-                        : "pure_vertical_pull_before_apex");
+                "energy_pure_vertical_reversal", "full_power_pull_through_to_descent");
         applyAndLog(level, aircraft, snapshot, output, state, rawAngle,
                 predictedLeadAngle, closure, phase);
     }
