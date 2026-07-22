@@ -333,8 +333,8 @@ public final class EnergyFighterReengagementAdapter {
                                       State state, FlightPhase phase) {
         Vec3 horizontalDesired = safeNormalize(horizontal(predictedLeadDirection),
                 snapshot.horizontalForward());
-        double headingError = recoveryHeadingError(state, snapshot, horizontalDesired);
-        float x = (float) Mth.clamp(headingError / 28.0, -0.96, 0.96);
+        double headingError = headingError(snapshot, horizontalDesired);
+        float x = (float) Mth.clamp(headingError / 12.0, -0.94, 0.94);
         double targetAltitude = target.getBoundingBox().getCenter().y;
         double altitudeError = targetAltitude - snapshot.position().y;
         double verticalDirectionError = snapshot.forward().y - predictedLeadDirection.y;
@@ -347,7 +347,7 @@ public final class EnergyFighterReengagementAdapter {
                 predictedLeadDirection, targetAltitude, targetSpeed,
                 headingError, altitudeError, targetSpeed - snapshot.speedBps(),
                 snapshot.speedBps() < profile.stallGuardSpeedBps(), false,
-                "energy_vector_recovery", "forward_vector_pitch_and_horizontal_bank");
+                "energy_vector_pitch_recovery", "orientation_aware_yaw_and_vector_pitch");
         applyAndLog(level, aircraft, snapshot, output, state, rawAngle,
                 predictedLeadAngle, closure, phase);
     }
