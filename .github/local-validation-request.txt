@@ -1,4 +1,4 @@
-# Local validation request 2026-07-22T22:48+09:00
-ref=agent/mutual-dogfight-mission-hold
+# Local validation request 2026-07-22T23:04+09:00
+ref=agent/latch-collision-avoidance-direction
 aircraft=warfare_wings:a6m
 gametest=true
