@@ -49,6 +49,9 @@ Do not use the expensive headless GameTest as the first diagnostic tool for ever
 - If CI is still running when the interaction must pause, explicitly state that it remains in progress and identify the run being watched.
 - Never leave a tool call, polling message, or sleep operation as the final visible state of a work session. Close the session with a human-readable progress report.
 - GitHub email notifications and assistant-side CI monitoring are independent views of the same workflow. A failure email is not itself an assistant error; however, the assistant must still acknowledge and analyze that failure promptly.
+- If the owner reports receiving a GitHub Actions failure email, treat it as strong evidence that the run reached a terminal failure state. Fetch that run once to confirm, stop polling immediately, and move to logs and artifacts.
+- After a failure email or terminal CI result, do not issue another CI run until a human-readable checkpoint has been produced and the next materially different hypothesis has been identified.
+- Distinguish a workflow failure from a GitHub connector or network failure. Retry a connector/network read at most once; if it still fails, report the access failure instead of silently polling. A workflow failure should not be retried without code or a justified determinism check.
 
 ## Air-combat safety invariants
 
