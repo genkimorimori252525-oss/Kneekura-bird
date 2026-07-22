@@ -85,6 +85,12 @@ final class MutualDogfightValidationManager {
             scene.missingEntityTicks = 0;
         }
 
+        // The disposable opponent must stay in a normal airborne phase while the combat window is
+        // active. Otherwise the sequential flight-validation mission eventually advances it into
+        // the intentional stall test and correctly revokes combat-controller authority before a
+        // long energy-fighter re-entry can finish.
+        holdOpponentCombatPhase(opponent);
+
         scene.ageTicks++;
         if (CombatAwarenessManager.currentSolution(aircraft.getUUID())
                 .map(solution -> solution.targetUuid().equals(scene.opponentPilotUuid))
@@ -263,6 +269,24 @@ final class MutualDogfightValidationManager {
             LAST_OUTPUT.set(session, null);
         } catch (IllegalAccessException exception) {
             throw new IllegalStateException("Could not seed mutual-dogfight opponent", exception);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void holdOpponentCombatPhase(Entity opponent) {
+        try {
+            Map<UUID, Object> sessions = (Map<UUID, Object>) SESSIONS.get(null);
+            Object entry = sessions.get(opponent.getUUID());
+            if (entry == null) {
+                throw new IllegalStateException("opponent autonomous session was not found");
+            }
+            Object session = ENTRY_SESSION.get(entry);
+            PHASE.set(session, FlightPhase.CRUISE_OUTBOUND);
+            PHASE_TICKS.setInt(session, 0);
+            STABLE_TICKS.setInt(session, 0);
+            FALLING_TICKS.setInt(session, 0);
+        } catch (IllegalAccessException exception) {
+            throw new IllegalStateException("Could not hold mutual-dogfight opponent phase", exception);
         }
     }
 
