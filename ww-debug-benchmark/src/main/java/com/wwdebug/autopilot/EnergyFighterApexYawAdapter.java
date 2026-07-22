@@ -21,8 +21,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>Immersive Aircraft smooths X/Z input over ten ticks. Starting yaw only after reaching a
  * near-vertical apex therefore leaves the P-47N holding an energy-expensive attitude for too long.
  * This controller begins yaw during the latter part of a shallow climb, then uses damped pitch and
- * yaw control to capture the measured lead direction. Terrain, collision, threat, and real weapon
- * gates remain authoritative.</p>
+ * yaw control to capture the measured lead direction. A P-47N-only crossing plateau uses a bounded
+ * lag before predictive approach; other energy fighters retain the original capture path. Terrain,
+ * collision, threat, and real weapon gates remain authoritative.</p>
  */
 public final class EnergyFighterApexYawAdapter {
     private static final double START_MIN_DISTANCE = 82.0;
@@ -42,6 +43,20 @@ public final class EnergyFighterApexYawAdapter {
     private static final int MAX_PIVOT_TICKS = 96;
     private static final double PIVOT_INPUT_DIVISOR = 22.0;
     private static final double YAW_RATE_DAMPING = 0.05;
+
+    private static final double CROSSING_ENTRY_MIN_RAW_ANGLE_DEG = 83.0;
+    private static final double CROSSING_ENTRY_MAX_RAW_ANGLE_DEG = 90.0;
+    private static final double CROSSING_ENTRY_MIN_CLOSURE_BPS = 0.0;
+    private static final double CROSSING_IMPROVEMENT_EPSILON_DEG_PER_TICK = 0.10;
+    private static final int CROSSING_STALL_TICKS = 2;
+    private static final int LAG_TICKS = 30;
+    private static final double LAG_YAW_FRACTION = 0.25;
+    private static final double LAG_TARGET_PITCH_DEG = -32.0;
+    private static final double APPROACH_LEAD_TICKS = 25.0;
+    private static final double REENTRY_SPEED_FLOOR_BPS = 15.0;
+    private static final double REENTRY_TARGET_SPEED_OFFSET_BPS = -6.0;
+    private static final double REENTRY_MIN_AGL = 90.0;
+    private static final double REENTRY_PULL_OUT_SECONDS = 4.2;
 
     private static final double LEAD_TICKS = 8.0;
     private static final double CAPTURE_PITCH_DIVISOR = 10.0;
@@ -98,6 +113,8 @@ public final class EnergyFighterApexYawAdapter {
         FlightSnapshot snapshot = FlightSnapshot.capture(aircraft);
         Vec3 targetDirection = directionTo(aircraft, target.aircraft(), snapshot.forward());
         Vec3 leadDirection = leadDirection(aircraft, target.aircraft(), targetDirection, LEAD_TICKS);
+        Vec3 approachLeadDirection = leadDirection(
+                aircraft, target.aircraft(), targetDirection, APPROACH_LEAD_TICKS);
         double rawAngle = angleDegrees(snapshot.forward(), targetDirection);
         double leadAngle = angleDegrees(snapshot.forward(), leadDirection);
         double distance = aircraft.distanceTo(target.aircraft());
@@ -120,7 +137,7 @@ public final class EnergyFighterApexYawAdapter {
             state = new State(target.pilotUuid(),
                     ReflectiveArmament.estimatedShotsRemaining(aircraft), turnSign,
                     snapshot.position().y, snapshot.altitudeAboveGround(),
-                    snapshot.yawDeg(), snapshot.pitchDeg());
+                    snapshot.yawDeg(), snapshot.pitchDeg(), rawAngle);
             STATES.put(aircraft.getUUID(), state);
             DefensiveAirCombatManager.clear(aircraft.getUUID());
             AirCombatManeuverManager.clear(aircraft.getUUID());
@@ -151,12 +168,28 @@ public final class EnergyFighterApexYawAdapter {
         double pitchRateDegPerTick = snapshot.pitchDeg() - state.lastPitchDeg;
         double yawRateDegPerTick = Mth.wrapDegrees(
                 (float) (snapshot.yawDeg() - state.lastYawDeg));
+        state.lastRawAngleImprovementDeg = state.lastRawAngleDeg - rawAngle;
+        state.lastRawAngleDeg = rawAngle;
         state.lastPitchDeg = snapshot.pitchDeg();
         state.lastYawDeg = snapshot.yawDeg();
+
+        if (state.stage == Stage.PIVOT
+                && rawAngle >= CROSSING_ENTRY_MIN_RAW_ANGLE_DEG
+                && rawAngle <= CROSSING_ENTRY_MAX_RAW_ANGLE_DEG
+                && Math.abs(state.lastRawAngleImprovementDeg)
+                <= CROSSING_IMPROVEMENT_EPSILON_DEG_PER_TICK) {
+            state.crossingStallTicks++;
+        } else {
+            state.crossingStallTicks = 0;
+        }
 
         double horizontalLeadError = signedHorizontalAngle(
                 snapshot.horizontalForward(),
                 safeNormalize(horizontal(leadDirection), snapshot.horizontalForward()));
+        double approachHorizontalLeadError = signedHorizontalAngle(
+                snapshot.horizontalForward(),
+                safeNormalize(horizontal(approachLeadDirection),
+                        snapshot.horizontalForward()));
 
         if (state.stage == Stage.CLIMB) {
             boolean yawWindowReached = state.stageTicks >= MIN_CLIMB_TICKS
@@ -183,18 +216,46 @@ public final class EnergyFighterApexYawAdapter {
                     && Math.abs(horizontalLeadError) <= PIVOT_COMPLETE_HEADING_DEG;
             boolean energyGuard = state.stageTicks >= MIN_PIVOT_TICKS
                     && snapshot.speedBps() <= profile.stallGuardSpeedBps() * 1.45;
-            if (headingCaptured || energyGuard) {
+            boolean crossingStalled = isP47n(profile)
+                    && state.stageTicks >= MIN_PIVOT_TICKS
+                    && state.crossingStallTicks >= CROSSING_STALL_TICKS
+                    && closure >= CROSSING_ENTRY_MIN_CLOSURE_BPS;
+            if (energyGuard) {
                 transition(level, aircraft, session.get().phase(), state, snapshot,
                         distance, rawAngle, leadAngle, closure, threat.aimAngleDeg(),
-                        Stage.CAPTURE,
-                        headingCaptured ? "horizontal_lead_captured" : "pivot_energy_guard");
+                        Stage.CAPTURE, "pivot_energy_guard");
+            } else if (crossingStalled) {
+                transition(level, aircraft, session.get().phase(), state, snapshot,
+                        distance, rawAngle, leadAngle, closure, threat.aimAngleDeg(),
+                        Stage.LAG, "crossing_angle_stalled");
+            } else if (headingCaptured) {
+                transition(level, aircraft, session.get().phase(), state, snapshot,
+                        distance, rawAngle, leadAngle, closure, threat.aimAngleDeg(),
+                        Stage.CAPTURE, "horizontal_lead_captured");
             } else if (state.stageTicks >= MAX_PIVOT_TICKS) {
                 finish(level, aircraft, session.get().phase(), "pivot_timeout", true);
                 return false;
             }
         }
 
-        if (state.stage == Stage.CAPTURE) {
+        if (state.stage == Stage.LAG && state.stageTicks >= LAG_TICKS) {
+            transition(level, aircraft, session.get().phase(), state, snapshot,
+                    distance, rawAngle, leadAngle, closure, threat.aimAngleDeg(),
+                    Stage.APPROACH, "bounded_lag_complete");
+        }
+
+        if ((state.stage == Stage.LAG || state.stage == Stage.APPROACH)
+                && snapshot.speedBps() <= profile.stallGuardSpeedBps() * 1.45) {
+            finish(level, aircraft, session.get().phase(), "reentry_energy_guard", true);
+            return false;
+        }
+        if ((state.stage == Stage.LAG || state.stage == Stage.APPROACH)
+                && !hasPullOutMargin(snapshot)) {
+            finish(level, aircraft, session.get().phase(), "reentry_pull_out_guard", true);
+            return false;
+        }
+
+        if (state.stage == Stage.CAPTURE || state.stage == Stage.APPROACH) {
             boolean attackSector = target.lineOfSight()
                     && rawAngle <= ATTACK_MAX_RAW_ANGLE_DEG
                     && leadAngle <= ATTACK_MAX_LEAD_ANGLE_DEG
@@ -220,9 +281,16 @@ public final class EnergyFighterApexYawAdapter {
                     session.get().phase());
             case PIVOT -> applyPivot(level, aircraft, snapshot, profile,
                     horizontalLeadError, yawRateDegPerTick, pitchRateDegPerTick,
+                     state, rawAngle, leadAngle, closure, session.get().phase());
+            case LAG -> applyLag(level, aircraft, target.aircraft(), snapshot, profile,
+                    targetDirection, yawRateDegPerTick, pitchRateDegPerTick,
                     state, rawAngle, leadAngle, closure, session.get().phase());
             case CAPTURE -> applyCapture(level, aircraft, target.aircraft(), snapshot, profile,
                     leadDirection, horizontalLeadError, yawRateDegPerTick,
+                    pitchRateDegPerTick, state, rawAngle, leadAngle, closure,
+                    session.get().phase());
+            case APPROACH -> applyApproach(level, aircraft, target.aircraft(), snapshot, profile,
+                    approachLeadDirection, approachHorizontalLeadError, yawRateDegPerTick,
                     pitchRateDegPerTick, state, rawAngle, leadAngle, closure,
                     session.get().phase());
             case DOCTRINE -> {
@@ -306,6 +374,89 @@ public final class EnergyFighterApexYawAdapter {
                 "energy_coupled_pivot", "yaw_overlapped_with_shallow_climb");
         applyAndLog(level, aircraft, snapshot, output, state,
                 rawAngle, leadAngle, closure, phase);
+    }
+
+    private static void applyLag(ServerLevel level, Entity aircraft, Entity target,
+                                 FlightSnapshot snapshot, FlightProfile profile,
+                                 Vec3 targetDirection, double yawRate, double pitchRate,
+                                 State state, double rawAngle, double leadAngle,
+                                 double closure, FlightPhase phase) {
+        double headingError = signedHorizontalAngle(
+                snapshot.horizontalForward(),
+                safeNormalize(horizontal(targetDirection), snapshot.horizontalForward()));
+        float fullYaw = (float) Mth.clamp(
+                headingError / PIVOT_INPUT_DIVISOR - YAW_RATE_DAMPING * yawRate,
+                -0.96, 0.96);
+        float x = fullYaw * (float) LAG_YAW_FRACTION;
+        float z = (float) Mth.clamp(
+                (LAG_TARGET_PITCH_DEG - snapshot.pitchDeg()) / 12.0
+                        - 0.30 * pitchRate,
+                -0.95, 0.65);
+        double targetAltitude = target.getBoundingBox().getCenter().y + 4.0;
+        double targetSpeed = reentryTargetSpeed(target);
+        float engine = reentryEngine(snapshot.speedBps(), targetSpeed);
+        FlightControlOutput output = new FlightControlOutput(x, 0.0f, z, engine,
+                targetDirection, targetAltitude, targetSpeed,
+                headingError, targetAltitude - snapshot.position().y,
+                targetSpeed - snapshot.speedBps(),
+                snapshot.speedBps() < profile.stallGuardSpeedBps(), false,
+                "energy_coupled_lag", "bounded_oblique_lag_after_crossing_stall");
+        applyAndLog(level, aircraft, snapshot, output, state,
+                rawAngle, leadAngle, closure, phase);
+    }
+
+    private static void applyApproach(ServerLevel level, Entity aircraft, Entity target,
+                                      FlightSnapshot snapshot, FlightProfile profile,
+                                      Vec3 approachLeadDirection, double headingError,
+                                      double yawRate, double pitchRate, State state,
+                                      double rawAngle, double leadAngle, double closure,
+                                      FlightPhase phase) {
+        float x = (float) Mth.clamp(
+                headingError / 18.0 - YAW_RATE_DAMPING * yawRate,
+                -0.94, 0.94);
+        double desiredPitch = desiredPitchDegrees(approachLeadDirection);
+        float z = (float) Mth.clamp(
+                (desiredPitch - snapshot.pitchDeg()) / CAPTURE_PITCH_DIVISOR
+                        - CAPTURE_PITCH_RATE_DAMPING * pitchRate,
+                -0.88, 0.88);
+        double targetAltitude = target.getBoundingBox().getCenter().y + 4.0;
+        double targetSpeed = reentryTargetSpeed(target);
+        float engine = reentryEngine(snapshot.speedBps(), targetSpeed);
+        FlightControlOutput output = new FlightControlOutput(x, 0.0f, z, engine,
+                approachLeadDirection, targetAltitude, targetSpeed,
+                headingError, targetAltitude - snapshot.position().y,
+                targetSpeed - snapshot.speedBps(),
+                snapshot.speedBps() < profile.stallGuardSpeedBps(), false,
+                "energy_coupled_approach", "predicted_lead_capture_after_bounded_lag");
+        applyAndLog(level, aircraft, snapshot, output, state,
+                rawAngle, leadAngle, closure, phase);
+    }
+
+    private static double reentryTargetSpeed(Entity target) {
+        return Math.max(REENTRY_SPEED_FLOOR_BPS,
+                target.getDeltaMovement().horizontalDistance() * 20.0
+                        + REENTRY_TARGET_SPEED_OFFSET_BPS);
+    }
+
+    private static float reentryEngine(double speedBps, double targetSpeedBps) {
+        if (speedBps < targetSpeedBps - 1.0) {
+            return 1.0f;
+        }
+        return speedBps > targetSpeedBps + 3.0 ? 0.10f : 0.35f;
+    }
+
+    private static boolean hasPullOutMargin(FlightSnapshot snapshot) {
+        return snapshot.altitudeAboveGround() >= requiredPullOutAgl(snapshot);
+    }
+
+    private static double requiredPullOutAgl(FlightSnapshot snapshot) {
+        return Math.max(REENTRY_MIN_AGL,
+                Math.max(0.0, -snapshot.verticalSpeedBps()) * REENTRY_PULL_OUT_SECONDS);
+    }
+
+    private static boolean isP47n(FlightProfile profile) {
+        return "warfare_wings".equals(profile.profileId().getNamespace())
+                && "p47n".equals(profile.profileId().getPath());
     }
 
     private static void applyCapture(ServerLevel level, Entity aircraft, Entity target,
@@ -404,13 +555,17 @@ public final class EnergyFighterApexYawAdapter {
                 + ":total_ticks=" + state.totalTicks
                 + ":stage_ticks=" + state.stageTicks
                 + ":raw_target_angle=" + round(rawAngle)
+                + ":raw_angle_improvement=" + round(state.lastRawAngleImprovementDeg)
+                + ":crossing_stall_ticks=" + state.crossingStallTicks
                 + ":predicted_lead_angle=" + round(leadAngle)
                 + ":closure=" + round(closure)
                 + ":speed_bps=" + round(snapshot.speedBps())
+                + ":vertical_speed_bps=" + round(snapshot.verticalSpeedBps())
                 + ":pitch=" + round(snapshot.pitchDeg())
                 + ":yaw=" + round(snapshot.yawDeg())
                 + ":roll=" + round(snapshot.rollDeg())
                 + ":agl=" + round(snapshot.altitudeAboveGround())
+                + ":required_pull_out_agl=" + round(requiredPullOutAgl(snapshot))
                 + ":turn_sign=" + state.turnSign
                 + ":max_yaw_change=" + round(state.maxYawChangeDeg);
     }
@@ -577,7 +732,9 @@ public final class EnergyFighterApexYawAdapter {
     private enum Stage {
         CLIMB,
         PIVOT,
+        LAG,
         CAPTURE,
+        APPROACH,
         DOCTRINE
     }
 
@@ -599,13 +756,16 @@ public final class EnergyFighterApexYawAdapter {
         private double minimumAgl;
         private double lastYawDeg;
         private double lastPitchDeg;
+        private double lastRawAngleDeg;
+        private double lastRawAngleImprovementDeg;
         private int totalTicks;
         private int stageTicks;
         private int statusTicks;
+        private int crossingStallTicks;
 
         private State(UUID targetPilotUuid, int initialShots, double turnSign,
                       double startAltitude, double startAgl,
-                      double startYaw, double startPitch) {
+                      double startYaw, double startPitch, double startRawAngle) {
             this.targetPilotUuid = targetPilotUuid;
             this.initialShots = initialShots;
             this.turnSign = turnSign;
@@ -615,6 +775,7 @@ public final class EnergyFighterApexYawAdapter {
             this.minimumAgl = startAgl;
             this.lastYawDeg = startYaw;
             this.lastPitchDeg = startPitch;
+            this.lastRawAngleDeg = startRawAngle;
         }
     }
 }

@@ -3,7 +3,8 @@
 
 The command recursively discovers paired P-47N/A6M telemetry, removes byte-identical
 duplicate trajectories, loads the selected candidate JSON, and requires every unique
-trajectory to reach the unchanged angle/range/closure attack sector.
+trajectory to reach the unchanged attack sector without violating the local
+separation, stall, ground-clearance, or pull-out gates.
 
 This remains pre-flight evidence only because the target follows its preserved path;
 a new Forge GameTest is authoritative for target reaction, LOS, threats and safety.
@@ -14,10 +15,41 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
-from types import SimpleNamespace
 
 import analyze_coupled_climb_trajectory as trajectory
-import batch_apex_yaw_replay as discovery
+
+
+START_EVENTS = {
+    "energy_crossing_reentry_start",
+    "energy_coupled_climb_start",
+}
+
+
+def event_starts(path: Path) -> list[int]:
+    starts: list[int] = []
+    with path.open(encoding="utf-8") as handle:
+        for raw in handle:
+            try:
+                row = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if row.get("event") in START_EVENTS:
+                starts.append(int(row["server_tick"]))
+    return starts
+
+
+def discover(root: Path) -> list[tuple[str, Path, Path, int]]:
+    sessions: list[tuple[str, Path, Path, int]] = []
+    for aircraft_dir in sorted(root.rglob("aircraft")):
+        p47 = sorted(aircraft_dir.glob("warfare_wings-p47n-*.jsonl"))
+        a6m = sorted(aircraft_dir.glob("warfare_wings-a6m-*.jsonl"))
+        if len(p47) != 1 or len(a6m) != 1:
+            continue
+        sessions.extend(
+            (str(aircraft_dir.parent), p47[0], a6m[0], start_tick)
+            for start_tick in event_starts(p47[0])
+        )
+    return sessions
 
 
 def digest_pair(p47: Path, target: Path, start_tick: int) -> str:
@@ -30,36 +62,12 @@ def digest_pair(p47: Path, target: Path, start_tick: int) -> str:
     return digest.hexdigest()
 
 
-def simulation_args(p47: Path, target: Path, start_tick: int) -> SimpleNamespace:
-    selected = trajectory.selected_candidate_defaults()
-    return SimpleNamespace(
-        p47=p47,
-        target=target,
-        start_tick=start_tick,
-        output=None,
-        max_ticks=390,
-        lead_ticks=selected["lead_ticks"],
-        climb_pitch=selected["climb_pitch"],
-        yaw_trigger_pitch=selected["yaw_trigger_pitch"],
-        pivot_complete_heading=selected["pivot_complete_heading"],
-        pivot_divisor=selected["pivot_divisor"],
-        capture_pitch_divisor=selected["capture_pitch_divisor"],
-        capture_pitch_damping=selected["capture_pitch_damping"],
-        yaw_damping=selected["yaw_damping"],
-        engine_speed=0.102,
-        lift=0.165,
-        friction=0.013,
-        glide_factor=0.055,
-        horizontal_decay=0.97,
-        vertical_decay=0.97,
-        yaw_speed=2.5,
-        pitch_speed=2.4,
-        engine_reaction_steps=100.0,
-        cruise_speed=33.6741875662,
-        stall_guard_speed=10.1662137203,
-        recorded_engine_power=1.0,
-        initial_engine_power=None,
-    )
+def simulation_args(p47: Path, target: Path, start_tick: int) -> argparse.Namespace:
+    return trajectory.build_parser().parse_args([
+        "--p47", str(p47),
+        "--target", str(target),
+        "--start-tick", str(start_tick),
+    ])
 
 
 def main() -> int:
@@ -68,7 +76,7 @@ def main() -> int:
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
 
-    discovered = discovery.discover(args.root)
+    discovered = discover(args.root)
     if not discovered:
         raise SystemExit(f"no paired mutual-dogfight telemetry found below {args.root}")
 
@@ -87,21 +95,26 @@ def main() -> int:
             "start_tick": start_tick,
             "digest": digest,
             "modeled_attack": result["modeled_attack"],
+            "qualified_for_headless": result["qualified_for_headless"],
+            "termination_reason": result["termination_reason"],
             "first_attack": result["first_attack"],
             "minimum_speed_bps": result["minimum_speed_bps"],
             "minimum_distance": result["minimum_distance"],
             "maximum_distance": result["maximum_distance"],
             "minimum_pitch": result["minimum_pitch"],
             "maximum_pitch": result["maximum_pitch"],
+            "minimum_estimated_agl": result["minimum_estimated_agl"],
+            "minimum_pull_out_margin": result["minimum_pull_out_margin"],
             "initial_engine_power": result["initial_engine_power"],
             "initial_engine_power_source": result["initial_engine_power_source"],
             "samples": result["samples"],
         })
 
-    passes = sum(bool(row["modeled_attack"]) for row in rows)
+    passes = sum(bool(row["qualified_for_headless"]) for row in rows)
     report = {
         "candidate": trajectory.selected_candidate_defaults(),
-        "discovered_sessions": len(discovered),
+        "discovered_sessions": len({session for session, _, _, _ in discovered}),
+        "discovered_reentries": len(discovered),
         "unique_trajectories": len(rows),
         "duplicate_trajectories": duplicates,
         "passes": passes,
@@ -115,6 +128,12 @@ def main() -> int:
             ),
             "maximum_separation_blocks": max(
                 (row["maximum_distance"] for row in rows), default=None
+            ),
+            "minimum_estimated_agl": min(
+                (row["minimum_estimated_agl"] for row in rows), default=None
+            ),
+            "minimum_pull_out_margin": min(
+                (row["minimum_pull_out_margin"] for row in rows), default=None
             ),
         },
         "warning": (

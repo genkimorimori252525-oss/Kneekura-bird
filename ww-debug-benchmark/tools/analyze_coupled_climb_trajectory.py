@@ -58,6 +58,28 @@ def closure_bps(defender: angular.Vec, defender_velocity: angular.Vec,
     return -relative.scale(20.0).dot(line.normalized())
 
 
+def qualifies_for_headless(
+    first_attack: dict | None,
+    minimum_speed_bps: float | None,
+    minimum_distance: float | None,
+    minimum_estimated_agl: float | None,
+    minimum_pull_out_margin: float | None,
+    stall_guard_speed: float,
+    minimum_separation: float,
+) -> bool:
+    return (
+        first_attack is not None
+        and minimum_speed_bps is not None
+        and minimum_speed_bps >= stall_guard_speed
+        and minimum_distance is not None
+        and minimum_distance >= minimum_separation
+        and minimum_estimated_agl is not None
+        and minimum_estimated_agl > 0.0
+        and minimum_pull_out_margin is not None
+        and minimum_pull_out_margin >= 0.0
+    )
+
+
 def infer_initial_smoothing(first: angular.Frame, second: angular.Frame,
                             yaw_speed: float, pitch_speed: float,
                             friction: float,
@@ -88,9 +110,9 @@ def read_frame_engine_power(path: Path, tick: int) -> float | None:
     return None
 
 
-def selected_candidate_defaults() -> dict[str, float]:
+def selected_candidate_defaults() -> dict[str, float | int | bool]:
     """Load the branch's machine-readable candidate, with safe fallback values."""
-    defaults: dict[str, float] = {
+    defaults: dict[str, float | int | bool] = {
         "climb_pitch": -22.0,
         "yaw_trigger_pitch": -2.0,
         "pivot_complete_heading": 65.0,
@@ -99,6 +121,20 @@ def selected_candidate_defaults() -> dict[str, float]:
         "capture_pitch_damping": 0.10,
         "yaw_damping": 0.05,
         "lead_ticks": 8.0,
+        "crossing_lag_enabled": True,
+        "crossing_entry_min_raw_angle": 83.0,
+        "crossing_entry_max_raw_angle": 90.0,
+        "crossing_entry_min_closure": 0.0,
+        "crossing_improvement_epsilon": 0.10,
+        "crossing_stall_ticks": 2,
+        "lag_ticks": 30,
+        "lag_yaw_fraction": 0.25,
+        "lag_target_pitch": -32.0,
+        "approach_lead_ticks": 25.0,
+        "reentry_speed_floor": 15.0,
+        "reentry_target_speed_offset": -6.0,
+        "reentry_min_agl": 90.0,
+        "reentry_pull_out_seconds": 4.2,
     }
     path = Path(__file__).with_name("p47_coupled_climb_candidate.json")
     if not path.is_file():
@@ -108,9 +144,15 @@ def selected_candidate_defaults() -> dict[str, float]:
         parameters = root.get("parameters", {})
         for key in tuple(defaults):
             if key in parameters:
-                value = float(parameters[key])
+                fallback = defaults[key]
+                raw_value = parameters[key]
+                if isinstance(fallback, bool):
+                    if isinstance(raw_value, bool):
+                        defaults[key] = raw_value
+                    continue
+                value = float(raw_value)
                 if math.isfinite(value):
-                    defaults[key] = value
+                    defaults[key] = int(value) if isinstance(fallback, int) else value
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
         pass
     return defaults
@@ -226,6 +268,7 @@ def simulate(args: argparse.Namespace) -> dict:
         smoothed_x=smoothed_x,
         smoothed_z=smoothed_z,
     )
+    estimated_ground_y = initial.position.y - initial.agl
     candidate = angular.Candidate(
         climb_pitch=args.climb_pitch,
         yaw_trigger_pitch=args.yaw_trigger_pitch,
@@ -240,31 +283,63 @@ def simulate(args: argparse.Namespace) -> dict:
     stage_ticks = 0
     previous_yaw = state.yaw
     previous_pitch = state.pitch
+    previous_raw_angle = None
+    crossing_stall_ticks = 0
     rows: list[dict] = []
     first_attack = None
+    termination_reason = "max_ticks"
 
     for tick in range(args.start_tick, args.start_tick + args.max_ticks):
         target = target_frames.get(tick)
         if target is None:
+            termination_reason = "target_missing"
             break
         lead_point = target.position + target.velocity.scale(args.lead_ticks)
         lead_direction = (lead_point - state.position).normalized()
+        approach_lead_point = target.position + target.velocity.scale(
+            args.approach_lead_ticks
+        )
+        approach_lead_direction = (approach_lead_point - state.position).normalized()
         raw_direction = (target.position - state.position).normalized()
         aircraft_forward = angular.forward(state.yaw, state.pitch)
         horizontal_error = angular.signed_horizontal_angle(
             aircraft_forward, lead_direction
         )
         raw_angle = angular.angle_degrees(aircraft_forward, raw_direction)
+        raw_angle_improvement = (
+            None
+            if previous_raw_angle is None
+            else previous_raw_angle - raw_angle
+        )
+        previous_raw_angle = raw_angle
         lead_angle = angular.angle_degrees(aircraft_forward, lead_direction)
         distance = (target.position - state.position).length()
         closure = closure_bps(
             state.position, state.velocity, target.position, target.velocity
         )
         speed_bps = state.velocity.length() * 20.0
+        vertical_speed_bps = state.velocity.y * 20.0
+        estimated_agl = state.position.y - estimated_ground_y
+        required_pull_out_agl = max(
+            args.reentry_min_agl,
+            max(0.0, -vertical_speed_bps) * args.reentry_pull_out_seconds,
+        )
         pitch_rate = state.pitch - previous_pitch
         yaw_rate = angular.wrap_degrees(state.yaw - previous_yaw)
         previous_pitch = state.pitch
         previous_yaw = state.yaw
+
+        if (
+            stage == "PIVOT"
+            and args.crossing_entry_min_raw_angle
+            <= raw_angle
+            <= args.crossing_entry_raw_angle
+            and raw_angle_improvement is not None
+            and abs(raw_angle_improvement) <= args.crossing_improvement_epsilon
+        ):
+            crossing_stall_ticks += 1
+        else:
+            crossing_stall_ticks = 0
 
         attack_sector = (
             raw_angle <= 45.0
@@ -280,18 +355,21 @@ def simulate(args: argparse.Namespace) -> dict:
             "yaw": state.yaw,
             "pitch": state.pitch,
             "speed_bps": speed_bps,
+            "vertical_speed_bps": vertical_speed_bps,
             "distance": distance,
             "closure_bps": closure,
             "raw_angle": raw_angle,
+            "raw_angle_improvement": raw_angle_improvement,
+            "crossing_stall_ticks": crossing_stall_ticks,
             "lead_angle": lead_angle,
             "horizontal_lead_error": horizontal_error,
             "engine_power": state.engine_power,
+            "estimated_agl": estimated_agl,
+            "required_pull_out_agl": required_pull_out_agl,
+            "pull_out_margin": estimated_agl - required_pull_out_agl,
             "attack_sector": attack_sector,
         }
         rows.append(row)
-        if attack_sector:
-            first_attack = row
-            break
 
         if stage == "CLIMB":
             if stage_ticks >= 8 and (
@@ -301,19 +379,57 @@ def simulate(args: argparse.Namespace) -> dict:
                 stage = "PIVOT"
                 stage_ticks = 0
             elif stage_ticks >= 54:
+                termination_reason = "climb_timeout"
                 break
 
         if stage == "PIVOT":
-            if stage_ticks >= 8 and (
-                abs(horizontal_error) <= candidate.pivot_complete_heading
-                or speed_bps <= args.stall_guard_speed * 1.45
-            ):
+            energy_guard = (
+                stage_ticks >= 8
+                and speed_bps <= args.stall_guard_speed * 1.45
+            )
+            lag_handoff = (
+                args.crossing_lag
+                and stage_ticks >= 8
+                and crossing_stall_ticks >= args.crossing_stall_ticks
+                and raw_angle <= args.crossing_entry_raw_angle
+                and closure >= args.crossing_entry_min_closure
+            )
+            if energy_guard:
+                stage = "CAPTURE"
+                stage_ticks = 0
+            elif lag_handoff:
+                stage = "LAG"
+                stage_ticks = 0
+            elif (stage_ticks >= 8
+                  and abs(horizontal_error) <= candidate.pivot_complete_heading):
                 stage = "CAPTURE"
                 stage_ticks = 0
             elif stage_ticks >= 96:
+                termination_reason = "pivot_timeout"
                 break
 
-        if stage == "CAPTURE" and (stage_ticks >= 190 or distance > 190.0):
+        if stage == "LAG" and stage_ticks >= args.lag_ticks:
+            stage = "APPROACH"
+            stage_ticks = 0
+
+        if (stage in {"LAG", "APPROACH"}
+                and speed_bps <= args.stall_guard_speed * 1.45):
+            termination_reason = "reentry_energy_guard"
+            break
+
+        if stage in {"LAG", "APPROACH"} and row["pull_out_margin"] < 0.0:
+            termination_reason = "reentry_pull_out_guard"
+            break
+
+        if stage in {"CAPTURE", "APPROACH"} and attack_sector:
+            first_attack = row
+            termination_reason = "attack_sector_reached"
+            break
+
+        if stage in {"CAPTURE", "APPROACH"} and (
+            stage_ticks >= 190 or distance > 190.0
+        ):
+            termination_reason = "capture_timeout"
             break
 
         if stage == "CLIMB":
@@ -334,10 +450,44 @@ def simulate(args: argparse.Namespace) -> dict:
                 -0.65, 0.65,
             )
             engine_target = 1.0
+        elif stage == "LAG":
+            raw_horizontal_error = angular.signed_horizontal_angle(
+                aircraft_forward, raw_direction
+            )
+            full_yaw_command = angular.clamp(
+                raw_horizontal_error / candidate.pivot_divisor
+                - candidate.yaw_damping * yaw_rate,
+                -0.96,
+                0.96,
+            )
+            command_x = full_yaw_command * args.lag_yaw_fraction
+            command_z = angular.clamp(
+                (args.lag_climb_pitch - state.pitch) / 12.0 - 0.30 * pitch_rate,
+                -0.95,
+                0.65,
+            )
+            target_speed = max(
+                args.lag_speed_floor,
+                horizontal_speed(target.velocity) * 20.0
+                + args.lag_target_speed_offset,
+            )
+            if speed_bps < target_speed - 1.0:
+                engine_target = 1.0
+            elif speed_bps > target_speed + 3.0:
+                engine_target = 0.10
+            else:
+                engine_target = 0.35
         else:
-            target_pitch = angular.desired_pitch(lead_direction)
+            control_lead_direction = (
+                approach_lead_direction if stage == "APPROACH" else lead_direction
+            )
+            control_horizontal_error = angular.signed_horizontal_angle(
+                aircraft_forward, control_lead_direction
+            )
+            target_pitch = angular.desired_pitch(control_lead_direction)
             command_x = angular.clamp(
-                horizontal_error / 18.0 - candidate.yaw_damping * yaw_rate,
+                control_horizontal_error / 18.0
+                - candidate.yaw_damping * yaw_rate,
                 -0.94, 0.94,
             )
             command_z = angular.clamp(
@@ -345,16 +495,27 @@ def simulate(args: argparse.Namespace) -> dict:
                 - candidate.capture_pitch_damping * pitch_rate,
                 -0.88, 0.88,
             )
-            target_speed = max(
-                args.cruise_speed,
-                horizontal_speed(target.velocity) * 20.0 + 3.0,
-            )
+            if stage == "APPROACH":
+                target_speed = max(
+                    args.lag_speed_floor,
+                    horizontal_speed(target.velocity) * 20.0
+                    + args.lag_target_speed_offset,
+                )
+            else:
+                target_speed = max(
+                    args.cruise_speed,
+                    horizontal_speed(target.velocity) * 20.0 + 3.0,
+                )
             if speed_bps < target_speed - 1.0:
                 engine_target = 1.0
             elif speed_bps > target_speed + 3.0:
-                engine_target = 0.30
+                engine_target = 0.10 if stage == "APPROACH" else 0.30
             else:
-                engine_target = 0.65
+                engine_target = 0.35 if stage == "APPROACH" else 0.65
+
+        row["command_x"] = command_x
+        row["command_z"] = command_z
+        row["engine_target"] = engine_target
 
         state = physics_tick(
             state,
@@ -374,6 +535,24 @@ def simulate(args: argparse.Namespace) -> dict:
         )
         stage_ticks += 1
 
+    minimum_speed_bps = min((row["speed_bps"] for row in rows), default=None)
+    minimum_distance = min((row["distance"] for row in rows), default=None)
+    minimum_estimated_agl = min(
+        (row["estimated_agl"] for row in rows), default=None
+    )
+    minimum_pull_out_margin = min(
+        (row["pull_out_margin"] for row in rows), default=None
+    )
+    qualified = qualifies_for_headless(
+        first_attack,
+        minimum_speed_bps,
+        minimum_distance,
+        minimum_estimated_agl,
+        minimum_pull_out_margin,
+        args.stall_guard_speed,
+        args.minimum_separation,
+    )
+
     return {
         "candidate": asdict(candidate),
         "start_tick": args.start_tick,
@@ -385,13 +564,39 @@ def simulate(args: argparse.Namespace) -> dict:
         ),
         "samples": len(rows),
         "modeled_attack": first_attack is not None,
+        "qualified_for_headless": qualified,
+        "termination_reason": termination_reason,
         "first_attack": first_attack,
-        "minimum_speed_bps": min((row["speed_bps"] for row in rows), default=None),
-        "minimum_distance": min((row["distance"] for row in rows), default=None),
+        "minimum_speed_bps": minimum_speed_bps,
+        "minimum_distance": minimum_distance,
         "maximum_distance": max((row["distance"] for row in rows), default=None),
         "minimum_pitch": min((row["pitch"] for row in rows), default=None),
         "maximum_pitch": max((row["pitch"] for row in rows), default=None),
+        "minimum_estimated_agl": minimum_estimated_agl,
+        "minimum_pull_out_margin": minimum_pull_out_margin,
+        "qualification_gates": {
+            "minimum_separation_blocks": args.minimum_separation,
+            "minimum_speed_bps": args.stall_guard_speed,
+            "minimum_estimated_agl_exclusive": 0.0,
+            "minimum_pull_out_margin": 0.0,
+        },
         "control_decay_per_tick": (1.0 - args.friction) * args.rotation_decay,
+        "crossing_lag": {
+            "enabled": args.crossing_lag,
+            "entry_raw_angle": args.crossing_entry_raw_angle,
+            "entry_min_raw_angle": args.crossing_entry_min_raw_angle,
+            "entry_min_closure": args.crossing_entry_min_closure,
+            "improvement_epsilon_deg_per_tick": args.crossing_improvement_epsilon,
+            "stall_ticks": args.crossing_stall_ticks,
+            "lag_ticks": args.lag_ticks,
+            "yaw_fraction": args.lag_yaw_fraction,
+            "climb_pitch": args.lag_climb_pitch,
+            "approach_lead_ticks": args.approach_lead_ticks,
+            "speed_floor_bps": args.lag_speed_floor,
+            "target_speed_offset_bps": args.lag_target_speed_offset,
+            "minimum_agl": args.reentry_min_agl,
+            "pull_out_seconds": args.reentry_pull_out_seconds,
+        },
         "warning": "Target response, LOS, terrain, collision, and threat arbitration are not resimulated.",
         "rows": rows,
     }
@@ -433,6 +638,63 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--engine-reaction-steps", type=float, default=100.0)
     parser.add_argument("--cruise-speed", type=float, default=33.6741875662)
     parser.add_argument("--stall-guard-speed", type=float, default=10.1662137203)
+    parser.add_argument("--minimum-separation", type=float, default=8.0)
+    parser.add_argument(
+        "--crossing-lag",
+        action=argparse.BooleanOptionalAction,
+        default=selected["crossing_lag_enabled"],
+    )
+    parser.add_argument(
+        "--crossing-entry-raw-angle",
+        type=float,
+        default=selected["crossing_entry_max_raw_angle"],
+    )
+    parser.add_argument(
+        "--crossing-entry-min-raw-angle",
+        type=float,
+        default=selected["crossing_entry_min_raw_angle"],
+    )
+    parser.add_argument(
+        "--crossing-entry-min-closure",
+        type=float,
+        default=selected["crossing_entry_min_closure"],
+    )
+    parser.add_argument(
+        "--crossing-improvement-epsilon",
+        type=float,
+        default=selected["crossing_improvement_epsilon"],
+    )
+    parser.add_argument(
+        "--crossing-stall-ticks",
+        type=int,
+        default=selected["crossing_stall_ticks"],
+    )
+    parser.add_argument("--lag-ticks", type=int, default=selected["lag_ticks"])
+    parser.add_argument(
+        "--lag-yaw-fraction", type=float, default=selected["lag_yaw_fraction"]
+    )
+    parser.add_argument(
+        "--lag-climb-pitch", type=float, default=selected["lag_target_pitch"]
+    )
+    parser.add_argument(
+        "--approach-lead-ticks", type=float, default=selected["approach_lead_ticks"]
+    )
+    parser.add_argument(
+        "--lag-speed-floor", type=float, default=selected["reentry_speed_floor"]
+    )
+    parser.add_argument(
+        "--lag-target-speed-offset",
+        type=float,
+        default=selected["reentry_target_speed_offset"],
+    )
+    parser.add_argument(
+        "--reentry-min-agl", type=float, default=selected["reentry_min_agl"]
+    )
+    parser.add_argument(
+        "--reentry-pull-out-seconds",
+        type=float,
+        default=selected["reentry_pull_out_seconds"],
+    )
     parser.add_argument("--recorded-engine-power", type=float, default=1.0,
                         help="Fallback only when the selected JSONL frame lacks engine_power")
     parser.add_argument("--initial-engine-power", type=float,
@@ -448,7 +710,7 @@ def main() -> int:
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
-    return 0 if result["modeled_attack"] else 1
+    return 0 if result["qualified_for_headless"] else 1
 
 
 if __name__ == "__main__":

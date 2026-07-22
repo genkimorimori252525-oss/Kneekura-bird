@@ -25,6 +25,19 @@ CANDIDATE_CONSTANTS = {
     "capture_pitch_damping": "CAPTURE_PITCH_RATE_DAMPING",
     "yaw_damping": "YAW_RATE_DAMPING",
     "lead_ticks": "LEAD_TICKS",
+    "crossing_entry_min_raw_angle": "CROSSING_ENTRY_MIN_RAW_ANGLE_DEG",
+    "crossing_entry_max_raw_angle": "CROSSING_ENTRY_MAX_RAW_ANGLE_DEG",
+    "crossing_entry_min_closure": "CROSSING_ENTRY_MIN_CLOSURE_BPS",
+    "crossing_improvement_epsilon": "CROSSING_IMPROVEMENT_EPSILON_DEG_PER_TICK",
+    "crossing_stall_ticks": "CROSSING_STALL_TICKS",
+    "lag_ticks": "LAG_TICKS",
+    "lag_yaw_fraction": "LAG_YAW_FRACTION",
+    "lag_target_pitch": "LAG_TARGET_PITCH_DEG",
+    "approach_lead_ticks": "APPROACH_LEAD_TICKS",
+    "reentry_speed_floor": "REENTRY_SPEED_FLOOR_BPS",
+    "reentry_target_speed_offset": "REENTRY_TARGET_SPEED_OFFSET_BPS",
+    "reentry_min_agl": "REENTRY_MIN_AGL",
+    "reentry_pull_out_seconds": "REENTRY_PULL_OUT_SECONDS",
 }
 
 PINNED_GATES = {
@@ -70,13 +83,24 @@ def main() -> int:
                 f"pinned gate {constant_name} changed from {expected} to {actual}"
             )
 
+    java_text = JAVA.read_text(encoding="utf-8")
+    if "boolean crossingStalled = isP47n(profile)" not in java_text:
+        errors.append("crossing-lag hypothesis is not explicitly restricted to P-47N")
+    attack_gate_index = java_text.find("boolean attackSector")
+    for guard in ("reentry_energy_guard", "reentry_pull_out_guard"):
+        guard_index = java_text.find(f'"{guard}"')
+        if guard_index < 0:
+            errors.append(f"missing connected Java safety guard {guard}")
+        elif attack_gate_index < 0 or guard_index >= attack_gate_index:
+            errors.append(f"Java safety guard {guard} no longer precedes the attack gate")
+
     if errors:
         for error in errors:
             print(f"ERROR: {error}")
         return 1
 
     print(
-        "P-47N candidate constants match production and all pinned attack/safety gates are intact."
+        "P-47N candidate constants match production; P-47N scope and all pinned gates are intact."
     )
     return 0
 

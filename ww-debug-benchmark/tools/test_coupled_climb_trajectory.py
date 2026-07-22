@@ -3,12 +3,64 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 
 import analyze_apex_yaw_replay as angular
-from analyze_coupled_climb_trajectory import AircraftState, physics_tick
+import batch_coupled_climb_trajectory as batch
+from analyze_coupled_climb_trajectory import (
+    AircraftState,
+    physics_tick,
+    qualifies_for_headless,
+    selected_candidate_defaults,
+)
 
 
 class CoupledClimbTrajectoryCalibrationTest(unittest.TestCase):
+    def test_unsafe_attack_sector_does_not_qualify_for_headless(self) -> None:
+        safe = dict(
+            first_attack={"tick": 100},
+            minimum_speed_bps=16.0,
+            minimum_distance=53.0,
+            minimum_estimated_agl=98.0,
+            minimum_pull_out_margin=8.0,
+            stall_guard_speed=10.0,
+            minimum_separation=8.0,
+        )
+        self.assertTrue(qualifies_for_headless(**safe))
+
+        for field, unsafe_value in (
+            ("minimum_speed_bps", 9.9),
+            ("minimum_distance", 7.9),
+            ("minimum_estimated_agl", 0.0),
+            ("minimum_pull_out_margin", -0.1),
+        ):
+            unsafe = safe | {field: unsafe_value}
+            self.assertFalse(qualifies_for_headless(**unsafe), field)
+
+    def test_batch_reuses_selected_candidate_parser(self) -> None:
+        selected = selected_candidate_defaults()
+        args = batch.simulation_args(Path("p47.jsonl"), Path("a6m.jsonl"), 5351)
+
+        self.assertTrue(args.crossing_lag)
+        self.assertEqual(args.rotation_decay, 0.97)
+        mapping = {
+            "crossing_entry_min_raw_angle": "crossing_entry_min_raw_angle",
+            "crossing_entry_max_raw_angle": "crossing_entry_raw_angle",
+            "crossing_entry_min_closure": "crossing_entry_min_closure",
+            "crossing_improvement_epsilon": "crossing_improvement_epsilon",
+            "crossing_stall_ticks": "crossing_stall_ticks",
+            "lag_ticks": "lag_ticks",
+            "lag_yaw_fraction": "lag_yaw_fraction",
+            "lag_target_pitch": "lag_climb_pitch",
+            "approach_lead_ticks": "approach_lead_ticks",
+            "reentry_speed_floor": "lag_speed_floor",
+            "reentry_target_speed_offset": "lag_target_speed_offset",
+            "reentry_min_agl": "reentry_min_agl",
+            "reentry_pull_out_seconds": "reentry_pull_out_seconds",
+        }
+        for selected_name, argument_name in mapping.items():
+            self.assertEqual(getattr(args, argument_name), selected[selected_name])
+
     def test_pr9_tick_1245_matches_tick_1246(self) -> None:
         # Preserved PR #9 dogfight_mutual telemetry. The initial smoothed inputs are
         # inferred from the recorded orientation delta, exactly as the replay CLI does.
