@@ -1,0 +1,25 @@
+{
+  "candidate_id": "p47-coupled-climb-20260722-a",
+  "source": "nine unique preserved dogfight_mutual trajectories with calibrated P-47N physics replay",
+  "parameters": {
+    "climb_pitch": -22.0,
+    "yaw_trigger_pitch": -2.0,
+    "pivot_complete_heading": 65.0,
+    "pivot_divisor": 22.0,
+    "capture_pitch_divisor": 10.0,
+    "capture_pitch_damping": 0.10,
+    "yaw_damping": 0.05,
+    "lead_ticks": 8.0
+  },
+  "modeled_result": {
+    "unique_trajectories": 9,
+    "attack_sector_passes": 9,
+    "minimum_speed_bps": 17.5,
+    "minimum_separation_blocks": 17.2,
+    "maximum_separation_blocks": 149.7,
+    "attack_delay_ticks_min": 135,
+    "attack_delay_ticks_max": 245
+  },
+  "authority": "pre-flight only",
+  "required_next_test": "real Forge dogfight_mutual with unchanged safety and weapon gates"
+}
