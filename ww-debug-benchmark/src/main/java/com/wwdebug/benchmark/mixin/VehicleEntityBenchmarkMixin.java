@@ -7,7 +7,9 @@ import com.wwdebug.autopilot.AutopilotWheelLockAdapter;
 import com.wwdebug.autopilot.CombatAwarenessManager;
 import com.wwdebug.autopilot.CombatWeaponManager;
 import com.wwdebug.autopilot.DefensiveAirCombatManager;
+import com.wwdebug.autopilot.EnergyFighterApexYawAdapter;
 import com.wwdebug.autopilot.FormationFlightManager;
+import com.wwdebug.autopilot.TerrainAvoidancePlanner;
 import com.wwdebug.benchmark.BenchmarkManager;
 import net.minecraft.world.entity.Entity;
 import org.spongepowered.asm.mixin.Mixin;
@@ -25,12 +27,16 @@ public abstract class VehicleEntityBenchmarkMixin {
         BenchmarkManager.applyControl(aircraft);
         AutonomousFlightManager.applyControl(aircraft);
         FormationFlightManager.applyControl(aircraft);
-        // Formation collision avoidance has already been applied at this point. Do not let either
-        // defensive or offensive combat overwrite it while the shared CPA probe is dangerous.
-        if (!AirspaceSafetyProbe.collisionRisk(aircraft)) {
-            DefensiveAirCombatManager.applyControl(aircraft);
-            if (!DefensiveAirCombatManager.active(aircraft)) {
-                AirCombatManeuverManager.applyControl(aircraft);
+        // Formation, terrain, and collision safety have already been applied. Combat must never
+        // overwrite those inputs while one of the shared safety planners is authoritative.
+        if (!AirspaceSafetyProbe.collisionRisk(aircraft)
+                && !TerrainAvoidancePlanner.active(aircraft)) {
+            boolean apexYawControl = EnergyFighterApexYawAdapter.applyControl(aircraft);
+            if (!apexYawControl) {
+                DefensiveAirCombatManager.applyControl(aircraft);
+                if (!DefensiveAirCombatManager.active(aircraft)) {
+                    AirCombatManeuverManager.applyControl(aircraft);
+                }
             }
         }
     }
