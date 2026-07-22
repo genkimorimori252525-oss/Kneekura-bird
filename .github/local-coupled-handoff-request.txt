@@ -1,0 +1,3 @@
+apply=agent/p47-coupled-climb-selfhosted
+expected_head=5bc928062b1c6fadfb435bec740eb52895dcb7c2
+requested_at=2026-07-22T23:58+09:00
