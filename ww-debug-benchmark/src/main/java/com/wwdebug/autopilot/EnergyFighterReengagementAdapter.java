@@ -18,10 +18,10 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Converts a recovered energy-fighter extension into a bounded three-dimensional re-entry.
  *
- * <p>The fighter first crosses toward the measured broadside minimum. It then performs an oblique
- * half-loop with a small yaw bias opposite the target's turn and recovers toward the target at a
- * controlled speed. Actual firing, terrain, collision, line-of-sight, friendly-fire, and rear-
- * target checks remain authoritative outside this controller.</p>
+ * <p>The fighter first crosses toward the measured broadside minimum. It then performs a pure
+ * full-power vertical half-loop and recovers toward the target at a controlled speed. Actual
+ * firing, terrain, collision, line-of-sight, friendly-fire, and rear-target checks remain
+ * authoritative outside this controller.</p>
  */
 public final class EnergyFighterReengagementAdapter {
     private static final double START_MIN_DISTANCE = 88.0;
@@ -40,7 +40,6 @@ public final class EnergyFighterReengagementAdapter {
     private static final int MIN_LOOP_TICKS = 70;
     private static final int MAX_LOOP_TICKS = 140;
     private static final double LOOP_COMPLETE_ANGLE_DEG = 160.0;
-    private static final double LOOP_ROLL_INPUT = 0.30;
     private static final double LOOP_SPEED_BPS = 34.0;
     private static final double RECOVERY_SPEED_BPS = 18.0;
     private static final int MAX_RECOVERY_TICKS = 220;
@@ -179,7 +178,7 @@ public final class EnergyFighterReengagementAdapter {
                     && state.loopAngle >= LOOP_COMPLETE_ANGLE_DEG) {
                 transition(level, aircraft, status.get().phase(), state, snapshot,
                         distance, rawAngle, predictedLeadAngle, closure,
-                        threat.aimAngleDeg(), Stage.RECOVERY, "oblique_half_loop_complete");
+                        threat.aimAngleDeg(), Stage.RECOVERY, "vertical_half_loop_complete");
             } else if (state.stageTicks >= MAX_LOOP_TICKS) {
                 finish(level, aircraft, status.get().phase(), "half_loop_incomplete");
                 return false;
@@ -289,7 +288,7 @@ public final class EnergyFighterReengagementAdapter {
                                   FlightSnapshot snapshot, FlightProfile profile,
                                   double rawAngle, double predictedLeadAngle, double closure,
                                   State state, FlightPhase phase) {
-        float x = (float) (-state.turnSign * LOOP_ROLL_INPUT);
+        float x = 0.0f;
         float z = -0.95f;
         double targetSpeed = LOOP_SPEED_BPS;
         float engineTarget = 1.0f;
@@ -299,7 +298,7 @@ public final class EnergyFighterReengagementAdapter {
                 desired, targetAltitude, targetSpeed, 0.0,
                 targetAltitude - snapshot.position().y, targetSpeed - snapshot.speedBps(),
                 snapshot.speedBps() < profile.stallGuardSpeedBps(), false,
-                "energy_oblique_half_loop", "full_power_pull_through_opposite_yaw_bias");
+                "energy_vertical_half_loop", "full_power_pure_vertical_pull_through");
         applyAndLog(level, aircraft, snapshot, output, state, rawAngle,
                 predictedLeadAngle, closure, phase);
     }
