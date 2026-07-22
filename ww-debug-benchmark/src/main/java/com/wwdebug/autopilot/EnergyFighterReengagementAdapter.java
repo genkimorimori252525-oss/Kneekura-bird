@@ -25,8 +25,8 @@ public final class EnergyFighterReengagementAdapter {
     private static final double START_MIN_ENERGY_RATIO = 1.02;
 
     private static final double FORWARD_HANDOFF_ANGLE_DEG = 60.0;
-    private static final double EARLY_WINGOVER_RAW_ANGLE_DEG = 115.0;
-    private static final double EARLY_WINGOVER_MIN_CLOSURE_BPS = 0.0;
+    private static final double EARLY_WINGOVER_RAW_ANGLE_DEG = 126.0;
+    private static final double EARLY_WINGOVER_MIN_CLOSURE_BPS = -6.0;
     private static final double EARLY_WINGOVER_MIN_DISTANCE = 70.0;
     private static final double EARLY_WINGOVER_MAX_DISTANCE = 150.0;
     private static final double ADAPTIVE_HANDOFF_MAX_ANGLE_DEG = 90.0;
@@ -173,7 +173,7 @@ public final class EnergyFighterReengagementAdapter {
                 transition(level, aircraft, status.get().phase(), state, snapshot,
                         distance, rawAngle, predictedLeadAngle, closure,
                         threat.aimAngleDeg(), Stage.WINGOVER,
-                        earlyWingover ? "closure_positive_wingover_entry"
+                        earlyWingover ? "closure_margin_wingover_entry"
                                 : "best_crossing_geometry_stalled");
             } else if (state.stageTicks >= MAX_CROSS_TICKS || distance > 190.0) {
                 finish(level, aircraft, status.get().phase(), "crossing_window_expired");
