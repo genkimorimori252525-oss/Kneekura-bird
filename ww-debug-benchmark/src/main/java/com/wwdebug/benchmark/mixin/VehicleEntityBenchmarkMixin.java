@@ -7,9 +7,10 @@ import com.wwdebug.autopilot.AutopilotWheelLockAdapter;
 import com.wwdebug.autopilot.CombatAwarenessManager;
 import com.wwdebug.autopilot.CombatWeaponManager;
 import com.wwdebug.autopilot.DefensiveAirCombatManager;
-import com.wwdebug.autopilot.EnergyFighterReengagementAdapter;
+import com.wwdebug.autopilot.EnergyFighterApexYawAdapter;
 import com.wwdebug.autopilot.FormationFlightManager;
 import com.wwdebug.autopilot.MutualDogfightMissionHoldAdapter;
+import com.wwdebug.autopilot.TerrainAvoidancePlanner;
 import com.wwdebug.benchmark.BenchmarkManager;
 import net.minecraft.world.entity.Entity;
 import org.spongepowered.asm.mixin.Mixin;
@@ -28,14 +29,12 @@ public abstract class VehicleEntityBenchmarkMixin {
         AutonomousFlightManager.applyControl(aircraft);
         MutualDogfightMissionHoldAdapter.apply(aircraft);
         FormationFlightManager.applyControl(aircraft);
-        // Formation collision avoidance has already been applied at this point. Do not let combat
-        // overwrite it while the shared CPA probe is dangerous.
-        if (!AirspaceSafetyProbe.collisionRisk(aircraft)) {
-            // The bounded energy-fighter controller owns crossing, oblique lag, predicted-lead
-            // pursuit, and final alignment as one deterministic control layer.
-            boolean reengagementControl =
-                    EnergyFighterReengagementAdapter.applyControl(aircraft);
-            if (!reengagementControl) {
+        // Mission, formation, terrain, and collision safety have already had a chance to own input.
+        // Combat must never overwrite either shared safety planner while it is authoritative.
+        if (!AirspaceSafetyProbe.collisionRisk(aircraft)
+                && !TerrainAvoidancePlanner.active(aircraft)) {
+            boolean coupledClimbControl = EnergyFighterApexYawAdapter.applyControl(aircraft);
+            if (!coupledClimbControl) {
                 DefensiveAirCombatManager.applyControl(aircraft);
                 if (!DefensiveAirCombatManager.active(aircraft)) {
                     AirCombatManeuverManager.applyControl(aircraft);
