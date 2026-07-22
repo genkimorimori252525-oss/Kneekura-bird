@@ -26,7 +26,7 @@ A passing candidate must satisfy all of the following in one run and then repeat
 
 - Active experiment branch: `agent/p47-coupled-climb-selfhosted`.
 - Current experiment head: `b4a03d2772ae43c3985eb5a3cb346b07ab216c0e`.
-- Current validation request on `main`: `d95aa45d5011493cfed48a867284933184e23d54`.
+- Latest validation request on `main`: `8c2fc8e14b3a241a94bc46c2206b890bcdb4f57e`.
 - Self-hosted runner labels: `self-hosted`, `Windows`, `X64`.
 - Validation execution log: Issue #15.
 - Latest completed-run index: `.github/local-validation-status.json`.
