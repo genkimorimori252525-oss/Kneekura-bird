@@ -337,7 +337,7 @@ public final class EnergyFighterReengagementAdapter {
         float x = (float) Mth.clamp(headingError / 12.0, -0.94, 0.94);
         double targetAltitude = target.getBoundingBox().getCenter().y;
         double altitudeError = targetAltitude - snapshot.position().y;
-        double verticalDirectionError = snapshot.forward().y - predictedLeadDirection.y;
+        double verticalDirectionError = predictedLeadDirection.y - snapshot.forward().y;
         float z = (float) Mth.clamp(verticalDirectionError * 1.80
                 + snapshot.verticalSpeedBps() * 0.018, -0.88, 0.88);
         double targetSpeed = recoveryTargetSpeed(profile, target);
@@ -347,7 +347,7 @@ public final class EnergyFighterReengagementAdapter {
                 predictedLeadDirection, targetAltitude, targetSpeed,
                 headingError, altitudeError, targetSpeed - snapshot.speedBps(),
                 snapshot.speedBps() < profile.stallGuardSpeedBps(), false,
-                "energy_vector_pitch_recovery", "orientation_aware_yaw_and_vector_pitch");
+                "energy_vector_pitch_recovery", "corrected_vertical_direction_error");
         applyAndLog(level, aircraft, snapshot, output, state, rawAngle,
                 predictedLeadAngle, closure, phase);
     }
