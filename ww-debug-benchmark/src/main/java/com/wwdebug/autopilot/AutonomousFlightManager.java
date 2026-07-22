@@ -404,6 +404,10 @@ public final class AutonomousFlightManager {
         ));
     }
 
+    public static boolean terrainAvoidanceActive(Entity aircraft) {
+        return TerrainAvoidancePlanner.active(aircraft);
+    }
+
     public static List<SessionStatus> activeStatuses() {
         List<SessionStatus> statuses = new ArrayList<>();
         for (UUID uuid : SESSIONS.keySet()) {

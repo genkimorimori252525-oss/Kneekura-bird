@@ -9,7 +9,6 @@ import com.wwdebug.autopilot.CombatWeaponManager;
 import com.wwdebug.autopilot.DefensiveAirCombatManager;
 import com.wwdebug.autopilot.EnergyFighterApexYawAdapter;
 import com.wwdebug.autopilot.FormationFlightManager;
-import com.wwdebug.autopilot.TerrainAvoidancePlanner;
 import com.wwdebug.benchmark.BenchmarkManager;
 import net.minecraft.world.entity.Entity;
 import org.spongepowered.asm.mixin.Mixin;
@@ -30,7 +29,7 @@ public abstract class VehicleEntityBenchmarkMixin {
         // Formation, terrain, and collision safety have already been applied. Combat must never
         // overwrite those inputs while one of the shared safety planners is authoritative.
         if (!AirspaceSafetyProbe.collisionRisk(aircraft)
-                && !TerrainAvoidancePlanner.active(aircraft)) {
+                && !AutonomousFlightManager.terrainAvoidanceActive(aircraft)) {
             boolean apexYawControl = EnergyFighterApexYawAdapter.applyControl(aircraft);
             if (!apexYawControl) {
                 DefensiveAirCombatManager.applyControl(aircraft);
