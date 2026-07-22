@@ -65,6 +65,52 @@ def infer_initial_smoothing(first: angular.Frame, second: angular.Frame,
     return smoothed_x, smoothed_z
 
 
+def read_frame_engine_power(path: Path, tick: int) -> float | None:
+    """Read the real engine-power interpolator value from the selected JSONL frame."""
+    with path.open(encoding="utf-8") as handle:
+        for raw in handle:
+            try:
+                row = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if row.get("event") != "frame" or int(row.get("server_tick", -1)) != tick:
+                continue
+            value = row.get("engine_power")
+            if value is None:
+                return None
+            value = float(value)
+            return value if math.isfinite(value) else None
+    return None
+
+
+def selected_candidate_defaults() -> dict[str, float]:
+    """Load the branch's machine-readable candidate, with safe fallback values."""
+    defaults: dict[str, float] = {
+        "climb_pitch": -22.0,
+        "yaw_trigger_pitch": -2.0,
+        "pivot_complete_heading": 65.0,
+        "pivot_divisor": 22.0,
+        "capture_pitch_divisor": 10.0,
+        "capture_pitch_damping": 0.10,
+        "yaw_damping": 0.05,
+        "lead_ticks": 8.0,
+    }
+    path = Path(__file__).with_name("p47_coupled_climb_candidate.json")
+    if not path.is_file():
+        return defaults
+    try:
+        root = json.loads(path.read_text(encoding="utf-8"))
+        parameters = root.get("parameters", {})
+        for key in tuple(defaults):
+            if key in parameters:
+                value = float(parameters[key])
+                if math.isfinite(value):
+                    defaults[key] = value
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        pass
+    return defaults
+
+
 def physics_tick(
     state: AircraftState,
     *,
@@ -153,13 +199,19 @@ def simulate(args: argparse.Namespace) -> dict:
     smoothed_x, smoothed_z = infer_initial_smoothing(
         initial, following, args.yaw_speed, args.pitch_speed
     )
+    measured_engine_power = read_frame_engine_power(args.p47, args.start_tick)
+    initial_engine_power = args.initial_engine_power
+    if initial_engine_power is None:
+        initial_engine_power = measured_engine_power
+    if initial_engine_power is None:
+        initial_engine_power = args.recorded_engine_power
+
     state = AircraftState(
         position=initial.position,
         velocity=initial.velocity,
         yaw=initial.yaw,
         pitch=initial.pitch,
-        engine_power=args.initial_engine_power
-        if args.initial_engine_power is not None else args.recorded_engine_power,
+        engine_power=initial_engine_power,
         smoothed_x=smoothed_x,
         smoothed_z=smoothed_z,
     )
@@ -313,6 +365,12 @@ def simulate(args: argparse.Namespace) -> dict:
     return {
         "candidate": asdict(candidate),
         "start_tick": args.start_tick,
+        "initial_engine_power": initial_engine_power,
+        "initial_engine_power_source": (
+            "override" if args.initial_engine_power is not None
+            else "telemetry" if measured_engine_power is not None
+            else "fallback"
+        ),
         "samples": len(rows),
         "modeled_attack": first_attack is not None,
         "first_attack": first_attack,
@@ -327,21 +385,28 @@ def simulate(args: argparse.Namespace) -> dict:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    selected = selected_candidate_defaults()
     parser = argparse.ArgumentParser()
     parser.add_argument("--p47", type=Path, required=True)
     parser.add_argument("--target", type=Path, required=True)
     parser.add_argument("--start-tick", type=int, required=True)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--max-ticks", type=int, default=390)
-    parser.add_argument("--lead-ticks", type=float, default=8.0)
+    parser.add_argument("--lead-ticks", type=float, default=selected["lead_ticks"])
 
-    parser.add_argument("--climb-pitch", type=float, default=-22.0)
-    parser.add_argument("--yaw-trigger-pitch", type=float, default=0.0)
-    parser.add_argument("--pivot-complete-heading", type=float, default=65.0)
-    parser.add_argument("--pivot-divisor", type=float, default=38.0)
-    parser.add_argument("--capture-pitch-divisor", type=float, default=12.0)
-    parser.add_argument("--capture-pitch-damping", type=float, default=0.10)
-    parser.add_argument("--yaw-damping", type=float, default=0.0)
+    parser.add_argument("--climb-pitch", type=float, default=selected["climb_pitch"])
+    parser.add_argument("--yaw-trigger-pitch", type=float,
+                        default=selected["yaw_trigger_pitch"])
+    parser.add_argument("--pivot-complete-heading", type=float,
+                        default=selected["pivot_complete_heading"])
+    parser.add_argument("--pivot-divisor", type=float,
+                        default=selected["pivot_divisor"])
+    parser.add_argument("--capture-pitch-divisor", type=float,
+                        default=selected["capture_pitch_divisor"])
+    parser.add_argument("--capture-pitch-damping", type=float,
+                        default=selected["capture_pitch_damping"])
+    parser.add_argument("--yaw-damping", type=float,
+                        default=selected["yaw_damping"])
 
     parser.add_argument("--engine-speed", type=float, default=0.102)
     parser.add_argument("--lift", type=float, default=0.165)
@@ -354,8 +419,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--engine-reaction-steps", type=float, default=100.0)
     parser.add_argument("--cruise-speed", type=float, default=33.6741875662)
     parser.add_argument("--stall-guard-speed", type=float, default=10.1662137203)
-    parser.add_argument("--recorded-engine-power", type=float, default=1.0)
-    parser.add_argument("--initial-engine-power", type=float)
+    parser.add_argument("--recorded-engine-power", type=float, default=1.0,
+                        help="Fallback only when the selected JSONL frame lacks engine_power")
+    parser.add_argument("--initial-engine-power", type=float,
+                        help="Optional explicit override of the telemetry engine power")
     return parser
 
 
