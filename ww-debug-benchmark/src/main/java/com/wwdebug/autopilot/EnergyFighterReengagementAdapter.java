@@ -49,12 +49,18 @@ public final class EnergyFighterReengagementAdapter {
     private static final double LEAD_TICKS = 10.0;
     private static final int MAX_RECOVERY_TICKS = 220;
 
+    private static final double DOCTRINE_CAPTURE_MAX_RAW_ANGLE_DEG = 75.0;
+    private static final double DOCTRINE_CAPTURE_MAX_LEAD_ANGLE_DEG = 80.0;
+    private static final double DOCTRINE_CAPTURE_MIN_DISTANCE = 50.0;
+    private static final double DOCTRINE_CAPTURE_MAX_DISTANCE = 125.0;
+    private static final double DOCTRINE_CAPTURE_MIN_CLOSURE_BPS = -12.0;
+    private static final double DOCTRINE_CAPTURE_MAX_CLOSURE_BPS = 28.0;
+
     private static final double ATTACK_MAX_RAW_ANGLE_DEG = 45.0;
     private static final double ATTACK_MAX_LEAD_ANGLE_DEG = 12.0;
     private static final double ATTACK_MIN_DISTANCE = 24.0;
     private static final double ATTACK_MAX_DISTANCE = 125.0;
     private static final double ATTACK_MIN_CLOSURE_BPS = -6.0;
-    private static final double ATTACK_MAX_CLOSURE_BPS = 28.0;
     private static final int MAX_TOTAL_TICKS = 430;
 
     private static final Map<UUID, State> STATES = new ConcurrentHashMap<>();
@@ -208,17 +214,18 @@ public final class EnergyFighterReengagementAdapter {
         }
 
         if (state.stage == Stage.RECOVERY) {
-            boolean attackSector = target.lineOfSight()
-                    && rawAngle <= ATTACK_MAX_RAW_ANGLE_DEG
-                    && predictedLeadAngle <= ATTACK_MAX_LEAD_ANGLE_DEG
-                    && distance >= ATTACK_MIN_DISTANCE && distance <= ATTACK_MAX_DISTANCE
-                    && closure >= ATTACK_MIN_CLOSURE_BPS
-                    && closure <= ATTACK_MAX_CLOSURE_BPS;
-            if (attackSector) {
+            boolean doctrineCaptureSector = target.lineOfSight()
+                    && rawAngle <= DOCTRINE_CAPTURE_MAX_RAW_ANGLE_DEG
+                    && predictedLeadAngle <= DOCTRINE_CAPTURE_MAX_LEAD_ANGLE_DEG
+                    && distance >= DOCTRINE_CAPTURE_MIN_DISTANCE
+                    && distance <= DOCTRINE_CAPTURE_MAX_DISTANCE
+                    && closure >= DOCTRINE_CAPTURE_MIN_CLOSURE_BPS
+                    && closure <= DOCTRINE_CAPTURE_MAX_CLOSURE_BPS;
+            if (doctrineCaptureSector) {
                 transition(level, aircraft, status.get().phase(), state, snapshot,
                         distance, rawAngle, predictedLeadAngle, closure,
                         threat.aimAngleDeg(), Stage.DOCTRINE,
-                        "high_energy_recovery_reached_attack_sector");
+                        "reentry_capture_handoff_to_doctrine");
             } else if (state.stageTicks >= MAX_RECOVERY_TICKS || distance > 190.0) {
                 finish(level, aircraft, status.get().phase(), "high_energy_recovery_expired");
                 return false;
