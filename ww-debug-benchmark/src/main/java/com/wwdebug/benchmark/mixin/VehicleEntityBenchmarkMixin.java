@@ -34,8 +34,10 @@ public abstract class VehicleEntityBenchmarkMixin {
             // controller or ordinary combat doctrine can select another manoeuvre.
             boolean pulloutControl = EnergyFighterPulloutAdapter.applyControl(aircraft);
             if (!pulloutControl) {
-                boolean reengagementControl =
-                        EnergyFighterReengagementAdapter.applyControl(aircraft);
+                boolean reengagementControl = false;
+                if (EnergyFighterPulloutAdapter.reengagementStartSafe(aircraft)) {
+                    reengagementControl = EnergyFighterReengagementAdapter.applyControl(aircraft);
+                }
                 if (!reengagementControl) {
                     DefensiveAirCombatManager.applyControl(aircraft);
                     if (!DefensiveAirCombatManager.active(aircraft)) {
