@@ -40,6 +40,16 @@ Run checks in this order:
 
 Do not use the expensive headless GameTest as the first diagnostic tool for every small threshold change. Add telemetry or deterministic assertions first when the cause is unclear.
 
+## CI monitoring and owner reporting
+
+- CI polling must be bounded. Check an in-progress workflow only a small number of times, then return a visible status checkpoint instead of silently repeating sleep-and-poll cycles.
+- A workflow failure ends the waiting phase immediately. Switch to log and artifact analysis before starting another CI run.
+- Do not push a new commit merely to escape an in-progress or failed workflow. First record the exact result of the current commit.
+- Before the next behavioral hypothesis, report: current commit, build result, targeted scenario result, exact failing acceptance condition, preserved safety metrics, and the next single hypothesis.
+- If CI is still running when the interaction must pause, explicitly state that it remains in progress and identify the run being watched.
+- Never leave a tool call, polling message, or sleep operation as the final visible state of a work session. Close the session with a human-readable progress report.
+- GitHub email notifications and assistant-side CI monitoring are independent views of the same workflow. A failure email is not itself an assistant error; however, the assistant must still acknowledge and analyze that failure promptly.
+
 ## Air-combat safety invariants
 
 Never weaken these merely to make a qualification pass:
