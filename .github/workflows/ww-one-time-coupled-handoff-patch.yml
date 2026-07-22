@@ -1,0 +1,103 @@
+name: WW One-Time Coupled-Climb Handoff Patch
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/local-coupled-handoff-request.txt'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ww-one-time-coupled-handoff-patch
+  cancel-in-progress: false
+
+jobs:
+  patch:
+    if: ${{ github.actor == 'genkimorimori252525-oss' }}
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout exact target branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/p47-coupled-climb-selfhosted
+          fetch-depth: 0
+          clean: true
+          persist-credentials: true
+
+      - name: Verify expected branch head
+        shell: powershell
+        run: |
+          $actual = (git rev-parse HEAD).Trim()
+          $expected = '5bc928062b1c6fadfb435bec740eb52895dcb7c2'
+          if ($actual -ne $expected) {
+            throw "Refusing one-time patch: expected $expected but found $actual"
+          }
+
+      - name: Apply exact doctrine handoff patch
+        shell: powershell
+        run: |
+          @'
+          from pathlib import Path
+
+          path = Path('ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/EnergyFighterApexYawAdapter.java')
+          text = path.read_text(encoding='utf-8')
+
+          old_constants = '''    private static final double ATTACK_MAX_RAW_ANGLE_DEG = 45.0;
+              private static final double ATTACK_MAX_LEAD_ANGLE_DEG = 12.0;'''.replace('              ', '    ')
+          new_constants = '''    private static final double DOCTRINE_CAPTURE_MAX_RAW_ANGLE_DEG = 75.0;
+              private static final double DOCTRINE_CAPTURE_MAX_LEAD_ANGLE_DEG = 80.0;
+              private static final double DOCTRINE_CAPTURE_MIN_DISTANCE = 50.0;
+              private static final double DOCTRINE_CAPTURE_MAX_DISTANCE = 125.0;
+              private static final double DOCTRINE_CAPTURE_MIN_CLOSURE_BPS = -12.0;
+              private static final double DOCTRINE_CAPTURE_MAX_CLOSURE_BPS = 28.0;
+
+              private static final double ATTACK_MAX_RAW_ANGLE_DEG = 45.0;
+              private static final double ATTACK_MAX_LEAD_ANGLE_DEG = 12.0;'''.replace('              ', '    ')
+
+          old_capture = '''            boolean attackSector = target.lineOfSight()
+                      && rawAngle <= ATTACK_MAX_RAW_ANGLE_DEG
+                      && leadAngle <= ATTACK_MAX_LEAD_ANGLE_DEG
+                      && distance >= ATTACK_MIN_DISTANCE && distance <= ATTACK_MAX_DISTANCE
+                      && closure >= ATTACK_MIN_CLOSURE_BPS
+                      && closure <= ATTACK_MAX_CLOSURE_BPS;
+              if (attackSector) {
+                  transition(level, aircraft, session.get().phase(), state, snapshot,
+                          distance, rawAngle, leadAngle, closure, threat.aimAngleDeg(),
+                          Stage.DOCTRINE, "attack_sector_reached");'''.replace('              ', '            ').replace('                  ', '                ').replace('                      ', '                    ')
+          new_capture = '''            boolean doctrineCaptureSector = target.lineOfSight()
+                      && rawAngle <= DOCTRINE_CAPTURE_MAX_RAW_ANGLE_DEG
+                      && leadAngle <= DOCTRINE_CAPTURE_MAX_LEAD_ANGLE_DEG
+                      && distance >= DOCTRINE_CAPTURE_MIN_DISTANCE
+                      && distance <= DOCTRINE_CAPTURE_MAX_DISTANCE
+                      && closure >= DOCTRINE_CAPTURE_MIN_CLOSURE_BPS
+                      && closure <= DOCTRINE_CAPTURE_MAX_CLOSURE_BPS;
+              if (doctrineCaptureSector) {
+                  transition(level, aircraft, session.get().phase(), state, snapshot,
+                          distance, rawAngle, leadAngle, closure, threat.aimAngleDeg(),
+                          Stage.DOCTRINE, "capture_handoff_to_doctrine");'''.replace('              ', '            ').replace('                  ', '                ').replace('                      ', '                    ')
+
+          if text.count(old_constants) != 1:
+              raise SystemExit(f'Expected one constants block, found {text.count(old_constants)}')
+          if text.count(old_capture) != 1:
+              raise SystemExit(f'Expected one capture block, found {text.count(old_capture)}')
+
+          text = text.replace(old_constants, new_constants, 1)
+          text = text.replace(old_capture, new_capture, 1)
+          path.write_text(text, encoding='utf-8', newline='\n')
+          '@ | python -
+
+          git diff --check
+          git diff -- ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/EnergyFighterApexYawAdapter.java
+
+      - name: Commit focused patch
+        shell: powershell
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/EnergyFighterApexYawAdapter.java
+          git commit -m 'Hand off safe P-47N capture to fighter doctrine'
+          git push origin HEAD:agent/p47-coupled-climb-selfhosted
