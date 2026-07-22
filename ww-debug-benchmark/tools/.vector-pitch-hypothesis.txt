@@ -1,0 +1,1 @@
+Recovery pitch must compare aircraft forward.y with predicted lead direction.y instead of subtracting wrapped Euler pitch angles.
