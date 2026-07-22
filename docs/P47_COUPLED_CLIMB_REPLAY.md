@@ -4,13 +4,13 @@ Date: 2026-07-22
 
 ## Purpose
 
-This branch replaces blind remote threshold tuning with a deterministic pre-flight model derived from the exact Immersive Aircraft 1.20.1 update order. GitHub-hosted Actions minutes are exhausted, so this work prepares one materially justified candidate for the next available real Forge GameTest rather than creating repeated unstarted workflow runs.
+This branch replaces blind remote threshold tuning with a deterministic pre-flight model derived from the Immersive Aircraft 1.20.1 update order. GitHub-hosted Actions minutes are exhausted, so replay, build and real Forge GameTest validation run locally without dispatching workflows.
 
 The model does **not** replace Forge GameTest. The P-47N position, velocity, orientation, input smoothing, thrust, drag, glide and gravity are resimulated; the A6M retains its preserved real-physics trajectory. Target response, line of sight, terrain, collision and threat arbitration remain authoritative only in the real server test.
 
 ## Physics calibration
 
-`tools/test_coupled_climb_trajectory.py` fixes one consecutive PR #9 telemetry step as a regression fixture.
+`tools/test_coupled_climb_trajectory.py` fixes both one consecutive PR #9 telemetry step and a 94-tick local P-47N pivot trace as regression fixtures.
 
 The modeled tick reproduces:
 
@@ -28,10 +28,19 @@ The calibration covers the P-47N constants used by the trajectory replay:
 - friction/drift drag `0.013`;
 - glide factor `0.055`;
 - horizontal and vertical decay `0.97`;
+- rotation decay `0.97`;
 - 10-tick X/Z input interpolation;
 - 100-step engine-power response observed in the preserved run.
 
-## Selected candidate
+The missing production behavior in the earlier model was the control decay performed by `InventoryVehicleEntity.applyFriction()` before `AircraftEntity.updateController()`:
+
+```text
+control_decay = (1 - 0.013) * 0.97 = 0.95739 per tick
+```
+
+With interpolation included, a sustained `-0.96` logical yaw command converges to an effective input of about `-0.664`, not `-0.96`. The corrected replay matches the 105-frame local pivot with yaw error below `1 deg` and pitch error below `0.2 deg`. The one-tick position and velocity checks remain within `0.005`; the longer replay can drift by about four blocks because it does not model wind and all server-side state.
+
+## Current production baseline
 
 The machine-readable source of truth is `tools/p47_coupled_climb_candidate.json`.
 
@@ -46,34 +55,22 @@ The current modeled candidate is deliberately shallow and coupled:
 - yaw-rate damping: `0.05`;
 - lead horizon: `8 ticks`.
 
-This is not a loop. It starts turning while converting a limited amount of horizontal closure into altitude, then lets the lead-capture controller finish the intercept.
+These values remain synchronized with Java, but they are now marked as a rejected baseline in the JSON. They must not be presented as a passing pre-flight candidate.
 
-## Preserved-run replay result
+## Corrected local result
 
-Ten downloaded artifacts were examined. PR #8 attempts 4 and 5 contain the same P-47N trajectory, leaving **nine unique trajectories**. The selected candidate reached the static attack sector in all nine:
+The earlier claim that this baseline reached the static attack sector in nine of nine preserved trajectories is invalid. That result omitted the per-tick control decay and overestimated P-47N yaw authority by roughly 30 to 40 percent.
 
-- raw target angle `<= 45 deg`;
-- predicted lead angle `<= 12 deg`;
-- distance `24..125 blocks`;
-- closure `-6..28 blocks/second`.
+The corrected model reproduces the latest local `pivot_timeout` at both observed re-entry starts:
 
-Aggregate modeled safety envelope across the nine unique trajectories:
+- start tick `5351`: no attack sector, `105` samples, minimum speed `35.72 bps`, distance `82.97..112.37` blocks;
+- start tick `5575`: no attack sector, `108` samples, minimum speed `34.18 bps`, distance `114.85..135.20` blocks.
 
-- minimum speed: about `17.5 bps`;
-- minimum separation: about `17.2 blocks`;
-- maximum separation: about `149.7 blocks`;
-- modeled firing-window delay: `135..245 ticks` after re-entry start.
+The local headless `dogfight_mutual` run completed the physical GameTest and the primary A6M returned, landed and parked. The scenario verifier correctly failed only because the A6M fired three times and the P-47N fired zero times. Minimum and maximum separation were `10.86` and `158.44` blocks, with no combat ground contact.
 
-Representative modeled firing windows ranged from:
+The plan's proposed handoff at approximately `90 deg` raw angle with positive closure was evaluated in the corrected replay. It reached capture but still did not produce an attack sector. A separate diagnostic that limited capture pitch during the crossing also failed at both starts. Neither rejected experiment was applied to Java.
 
-- fast capture: range about `50..57`, closure about `26`, speed about `41 bps`;
-- slower recovered capture: range about `58..116`, closure about `5..20`, speed about `17.5..21.6 bps`.
-
-## Why this supersedes the previous candidate
-
-The earlier `-34 deg / -20 deg / 28 deg` coupled-climb candidate still held the climb too long and frequently timed out in pivot. The subsequent `-30 deg / -8 deg / 35 deg` candidate improved angular capture but remained inconsistent once the P-47N trajectory itself was resimulated.
-
-The selected `-22 deg / -2 deg / 65 deg` candidate succeeded across every unique preserved trajectory in the calibrated model while staying above stall guard and within the accepted separation envelope.
+This is a controller-design limitation rather than justification for changing firing, separation, terrain or collision gates.
 
 ## Required next validation
 
@@ -81,12 +78,12 @@ Do not merge from this replay alone.
 
 When an execution path is available:
 
-1. run the Python calibration test;
-2. run the ordinary benchmark build and deterministic mission simulation;
-3. apply the selected constants to the production adapter;
-4. run one targeted `dogfight_mutual` Forge GameTest;
-5. inspect legitimate A6M and P-47N fire counts, minimum/maximum separation, ground contact, AGL, speed and control-stage transitions;
-6. repeat only after the first safe reciprocal-firing pass;
-7. run the full regression matrix before merge.
+1. preserve the corrected multi-tick physics regression;
+2. design a distinct crossing-to-approach controller that accounts for the effective yaw authority;
+3. reject it in replay unless both observed starts enter the unchanged attack sector safely;
+4. run the ordinary build and deterministic mission simulation;
+5. run one targeted local `dogfight_mutual` only after the pre-flight gate passes;
+6. inspect legitimate A6M and P-47N fire counts, minimum/maximum separation, ground contact, AGL, speed and control-stage transitions;
+7. repeat only after the first safe reciprocal-firing pass, then run the full regression matrix.
 
 All existing terrain, collision, line-of-sight, range, friendly-fire, fixed-gun cone, rear-target and credible-threat safeguards remain non-negotiable.

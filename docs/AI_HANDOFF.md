@@ -25,11 +25,26 @@ Do not resume from the old oversized experimental PRs.
 
 - Draft PR #9: full-loop and closure-release research history.
 - Draft PR #13: near-vertical apex-yaw research history; its hosted checks never started because Actions minutes were exhausted.
-- Active un-PR'd branch: `agent/p47-coupled-climb-replay`.
+- Active local validation branch: `agent/p47-local-validation`, based on and tracking
+  `origin/agent/p47-coupled-climb-replay`.
 - Production adapter: `EnergyFighterApexYawAdapter.java`.
 - Latest selected-constant implementation commit: `5fee5f21e845753fb4d8949dd853191feeb3e5c0`.
+- Local validation commits: `2115f049` (terrain-safety facade), `091fe1b9`
+  (opponent combat-phase hold), and `45610883` (control-decay replay model).
 
 The branch intentionally remains without a PR so changes under `ww-debug-benchmark/**` do not trigger more unstartable hosted workflows.
+
+## Local execution path
+
+The repository can now run both requested validation layers without GitHub Actions:
+
+- JDK 17: `C:\Program Files\Java\jdk-17`;
+- Gradle 8.8: cached locally and discovered by the VS Code tasks;
+- lightweight checks: Python replay regressions plus the 12-case deterministic mission simulator;
+- windowless Minecraft: Forge `runGameTestServer` with the exact Immersive Aircraft `1.3.3` and Warfare Wings `1.1.4` runtime jars;
+- VS Code entry point: `.vscode/tasks.json`, especially `WW: Headless dogfight_mutual + verify`.
+
+The headless verifier selects only the newest coherent A6M/P-47N telemetry session and treats a non-zero Gradle status as a failure. It no longer risks accepting stale telemetry from an earlier run.
 
 ## Established root cause
 
@@ -38,11 +53,17 @@ P-47N failure is not adequately explained by one bad angle threshold.
 - Pure horizontal pursuit preserves bearing but overshoots because closure remains high.
 - Reversing the horizontal turn discards bearing.
 - A completed vertical loop or near-vertical climb converts too much useful separation into altitude and delays yaw because Immersive Aircraft smooths X/Z input over ten ticks.
-- The required maneuver is a **shallow coupled climbing turn**: begin yaw while converting only a limited amount of closure into altitude, then finish with measured lead capture.
+- A **shallow coupled climbing turn** remains the useful energy-management basis, but the current direct pivot-to-capture controller cannot complete the crossing with the measured yaw authority. The next design needs an explicit crossing-to-approach policy rather than another isolated angle threshold.
 
-The exact Immersive Aircraft 1.20.1 input and physics order has been inspected and modeled: input interpolation, yaw/pitch, lift-based velocity conversion, glide, friction, horizontal/vertical decay, speed-dependent gravity, thrust and engine response.
+The earlier replay omitted one critical step. `InventoryVehicleEntity.applyFriction()` decays the interpolated X/Z controls before `AircraftEntity.updateController()` consumes them:
 
-## Selected candidate
+```text
+control_decay = (1 - 0.013) * 0.97 = 0.95739 per tick
+```
+
+Combined with 10-tick interpolation, a sustained `-0.96` command produces about `-0.664` effective yaw input. The old replay therefore overestimated P-47N yaw authority by roughly 30 to 40 percent. The corrected model reproduces the local 105-frame pivot with yaw error below `1 deg` and pitch error below `0.2 deg`.
+
+## Current production baseline (rejected)
 
 Machine-readable source of truth:
 
@@ -59,7 +80,7 @@ Parameters:
 - yaw-rate damping: `0.05`;
 - lead horizon: `8 ticks`.
 
-The production adapter contains the same values. Commit `5fee5f21` was inspected after the full-file update and changes only these seven constants; attack and safety gates were unchanged.
+The production adapter contains the same values. Commit `5fee5f21` was inspected after the full-file update and changes only these seven constants; attack and safety gates were unchanged. The JSON now marks this parameter set `rejected_after_control_decay_correction`; it is a synchronized baseline, not a selected passing candidate.
 
 ## Pre-flight evidence
 
@@ -68,27 +89,28 @@ Tools on the active branch:
 - `analyze_apex_yaw_replay.py`: exact 10-tick orientation/input replay;
 - `batch_apex_yaw_replay.py`: multi-session angular and recorded static-gate replay;
 - `analyze_coupled_climb_trajectory.py`: advances modeled P-47N position, velocity, attitude, thrust, drag, glide and gravity;
-- `test_coupled_climb_trajectory.py`: one-tick calibration against preserved PR #9 Forge telemetry;
+- `test_coupled_climb_trajectory.py`: one-tick calibration plus a 94-tick local pivot regression;
 - `verify_p47_candidate_sync.py`: verifies JSON/Java candidate equality and pins safety/firing constants;
 - `P47_COUPLED_CLIMB_REPLAY.md`: evidence and limitations.
 
-Calibration reproduces one preserved real-physics tick to:
+The one-tick calibration reproduces preserved real physics to:
 
 - yaw/pitch: five decimal places;
 - engine power: six decimal places;
 - position: within `0.005` blocks;
 - velocity: within `0.005` blocks/tick.
 
-After removing a duplicate PR #8 trajectory, the selected candidate reaches the standard angle/range/closure attack sector in all nine unique preserved trajectories in the calibrated model.
+The earlier nine-of-nine modeled attack-sector result is invalid because it omitted the control decay. With the corrected model, the current baseline reaches no attack sector at either local re-entry start (`5351`, `5575`) and reproduces `pivot_timeout`.
 
-Modeled aggregate envelope:
+The latest local headless run completed the physical GameTest and the primary A6M returned, landed and parked. The verifier result was:
 
-- minimum speed about `17.5 bps`;
-- minimum separation about `17.2 blocks`;
-- maximum separation about `149.7 blocks`;
-- attack-sector arrival `135..245 ticks` after re-entry start.
+- A6M fire count: `3`;
+- P-47N fire count: `0`;
+- minimum/maximum separation: `10.86` / `158.44` blocks;
+- combat ground-contact frames: `0` for both aircraft;
+- sole verifier error: `P-47N never fired at the A6M`.
 
-This is not a qualification pass. The A6M reaction, real LOS, threat arbitration, terrain, collision and weapon release require the Forge server.
+The proposed transition near `90 deg` raw angle with positive closure and a separate shallow-pitch capture diagnostic were tested only in the corrected replay. Neither produced an attack sector, so neither was applied to Java.
 
 ## Safety invariants
 
@@ -106,16 +128,18 @@ Never weaken these merely to make the qualification pass:
 
 ## Exact next validation
 
-When any real execution path becomes available:
+For the next controller hypothesis:
 
-1. run `python tools/test_coupled_climb_trajectory.py`;
-2. run `python tools/verify_p47_candidate_sync.py`;
-3. run ordinary benchmark build and deterministic mission simulation;
-4. run exactly one targeted `dogfight_mutual` Forge GameTest;
-5. inspect legitimate A6M/P-47N fire counts, control transitions, minimum and maximum separation, minimum speed, AGL, ground contact and collision;
-6. if both fighters fire safely, repeat the same targeted test for stability;
-7. only after the repeat passes, run the full regression matrix;
-8. build a clean focused PR from current `main`, carrying only the required production/controller, deterministic-opening and validation changes—not the research history.
+1. keep `python -B tools/test_coupled_climb_trajectory.py` passing;
+2. design a distinct crossing-to-approach controller that accounts for effective yaw authority;
+3. reject it locally unless both observed replay starts enter the unchanged attack sector safely;
+4. run `python -B tools/verify_p47_candidate_sync.py`;
+5. run the Gradle 8.8/JDK 17 build and deterministic mission simulation;
+6. only then run exactly one targeted local `dogfight_mutual` Forge GameTest;
+7. inspect legitimate A6M/P-47N fire counts, control transitions, minimum and maximum separation, minimum speed, AGL, ground contact and collision;
+8. if both fighters fire safely, repeat the same targeted test for stability;
+9. only after the repeat passes, run the full regression matrix;
+10. build a clean focused PR from current `main`, carrying only the required production/controller, deterministic-opening and validation changes—not the research history.
 
 If the targeted run fails, analyze its saved telemetry before changing code. Do not return to blind threshold tuning.
 

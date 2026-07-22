@@ -1,6 +1,7 @@
 {
   "candidate_id": "p47-coupled-climb-20260722-a",
-  "source": "nine unique preserved dogfight_mutual trajectories with calibrated P-47N physics replay",
+  "source": "current production baseline re-evaluated with Immersive Aircraft control decay",
+  "status": "rejected_after_control_decay_correction",
   "parameters": {
     "climb_pitch": -22.0,
     "yaw_trigger_pitch": -2.0,
@@ -12,14 +13,14 @@
     "lead_ticks": 8.0
   },
   "modeled_result": {
-    "unique_trajectories": 9,
-    "attack_sector_passes": 9,
-    "minimum_speed_bps": 17.5,
-    "minimum_separation_blocks": 17.2,
-    "maximum_separation_blocks": 149.7,
-    "attack_delay_ticks_min": 135,
-    "attack_delay_ticks_max": 245
+    "local_reentry_starts": [5351, 5575],
+    "attack_sector_passes": 0,
+    "control_decay_per_tick": 0.95739,
+    "minimum_speed_bps": 34.18,
+    "minimum_separation_blocks": 82.97,
+    "maximum_separation_blocks": 135.20,
+    "termination": "pivot_timeout"
   },
-  "authority": "pre-flight only",
-  "required_next_test": "real Forge dogfight_mutual with unchanged safety and weapon gates"
+  "authority": "rejected pre-flight baseline",
+  "required_next_test": "design a new crossing-to-approach controller before another real Forge dogfight_mutual run"
 }
