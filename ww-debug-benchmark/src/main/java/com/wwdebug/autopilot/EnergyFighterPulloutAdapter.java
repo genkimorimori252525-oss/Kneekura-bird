@@ -21,6 +21,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class EnergyFighterPulloutAdapter {
     private static final double ACTIVATION_MAX_VERTICAL_SPEED_BPS = -20.0;
     private static final double ACTIVATION_MIN_PITCH_DEG = 70.0;
+    private static final double ACTIVATION_MAX_PITCH_DEG = 160.0;
     private static final double ACTIVATION_MIN_AGL = 40.0;
     private static final double MIN_REENGAGEMENT_START_AGL = 70.0;
     private static final int MIN_PULL_OUT_TICKS = 10;
@@ -69,18 +70,24 @@ public final class EnergyFighterPulloutAdapter {
 
         if (state == null) {
             double pitch = Math.abs(Mth.wrapDegrees((float) snapshot.pitchDeg()));
-            if (!AirCombatManeuverManager.active(aircraft)
+            boolean doctrineReturn = AirCombatManeuverManager.active(aircraft);
+            boolean steepReentryRecovery = EnergyFighterReengagementAdapter.active(aircraft)
+                    && !doctrineReturn;
+            if ((!doctrineReturn && !steepReentryRecovery)
                     || snapshot.verticalSpeedBps() > ACTIVATION_MAX_VERTICAL_SPEED_BPS
                     || pitch < ACTIVATION_MIN_PITCH_DEG
+                    || pitch > ACTIVATION_MAX_PITCH_DEG
                     || snapshot.altitudeAboveGround() < ACTIVATION_MIN_AGL) {
                 return false;
             }
-            state = new State(snapshot.position().y, snapshot.altitudeAboveGround());
+            state = new State(snapshot.position().y, snapshot.altitudeAboveGround(),
+                    steepReentryRecovery ? "reentry_recovery" : "doctrine_return");
             STATES.put(aircraft.getUUID(), state);
             AirCombatManeuverManager.clear(aircraft.getUUID());
             AutopilotLogManager.writeEvent(level.getServer(), aircraft,
                     "energy_post_reversal_pullout_start",
-                    "pitch=" + round(snapshot.pitchDeg())
+                    "source=" + state.source
+                            + ":pitch=" + round(snapshot.pitchDeg())
                             + ":roll=" + round(snapshot.rollDeg())
                             + ":vertical_speed_bps=" + round(snapshot.verticalSpeedBps())
                             + ":agl=" + round(snapshot.altitudeAboveGround()),
@@ -94,6 +101,7 @@ public final class EnergyFighterPulloutAdapter {
                 && roll <= COMPLETE_MAX_ABS_ROLL_DEG
                 && snapshot.verticalSpeedBps() >= COMPLETE_MIN_VERTICAL_SPEED_BPS;
         if (stable) {
+            EnergyFighterReengagementAdapter.clear(aircraft.getUUID());
             finish(level, aircraft, status.get().phase(), "stable_handoff");
             return false;
         }
@@ -118,7 +126,8 @@ public final class EnergyFighterPulloutAdapter {
                 output.engineTarget());
         AutopilotLogManager.writeControlAdapter(level.getServer(), aircraft,
                 status.get().phase(),
-                "ticks=" + state.ticks
+                "source=" + state.source
+                        + ":ticks=" + state.ticks
                         + ":start_altitude=" + round(state.startAltitude)
                         + ":start_agl=" + round(state.startAgl),
                 snapshot, baseline(snapshot), output);
@@ -221,7 +230,8 @@ public final class EnergyFighterPulloutAdapter {
             FlightSnapshot snapshot = FlightSnapshot.capture(aircraft);
             AutopilotLogManager.writeEvent(level.getServer(), aircraft,
                     "energy_post_reversal_pullout_end",
-                    "ticks=" + removed.ticks
+                    "source=" + removed.source
+                            + ":ticks=" + removed.ticks
                             + ":pitch=" + round(snapshot.pitchDeg())
                             + ":roll=" + round(snapshot.rollDeg())
                             + ":vertical_speed_bps=" + round(snapshot.verticalSpeedBps())
@@ -249,11 +259,13 @@ public final class EnergyFighterPulloutAdapter {
     private static final class State {
         private final double startAltitude;
         private final double startAgl;
+        private final String source;
         private int ticks;
 
-        private State(double startAltitude, double startAgl) {
+        private State(double startAltitude, double startAgl, String source) {
             this.startAltitude = startAltitude;
             this.startAgl = startAgl;
+            this.source = source;
         }
     }
 }
