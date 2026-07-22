@@ -120,7 +120,12 @@ public final class FormationFlightManager {
         desired = desired.normalize();
 
         boolean primary = aircraft.getUUID().compareTo(other.getUUID()) <= 0;
-        double altitudeDelta = primary || snapshot.altitudeAboveGround() < 55.0 ? 14.0 : -10.0;
+        double verticalGap = snapshot.position().y - other.position().y;
+        // Preserve an existing vertical lane instead of steering separated aircraft toward
+        // each other. UUID order is only needed when both aircraft start at the same altitude.
+        boolean climbForSeparation = snapshot.altitudeAboveGround() < 55.0
+                || verticalGap > 0.0 || (verticalGap == 0.0 && primary);
+        double altitudeDelta = climbForSeparation ? 14.0 : -10.0;
         double targetAltitude = snapshot.position().y + altitudeDelta;
         double targetSpeed = primary
                 ? Math.max(profile.cruiseSpeedBps(), snapshot.speedBps() + 4.0)
@@ -134,6 +139,7 @@ public final class FormationFlightManager {
                 + ":current=" + round(threat.currentSeparation())
                 + ":predicted=" + round(threat.predictedSeparation())
                 + ":closest_ticks=" + round(threat.closestTicks())
+                + ":vertical_gap=" + round(verticalGap)
                 + ":vertical_split=" + round(altitudeDelta);
         if (ACTIVE_COLLISION.add(aircraft.getUUID())) {
             AutopilotLogManager.writeEvent(level.getServer(), aircraft,
