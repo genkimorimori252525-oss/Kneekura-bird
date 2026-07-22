@@ -123,10 +123,11 @@ def selected_candidate_defaults() -> dict[str, float | int | bool]:
         "lead_ticks": 8.0,
         "crossing_lag_enabled": True,
         "crossing_entry_min_raw_angle": 83.0,
-        "crossing_entry_max_raw_angle": 90.0,
+        "crossing_entry_max_raw_angle": 92.0,
         "crossing_entry_min_closure": 0.0,
         "crossing_improvement_epsilon": 0.10,
         "crossing_stall_ticks": 2,
+        "p47_legacy_heading_capture_enabled": False,
         "lag_ticks": 30,
         "lag_yaw_fraction": 0.25,
         "lag_target_pitch": -32.0,
@@ -400,8 +401,11 @@ def simulate(args: argparse.Namespace) -> dict:
             elif lag_handoff:
                 stage = "LAG"
                 stage_ticks = 0
-            elif (stage_ticks >= 8
-                  and abs(horizontal_error) <= candidate.pivot_complete_heading):
+            elif (
+                args.p47_legacy_heading_capture_enabled
+                and stage_ticks >= 8
+                and abs(horizontal_error) <= candidate.pivot_complete_heading
+            ):
                 stage = "CAPTURE"
                 stage_ticks = 0
             elif stage_ticks >= 96:
@@ -668,6 +672,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--crossing-stall-ticks",
         type=int,
         default=selected["crossing_stall_ticks"],
+    )
+    parser.add_argument(
+        "--p47-legacy-heading-capture",
+        dest="p47_legacy_heading_capture_enabled",
+        action=argparse.BooleanOptionalAction,
+        default=selected["p47_legacy_heading_capture_enabled"],
     )
     parser.add_argument("--lag-ticks", type=int, default=selected["lag_ticks"])
     parser.add_argument(

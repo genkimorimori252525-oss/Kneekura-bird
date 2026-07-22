@@ -45,10 +45,11 @@ public final class EnergyFighterApexYawAdapter {
     private static final double YAW_RATE_DAMPING = 0.05;
 
     private static final double CROSSING_ENTRY_MIN_RAW_ANGLE_DEG = 83.0;
-    private static final double CROSSING_ENTRY_MAX_RAW_ANGLE_DEG = 90.0;
+    private static final double CROSSING_ENTRY_MAX_RAW_ANGLE_DEG = 92.0;
     private static final double CROSSING_ENTRY_MIN_CLOSURE_BPS = 0.0;
     private static final double CROSSING_IMPROVEMENT_EPSILON_DEG_PER_TICK = 0.10;
     private static final int CROSSING_STALL_TICKS = 2;
+    private static final boolean P47_LEGACY_HEADING_CAPTURE_ENABLED = false;
     private static final int LAG_TICKS = 30;
     private static final double LAG_YAW_FRACTION = 0.25;
     private static final double LAG_TARGET_PITCH_DEG = -32.0;
@@ -228,7 +229,8 @@ public final class EnergyFighterApexYawAdapter {
                 transition(level, aircraft, session.get().phase(), state, snapshot,
                         distance, rawAngle, leadAngle, closure, threat.aimAngleDeg(),
                         Stage.LAG, "crossing_angle_stalled");
-            } else if (headingCaptured) {
+            } else if (headingCaptured
+                    && (!isP47n(profile) || P47_LEGACY_HEADING_CAPTURE_ENABLED)) {
                 transition(level, aircraft, session.get().phase(), state, snapshot,
                         distance, rawAngle, leadAngle, closure, threat.aimAngleDeg(),
                         Stage.CAPTURE, "horizontal_lead_captured");

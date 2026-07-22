@@ -40,6 +40,10 @@ CANDIDATE_CONSTANTS = {
     "reentry_pull_out_seconds": "REENTRY_PULL_OUT_SECONDS",
 }
 
+CANDIDATE_BOOLEAN_CONSTANTS = {
+    "p47_legacy_heading_capture_enabled": "P47_LEGACY_HEADING_CAPTURE_ENABLED",
+}
+
 PINNED_GATES = {
     "START_MIN_AGL": 90.0,
     "ATTACK_MAX_RAW_ANGLE_DEG": 45.0,
@@ -59,9 +63,19 @@ def java_constants(text: str) -> dict[str, float]:
     return {name: float(value) for name, value in pattern.findall(text)}
 
 
+def java_boolean_constants(text: str) -> dict[str, bool]:
+    pattern = re.compile(
+        r"private\s+static\s+final\s+boolean\s+"
+        r"([A-Z0-9_]+)\s*=\s*(true|false)\s*;"
+    )
+    return {name: value == "true" for name, value in pattern.findall(text)}
+
+
 def main() -> int:
     candidate = json.loads(CANDIDATE.read_text(encoding="utf-8"))["parameters"]
-    constants = java_constants(JAVA.read_text(encoding="utf-8"))
+    java_text = JAVA.read_text(encoding="utf-8")
+    constants = java_constants(java_text)
+    boolean_constants = java_boolean_constants(java_text)
     errors: list[str] = []
 
     for parameter, constant_name in CANDIDATE_CONSTANTS.items():
@@ -70,6 +84,16 @@ def main() -> int:
         if actual is None:
             errors.append(f"missing Java constant {constant_name}")
         elif not math.isclose(actual, expected, rel_tol=0.0, abs_tol=1.0e-9):
+            errors.append(
+                f"{constant_name}={actual} does not match candidate {parameter}={expected}"
+            )
+
+    for parameter, constant_name in CANDIDATE_BOOLEAN_CONSTANTS.items():
+        expected = candidate[parameter]
+        actual = boolean_constants.get(constant_name)
+        if actual is None:
+            errors.append(f"missing Java boolean constant {constant_name}")
+        elif actual is not expected:
             errors.append(
                 f"{constant_name}={actual} does not match candidate {parameter}={expected}"
             )
@@ -83,9 +107,10 @@ def main() -> int:
                 f"pinned gate {constant_name} changed from {expected} to {actual}"
             )
 
-    java_text = JAVA.read_text(encoding="utf-8")
     if "boolean crossingStalled = isP47n(profile)" not in java_text:
         errors.append("crossing-lag hypothesis is not explicitly restricted to P-47N")
+    if "!isP47n(profile) || P47_LEGACY_HEADING_CAPTURE_ENABLED" not in java_text:
+        errors.append("P-47N legacy heading-capture switch is not connected")
     attack_gate_index = java_text.find("boolean attackSector")
     for guard in ("reentry_energy_guard", "reentry_pull_out_guard"):
         guard_index = java_text.find(f'"{guard}"')

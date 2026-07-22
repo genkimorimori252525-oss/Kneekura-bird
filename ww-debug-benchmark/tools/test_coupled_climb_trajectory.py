@@ -42,6 +42,7 @@ class CoupledClimbTrajectoryCalibrationTest(unittest.TestCase):
         args = batch.simulation_args(Path("p47.jsonl"), Path("a6m.jsonl"), 5351)
 
         self.assertTrue(args.crossing_lag)
+        self.assertFalse(args.p47_legacy_heading_capture_enabled)
         self.assertEqual(args.rotation_decay, 0.97)
         mapping = {
             "crossing_entry_min_raw_angle": "crossing_entry_min_raw_angle",
@@ -49,6 +50,7 @@ class CoupledClimbTrajectoryCalibrationTest(unittest.TestCase):
             "crossing_entry_min_closure": "crossing_entry_min_closure",
             "crossing_improvement_epsilon": "crossing_improvement_epsilon",
             "crossing_stall_ticks": "crossing_stall_ticks",
+            "p47_legacy_heading_capture_enabled": "p47_legacy_heading_capture_enabled",
             "lag_ticks": "lag_ticks",
             "lag_yaw_fraction": "lag_yaw_fraction",
             "lag_target_pitch": "lag_climb_pitch",
