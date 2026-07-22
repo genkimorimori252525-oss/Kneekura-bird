@@ -43,6 +43,10 @@ public final class EnergyFighterReengagementAdapter {
     private static final double WINGOVER_SPEED_BPS = 34.0;
     private static final double RECOVERY_DIRECTION_LOCK_RAW_ANGLE_DEG = 60.0;
     private static final double RECOVERY_LOCK_MIN_ERROR_DEG = 45.0;
+    private static final double RECOVERY_HANDOFF_MAX_ANGLE_DEG = 80.0;
+    private static final double RECOVERY_IMPROVEMENT_EPSILON_DEG = 0.25;
+    private static final double RECOVERY_MAX_REGRESSION_DEG = 2.5;
+    private static final int RECOVERY_STALL_TICKS = 6;
     private static final double LEAD_TICKS = 10.0;
     private static final int MAX_RECOVERY_TICKS = 220;
 
@@ -197,17 +201,26 @@ public final class EnergyFighterReengagementAdapter {
         }
 
         if (state.stage == Stage.RECOVERY) {
+            updateRecoveryProgress(state, rawAngle);
             boolean attackSector = target.lineOfSight()
                     && rawAngle <= ATTACK_MAX_RAW_ANGLE_DEG
                     && predictedLeadAngle <= ATTACK_MAX_LEAD_ANGLE_DEG
                     && distance >= ATTACK_MIN_DISTANCE && distance <= ATTACK_MAX_DISTANCE
                     && closure >= ATTACK_MIN_CLOSURE_BPS
                     && closure <= ATTACK_MAX_CLOSURE_BPS;
-            if (attackSector) {
+            boolean localMinimumHandoff = target.lineOfSight()
+                    && state.recoveryBestRawAngle <= RECOVERY_HANDOFF_MAX_ANGLE_DEG
+                    && rawAngle <= state.recoveryBestRawAngle + RECOVERY_MAX_REGRESSION_DEG
+                    && state.recoveryStalledTicks >= RECOVERY_STALL_TICKS
+                    && distance >= ATTACK_MIN_DISTANCE && distance <= ATTACK_MAX_DISTANCE
+                    && closure >= ATTACK_MIN_CLOSURE_BPS
+                    && closure <= ATTACK_MAX_CLOSURE_BPS;
+            if (attackSector || localMinimumHandoff) {
                 transition(level, aircraft, status.get().phase(), state, snapshot,
                         distance, rawAngle, predictedLeadAngle, closure,
                         threat.aimAngleDeg(), Stage.DOCTRINE,
-                        "high_energy_recovery_reached_attack_sector");
+                        attackSector ? "high_energy_recovery_reached_attack_sector"
+                                : "post_reversal_local_minimum_handoff");
             } else if (state.stageTicks >= MAX_RECOVERY_TICKS || distance > 190.0) {
                 finish(level, aircraft, status.get().phase(), "high_energy_recovery_expired");
                 return false;
@@ -250,6 +263,15 @@ public final class EnergyFighterReengagementAdapter {
         }
     }
 
+    private static void updateRecoveryProgress(State state, double rawAngle) {
+        if (rawAngle + RECOVERY_IMPROVEMENT_EPSILON_DEG < state.recoveryBestRawAngle) {
+            state.recoveryBestRawAngle = rawAngle;
+            state.recoveryStalledTicks = 0;
+        } else if (state.recoveryBestRawAngle <= RECOVERY_HANDOFF_MAX_ANGLE_DEG) {
+            state.recoveryStalledTicks++;
+        }
+    }
+
     private static void transition(ServerLevel level, Entity aircraft, FlightPhase phase,
                                    State state, FlightSnapshot snapshot, double distance,
                                    double rawAngle, double predictedLeadAngle, double closure,
@@ -258,6 +280,8 @@ public final class EnergyFighterReengagementAdapter {
         state.stageTicks = 0;
         if (next == Stage.RECOVERY) {
             state.recoveryTurnSign = 0.0;
+            state.recoveryBestRawAngle = rawAngle;
+            state.recoveryStalledTicks = 0;
         }
         AirCombatManeuverManager.clear(aircraft.getUUID());
         writeEvent(level, aircraft, phase, "energy_crossing_reentry_transition",
@@ -336,7 +360,7 @@ public final class EnergyFighterReengagementAdapter {
                 predictedLeadDirection, targetAltitude, targetSpeed,
                 headingError, altitudeError, targetSpeed - snapshot.speedBps(),
                 snapshot.speedBps() < profile.stallGuardSpeedBps(), false,
-                "energy_locked_vector_recovery", "hold_turn_direction_until_forward_sector");
+                "energy_locked_vector_recovery", "hold_turn_direction_until_local_minimum");
         applyAndLog(level, aircraft, snapshot, output, state, rawAngle,
                 predictedLeadAngle, closure, phase);
     }
@@ -434,7 +458,9 @@ public final class EnergyFighterReengagementAdapter {
                 + ":closure=" + round(closure)
                 + ":speed_bps=" + round(speed)
                 + ":wingover_angle=" + round(state.wingoverAngle)
-                + ":recovery_turn_sign=" + round(state.recoveryTurnSign);
+                + ":recovery_turn_sign=" + round(state.recoveryTurnSign)
+                + ":recovery_best_raw_angle=" + round(state.recoveryBestRawAngle)
+                + ":recovery_stalled_ticks=" + state.recoveryStalledTicks;
     }
 
     private static Optional<Target> target(ServerLevel level, Entity aircraft) {
@@ -570,6 +596,8 @@ public final class EnergyFighterReengagementAdapter {
                             + ":best_raw_target_angle=" + round(removed.bestRawAngle)
                             + ":wingover_angle=" + round(removed.wingoverAngle)
                             + ":recovery_turn_sign=" + round(removed.recoveryTurnSign)
+                            + ":recovery_best_raw_angle=" + round(removed.recoveryBestRawAngle)
+                            + ":recovery_stalled_ticks=" + removed.recoveryStalledTicks
                             + ":reason=" + reason,
                     phase);
         }
@@ -612,6 +640,8 @@ public final class EnergyFighterReengagementAdapter {
         private double wingoverStartAltitude;
         private double wingoverAngle;
         private double recoveryTurnSign;
+        private double recoveryBestRawAngle = 180.0;
+        private int recoveryStalledTicks;
         private int stalledTicks;
         private int totalTicks;
         private int stageTicks;
