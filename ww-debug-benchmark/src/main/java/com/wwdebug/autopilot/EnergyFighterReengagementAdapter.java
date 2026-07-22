@@ -18,9 +18,9 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Converts a recovered energy-fighter extension into a bounded three-dimensional re-entry.
  *
- * <p>The fighter first crosses toward the measured broadside minimum. It then performs a pure
- * full-power vertical half-loop and recovers toward the target at a controlled speed. Actual
- * firing, terrain, collision, line-of-sight, friendly-fire, and rear-target checks remain
+ * <p>As recovered separation begins closing, the fighter performs a pure full-power vertical
+ * half-loop and pulls through into a descending attitude before recovering toward the target.
+ * Actual firing, terrain, collision, line-of-sight, friendly-fire, and rear-target checks remain
  * authoritative outside this controller.</p>
  */
 public final class EnergyFighterReengagementAdapter {
@@ -29,6 +29,10 @@ public final class EnergyFighterReengagementAdapter {
     private static final double START_MIN_ENERGY_RATIO = 1.02;
 
     private static final double FORWARD_HANDOFF_ANGLE_DEG = 60.0;
+    private static final double EARLY_LOOP_RAW_ANGLE_DEG = 115.0;
+    private static final double EARLY_LOOP_MIN_CLOSURE_BPS = 0.0;
+    private static final double EARLY_LOOP_MIN_DISTANCE = 70.0;
+    private static final double EARLY_LOOP_MAX_DISTANCE = 150.0;
     private static final double ADAPTIVE_HANDOFF_MAX_ANGLE_DEG = 90.0;
     private static final double IMPROVEMENT_EPSILON_DEG = 0.35;
     private static final double ADAPTIVE_MAX_REGRESSION_DEG = 2.5;
@@ -38,8 +42,9 @@ public final class EnergyFighterReengagementAdapter {
     private static final int MAX_CROSS_TICKS = 150;
 
     private static final int MIN_LOOP_TICKS = 70;
-    private static final int MAX_LOOP_TICKS = 140;
-    private static final double LOOP_COMPLETE_ANGLE_DEG = 160.0;
+    private static final int MAX_LOOP_TICKS = 170;
+    private static final double LOOP_COMPLETE_ANGLE_DEG = 150.0;
+    private static final double LOOP_DESCENDING_FORWARD_Y = -0.10;
     private static final double LOOP_SPEED_BPS = 34.0;
     private static final double RECOVERY_SPEED_BPS = 18.0;
     private static final int MAX_RECOVERY_TICKS = 220;
@@ -150,7 +155,12 @@ public final class EnergyFighterReengagementAdapter {
             boolean forwardHandoff = state.stageTicks >= MIN_CROSS_TICKS
                     && rawAngle <= FORWARD_HANDOFF_ANGLE_DEG
                     && distance >= 22.0 && distance <= 170.0;
-            boolean adaptiveHandoff = state.stageTicks >= MIN_CROSS_TICKS
+            boolean earlyLoop = state.stageTicks >= MIN_CROSS_TICKS
+                    && rawAngle <= EARLY_LOOP_RAW_ANGLE_DEG
+                    && closure >= EARLY_LOOP_MIN_CLOSURE_BPS
+                    && distance >= EARLY_LOOP_MIN_DISTANCE
+                    && distance <= EARLY_LOOP_MAX_DISTANCE;
+            boolean localMinimumLoop = state.stageTicks >= MIN_CROSS_TICKS
                     && state.bestRawAngle <= ADAPTIVE_HANDOFF_MAX_ANGLE_DEG
                     && rawAngle <= state.bestRawAngle + ADAPTIVE_MAX_REGRESSION_DEG
                     && state.stalledTicks >= ADAPTIVE_STALL_TICKS
@@ -160,12 +170,13 @@ public final class EnergyFighterReengagementAdapter {
                 transition(level, aircraft, status.get().phase(), state, snapshot,
                         distance, rawAngle, predictedLeadAngle, closure,
                         threat.aimAngleDeg(), Stage.DOCTRINE, "forward_sector_reached");
-            } else if (adaptiveHandoff) {
+            } else if (earlyLoop || localMinimumLoop) {
                 state.loopStartForward = snapshot.forward();
                 state.loopStartAltitude = snapshot.position().y;
                 transition(level, aircraft, status.get().phase(), state, snapshot,
                         distance, rawAngle, predictedLeadAngle, closure,
-                        threat.aimAngleDeg(), Stage.LOOP, "best_crossing_geometry_stalled");
+                        threat.aimAngleDeg(), Stage.LOOP,
+                        earlyLoop ? "closure_positive_loop_entry" : "best_crossing_geometry_stalled");
             } else if (state.stageTicks >= MAX_CROSS_TICKS || distance > 190.0) {
                 finish(level, aircraft, status.get().phase(), "crossing_window_expired");
                 return false;
@@ -175,10 +186,12 @@ public final class EnergyFighterReengagementAdapter {
         if (state.stage == Stage.LOOP) {
             state.loopAngle = angleDegrees(state.loopStartForward, snapshot.forward());
             if (state.stageTicks >= MIN_LOOP_TICKS
-                    && state.loopAngle >= LOOP_COMPLETE_ANGLE_DEG) {
+                    && state.loopAngle >= LOOP_COMPLETE_ANGLE_DEG
+                    && snapshot.forward().y <= LOOP_DESCENDING_FORWARD_Y) {
                 transition(level, aircraft, status.get().phase(), state, snapshot,
                         distance, rawAngle, predictedLeadAngle, closure,
-                        threat.aimAngleDeg(), Stage.RECOVERY, "vertical_half_loop_complete");
+                        threat.aimAngleDeg(), Stage.RECOVERY,
+                        "vertical_half_loop_descending_complete");
             } else if (state.stageTicks >= MAX_LOOP_TICKS) {
                 finish(level, aircraft, status.get().phase(), "half_loop_incomplete");
                 return false;
@@ -298,7 +311,7 @@ public final class EnergyFighterReengagementAdapter {
                 desired, targetAltitude, targetSpeed, 0.0,
                 targetAltitude - snapshot.position().y, targetSpeed - snapshot.speedBps(),
                 snapshot.speedBps() < profile.stallGuardSpeedBps(), false,
-                "energy_vertical_half_loop", "full_power_pure_vertical_pull_through");
+                "energy_vertical_half_loop", "full_power_pull_through_to_descent");
         applyAndLog(level, aircraft, snapshot, output, state, rawAngle,
                 predictedLeadAngle, closure, phase);
     }
@@ -325,7 +338,7 @@ public final class EnergyFighterReengagementAdapter {
                 targetDirection, targetAltitude, targetSpeed, headingError, altitudeError,
                 targetSpeed - snapshot.speedBps(),
                 snapshot.speedBps() < profile.stallGuardSpeedBps(), false,
-                "energy_half_loop_recovery", "direct_recovery_after_heading_reversal");
+                "energy_half_loop_recovery", "direct_recovery_from_descending_attitude");
         applyAndLog(level, aircraft, snapshot, output, state, rawAngle,
                 predictedLeadAngle, closure, phase);
     }
