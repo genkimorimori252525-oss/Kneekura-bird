@@ -10,7 +10,6 @@ import com.wwdebug.autopilot.DefensiveAirCombatManager;
 import com.wwdebug.autopilot.EnergyFighterApexYawAdapter;
 import com.wwdebug.autopilot.FormationFlightManager;
 import com.wwdebug.autopilot.MutualDogfightMissionHoldAdapter;
-import com.wwdebug.autopilot.TerrainAvoidancePlanner;
 import com.wwdebug.benchmark.BenchmarkManager;
 import net.minecraft.world.entity.Entity;
 import org.spongepowered.asm.mixin.Mixin;
@@ -29,10 +28,10 @@ public abstract class VehicleEntityBenchmarkMixin {
         AutonomousFlightManager.applyControl(aircraft);
         MutualDogfightMissionHoldAdapter.apply(aircraft);
         FormationFlightManager.applyControl(aircraft);
-        // Mission, formation, terrain, and collision safety have already had a chance to own input.
-        // Combat must never overwrite either shared safety planner while it is authoritative.
-        if (!AirspaceSafetyProbe.collisionRisk(aircraft)
-                && !TerrainAvoidancePlanner.active(aircraft)) {
+        // Formation collision avoidance has already been applied at this point. Do not let combat
+        // overwrite it while the shared CPA probe is dangerous. The coupled-climb adapter performs
+        // its own same-package terrain-authority check before accepting control.
+        if (!AirspaceSafetyProbe.collisionRisk(aircraft)) {
             boolean coupledClimbControl = EnergyFighterApexYawAdapter.applyControl(aircraft);
             if (!coupledClimbControl) {
                 DefensiveAirCombatManager.applyControl(aircraft);
