@@ -257,6 +257,9 @@ public final class EnergyFighterReengagementAdapter {
                                    double attackerAim, Stage next, String reason) {
         state.stage = next;
         state.stageTicks = 0;
+        if (next == Stage.RECOVERY) {
+            state.recoveryTurnSign = 0.0;
+        }
         AirCombatManeuverManager.clear(aircraft.getUUID());
         writeEvent(level, aircraft, phase, "energy_crossing_reentry_transition",
                 state, snapshot, distance, rawAngle, predictedLeadAngle, closure,
@@ -331,8 +334,8 @@ public final class EnergyFighterReengagementAdapter {
                                       State state, FlightPhase phase) {
         Vec3 horizontalDesired = safeNormalize(horizontal(predictedLeadDirection),
                 snapshot.horizontalForward());
-        double headingError = headingError(snapshot, horizontalDesired);
-        float x = (float) Mth.clamp(headingError / 12.0, -0.94, 0.94);
+        double headingError = recoveryHeadingError(state, snapshot, horizontalDesired);
+        float x = (float) Mth.clamp(headingError / 28.0, -0.96, 0.96);
         double targetAltitude = target.getBoundingBox().getCenter().y;
         double altitudeError = targetAltitude - snapshot.position().y;
         double desiredPitch = Mth.clamp(-altitudeError * 0.28
@@ -346,7 +349,7 @@ public final class EnergyFighterReengagementAdapter {
                 predictedLeadDirection, targetAltitude, targetSpeed,
                 headingError, altitudeError, targetSpeed - snapshot.speedBps(),
                 snapshot.speedBps() < profile.stallGuardSpeedBps(), false,
-                "energy_high_energy_recovery", "accelerating_descent_to_predicted_lead");
+                "energy_vector_recovery", "horizontal_forward_vector_bank");
         applyAndLog(level, aircraft, snapshot, output, state, rawAngle,
                 predictedLeadAngle, closure, phase);
     }
@@ -399,6 +402,28 @@ public final class EnergyFighterReengagementAdapter {
                 target.getDeltaMovement().horizontalDistance() * 20.0 + 3.0);
     }
 
+    private static double recoveryHeadingError(State state, FlightSnapshot snapshot, Vec3 desired) {
+        double error = signedHorizontalAngle(snapshot.horizontalForward(), desired);
+        if (state.recoveryTurnSign == 0.0 && Math.abs(error) > 1.0) {
+            state.recoveryTurnSign = Math.copySign(1.0, error);
+        }
+        if (Math.abs(error) >= 165.0 && state.recoveryTurnSign != 0.0) {
+            return state.recoveryTurnSign * 180.0;
+        }
+        if (Math.abs(error) >= 2.0 && Math.abs(error) <= 150.0) {
+            state.recoveryTurnSign = Math.copySign(1.0, error);
+        }
+        return error;
+    }
+
+    private static double signedHorizontalAngle(Vec3 current, Vec3 desired) {
+        Vec3 from = safeNormalize(horizontal(current), new Vec3(0.0, 0.0, 1.0));
+        Vec3 to = safeNormalize(horizontal(desired), from);
+        double dot = Mth.clamp(from.dot(to), -1.0, 1.0);
+        double signedCross = from.x * to.z - from.z * to.x;
+        return Math.toDegrees(Math.atan2(signedCross, dot));
+    }
+
     private static void applyAndLog(ServerLevel level, Entity aircraft, FlightSnapshot snapshot,
                                     FlightControlOutput output, State state, double rawAngle,
                                     double predictedLeadAngle, double closure,
@@ -421,7 +446,8 @@ public final class EnergyFighterReengagementAdapter {
                 + ":predicted_lead_angle=" + round(predictedLeadAngle)
                 + ":closure=" + round(closure)
                 + ":speed_bps=" + round(speed)
-                + ":wingover_angle=" + round(state.wingoverAngle);
+                + ":wingover_angle=" + round(state.wingoverAngle)
+                + ":recovery_turn_sign=" + round(state.recoveryTurnSign);
     }
 
     private static Optional<Target> target(ServerLevel level, Entity aircraft) {
@@ -556,6 +582,7 @@ public final class EnergyFighterReengagementAdapter {
                             + ":total_ticks=" + removed.totalTicks
                             + ":best_raw_target_angle=" + round(removed.bestRawAngle)
                             + ":wingover_angle=" + round(removed.wingoverAngle)
+                            + ":recovery_turn_sign=" + round(removed.recoveryTurnSign)
                             + ":reason=" + reason,
                     phase);
         }
@@ -597,6 +624,7 @@ public final class EnergyFighterReengagementAdapter {
         private Vec3 wingoverStartForward;
         private double wingoverStartAltitude;
         private double wingoverAngle;
+        private double recoveryTurnSign;
         private int stalledTicks;
         private int totalTicks;
         private int stageTicks;
