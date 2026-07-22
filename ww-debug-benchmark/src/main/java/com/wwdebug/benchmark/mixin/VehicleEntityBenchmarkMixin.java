@@ -7,6 +7,7 @@ import com.wwdebug.autopilot.AutopilotWheelLockAdapter;
 import com.wwdebug.autopilot.CombatAwarenessManager;
 import com.wwdebug.autopilot.CombatWeaponManager;
 import com.wwdebug.autopilot.DefensiveAirCombatManager;
+import com.wwdebug.autopilot.EnergyFighterReengagementAdapter;
 import com.wwdebug.autopilot.FormationFlightManager;
 import com.wwdebug.benchmark.BenchmarkManager;
 import net.minecraft.world.entity.Entity;
@@ -25,12 +26,18 @@ public abstract class VehicleEntityBenchmarkMixin {
         BenchmarkManager.applyControl(aircraft);
         AutonomousFlightManager.applyControl(aircraft);
         FormationFlightManager.applyControl(aircraft);
-        // Formation collision avoidance has already been applied at this point. Do not let either
-        // defensive or offensive combat overwrite it while the shared CPA probe is dangerous.
+        // Formation collision avoidance has already been applied at this point. Do not let combat
+        // overwrite it while the shared CPA probe is dangerous.
         if (!AirspaceSafetyProbe.collisionRisk(aircraft)) {
-            DefensiveAirCombatManager.applyControl(aircraft);
-            if (!DefensiveAirCombatManager.active(aircraft)) {
-                AirCombatManeuverManager.applyControl(aircraft);
+            // The bounded energy-fighter controller owns crossing, oblique lag, predicted-lead
+            // pursuit, and final alignment as one deterministic control layer.
+            boolean reengagementControl =
+                    EnergyFighterReengagementAdapter.applyControl(aircraft);
+            if (!reengagementControl) {
+                DefensiveAirCombatManager.applyControl(aircraft);
+                if (!DefensiveAirCombatManager.active(aircraft)) {
+                    AirCombatManeuverManager.applyControl(aircraft);
+                }
             }
         }
     }
