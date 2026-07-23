@@ -16,7 +16,10 @@ final class AirCombatDoctrineTuning {
     );
     private static final Tuning ENERGY_FIGHTER = tuning(
             "energy_fighter",
-            weights(1.12, 0.94, 1.04, 1.18, 1.22, 1.16, 1.0),
+            // EXTEND enters REPOSITION explicitly after opening the range. Keep that committed setup,
+            // but do not let the high off-nose utility hold the fighter there indefinitely once it
+            // has recovered energy and should turn back into an intercept.
+            weights(1.12, 0.94, 1.04, 1.18, 1.22, 0.30, 1.0),
             // Once an energy fighter has opened the range and recovered speed, another forty
             // committed ticks can carry it outside useful combat and simulation range. Twenty
             // ticks still establishes a real extension while allowing timely repositioning.
