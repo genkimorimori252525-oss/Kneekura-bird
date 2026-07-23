@@ -1,5 +1,5 @@
-# Local flight validation request level-bomber-final-exact-1
-ref=2fca3326f762c13cf767b181dce22d3373c3d97b
-aircraft=warfare_wings:b17
+# Local flight validation request level-bomber-b29-generality-1
+ref=8b533fa0817e83762e6ef973b3b1e58a6179fb98
+aircraft=warfare_wings:b29
 scenario=full
 gametest=true
