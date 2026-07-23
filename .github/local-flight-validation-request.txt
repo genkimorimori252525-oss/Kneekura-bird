@@ -1,4 +1,4 @@
-# Local flight validation request level-bomber-clean-full-1
+# Local flight validation request level-bomber-clean-full-2
 ref=8fb7304c5f474c2a0d18acd357ad92b61d74607d
 aircraft=warfare_wings:b17
 scenario=full
