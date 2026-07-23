@@ -10,6 +10,235 @@ rootProject.name = 'ww-debug-benchmark'
 
 gradle.beforeProject { project ->
     if (project.path == ':') {
+        // Register before the coupled-handoff patch so this doFirst action runs after that patch
+        // has produced the CAPTURE controller source.
+        project.tasks.withType(org.gradle.api.tasks.compile.JavaCompile).configureEach {
+            doFirst {
+                File source = project.file('src/main/java/com/wwdebug/autopilot/EnergyFighterApexYawAdapter.java')
+                String text = source.getText('UTF-8').replace('\r\n', '\n')
+
+                String oldLeadConstants = [
+                        '    private static final double LEAD_TICKS = 8.0;',
+                        '    private static final double CAPTURE_PITCH_DIVISOR = 10.0;'
+                ].join('\n')
+                String newLeadConstants = [
+                        '    private static final double LEAD_TICKS = 8.0;',
+                        '    private static final double CAPTURE_MAX_LEAD_TICKS = 65.0;',
+                        '    private static final double CAPTURE_TARGET_TURN_RATE_SMOOTHING = 0.25;',
+                        '    private static final double CAPTURE_MAX_TARGET_TURN_RATE_DEG_PER_TICK = 2.5;',
+                        '    private static final double CAPTURE_PITCH_DIVISOR = 10.0;'
+                ].join('\n')
+
+                String oldSnapshot = [
+                        '        FlightSnapshot snapshot = FlightSnapshot.capture(aircraft);',
+                        '        Vec3 targetDirection = directionTo(aircraft, target.aircraft(), snapshot.forward());'
+                ].join('\n')
+                String newSnapshot = [
+                        '        FlightSnapshot snapshot = FlightSnapshot.capture(aircraft);',
+                        '        FlightSnapshot targetSnapshot = FlightSnapshot.capture(target.aircraft());',
+                        '        Vec3 targetDirection = directionTo(aircraft, target.aircraft(), snapshot.forward());'
+                ].join('\n')
+
+                String oldConstructorCall = [
+                        '                    snapshot.position().y, snapshot.altitudeAboveGround(),',
+                        '                    snapshot.yawDeg(), snapshot.pitchDeg());'
+                ].join('\n')
+                String newConstructorCall = [
+                        '                    snapshot.position().y, snapshot.altitudeAboveGround(),',
+                        '                    snapshot.yawDeg(), snapshot.pitchDeg(),',
+                        '                    targetSnapshot.movementYawDeg());'
+                ].join('\n')
+
+                String oldMotionUpdate = [
+                        '        DefensiveAirCombatManager.clear(aircraft.getUUID());',
+                        '',
+                        '        double pitchRateDegPerTick = snapshot.pitchDeg() - state.lastPitchDeg;'
+                ].join('\n')
+                String newMotionUpdate = [
+                        '        DefensiveAirCombatManager.clear(aircraft.getUUID());',
+                        '',
+                        '        double targetTurnRateDegPerTick = updateTargetTurnRate(state, targetSnapshot);',
+                        '        state.captureLeadTicks = LEAD_TICKS;',
+                        '        if (state.stage == Stage.CAPTURE) {',
+                        '            state.captureLeadTicks = Mth.clamp(',
+                        '                    distance / Math.max(1.0, snapshot.horizontalSpeedBps()) * 20.0,',
+                        '                    LEAD_TICKS, CAPTURE_MAX_LEAD_TICKS);',
+                        '            leadDirection = turnAwareLeadDirection(aircraft, target.aircraft(),',
+                        '                    targetSnapshot, targetDirection, state.captureLeadTicks,',
+                        '                    targetTurnRateDegPerTick);',
+                        '            leadAngle = angleDegrees(snapshot.forward(), leadDirection);',
+                        '        }',
+                        '',
+                        '        double pitchRateDegPerTick = snapshot.pitchDeg() - state.lastPitchDeg;'
+                ].join('\n')
+
+                String oldLeadHelper = [
+                        '    private static Vec3 leadDirection(Entity aircraft, Entity target,',
+                        '                                      Vec3 fallback, double leadTicks) {',
+                        '        Vec3 leadPoint = target.getBoundingBox().getCenter()',
+                        '                .add(target.getDeltaMovement().scale(leadTicks));',
+                        '        return safeNormalize(leadPoint.subtract(aircraft.getBoundingBox().getCenter()), fallback);',
+                        '    }'
+                ].join('\n')
+                String newLeadHelper = [
+                        '    private static Vec3 leadDirection(Entity aircraft, Entity target,',
+                        '                                      Vec3 fallback, double leadTicks) {',
+                        '        Vec3 leadPoint = target.getBoundingBox().getCenter()',
+                        '                .add(target.getDeltaMovement().scale(leadTicks));',
+                        '        return safeNormalize(leadPoint.subtract(aircraft.getBoundingBox().getCenter()), fallback);',
+                        '    }',
+                        '',
+                        '    private static double updateTargetTurnRate(State state,',
+                        '                                               FlightSnapshot targetSnapshot) {',
+                        '        double movementYaw = targetSnapshot.movementYawDeg();',
+                        '        double measured = Mth.wrapDegrees(',
+                        '                (float) (movementYaw - state.lastTargetMovementYawDeg));',
+                        '        state.lastTargetMovementYawDeg = movementYaw;',
+                        '        measured = Mth.clamp(measured,',
+                        '                -CAPTURE_MAX_TARGET_TURN_RATE_DEG_PER_TICK,',
+                        '                CAPTURE_MAX_TARGET_TURN_RATE_DEG_PER_TICK);',
+                        '        if (state.targetTurnRateSamples == 0) {',
+                        '            state.smoothedTargetTurnRateDegPerTick = measured;',
+                        '        } else {',
+                        '            state.smoothedTargetTurnRateDegPerTick +=',
+                        '                    CAPTURE_TARGET_TURN_RATE_SMOOTHING',
+                        '                            * (measured - state.smoothedTargetTurnRateDegPerTick);',
+                        '        }',
+                        '        state.targetTurnRateSamples++;',
+                        '        return state.smoothedTargetTurnRateDegPerTick;',
+                        '    }',
+                        '',
+                        '    private static Vec3 turnAwareLeadDirection(Entity aircraft, Entity target,',
+                        '                                               FlightSnapshot targetSnapshot,',
+                        '                                               Vec3 fallback, double leadTicks,',
+                        '                                               double targetTurnRateDegPerTick) {',
+                        '        Vec3 velocity = target.getDeltaMovement();',
+                        '        double horizontalSpeed = velocity.horizontalDistance();',
+                        '        Vec3 displacement;',
+                        '        if (horizontalSpeed < 1.0e-6',
+                        '                || Math.abs(targetTurnRateDegPerTick) < 1.0e-3) {',
+                        '            displacement = velocity.scale(leadTicks);',
+                        '        } else {',
+                        '            int wholeTicks = (int) Math.floor(leadTicks);',
+                        '            double fractionalTick = leadTicks - wholeTicks;',
+                        '            double x = 0.0;',
+                        '            double z = 0.0;',
+                        '            for (int tick = 1; tick <= wholeTicks; tick++) {',
+                        '                double yawRadians = Math.toRadians(targetSnapshot.movementYawDeg()',
+                        '                        + targetTurnRateDegPerTick * tick);',
+                        '                x += -Math.sin(yawRadians) * horizontalSpeed;',
+                        '                z += Math.cos(yawRadians) * horizontalSpeed;',
+                        '            }',
+                        '            if (fractionalTick > 1.0e-6) {',
+                        '                double yawRadians = Math.toRadians(targetSnapshot.movementYawDeg()',
+                        '                        + targetTurnRateDegPerTick * leadTicks);',
+                        '                x += -Math.sin(yawRadians) * horizontalSpeed * fractionalTick;',
+                        '                z += Math.cos(yawRadians) * horizontalSpeed * fractionalTick;',
+                        '            }',
+                        '            displacement = new Vec3(x, velocity.y * leadTicks, z);',
+                        '        }',
+                        '        Vec3 leadPoint = target.getBoundingBox().getCenter().add(displacement);',
+                        '        return safeNormalize(leadPoint.subtract(aircraft.getBoundingBox().getCenter()),',
+                        '                fallback);',
+                        '    }'
+                ].join('\n')
+
+                String oldDescriptionTail = [
+                        '                + ":capture_entry_lag_turn_input_sign="',
+                        '                + state.captureEntryLagTurnInputSign;'
+                ].join('\n')
+                String newDescriptionTail = [
+                        '                + ":capture_entry_lag_turn_input_sign="',
+                        '                + state.captureEntryLagTurnInputSign',
+                        '                + ":target_turn_rate_deg_per_tick="',
+                        '                + round(state.smoothedTargetTurnRateDegPerTick)',
+                        '                + ":capture_lead_ticks=" + round(state.captureLeadTicks);'
+                ].join('\n')
+
+                String oldStateMotionFields = [
+                        '        private double lastYawDeg;',
+                        '        private double lastPitchDeg;',
+                        '        private double bestCaptureHorizontalError = Double.POSITIVE_INFINITY;'
+                ].join('\n')
+                String newStateMotionFields = [
+                        '        private double lastYawDeg;',
+                        '        private double lastPitchDeg;',
+                        '        private double lastTargetMovementYawDeg;',
+                        '        private double smoothedTargetTurnRateDegPerTick;',
+                        '        private double captureLeadTicks = LEAD_TICKS;',
+                        '        private double bestCaptureHorizontalError = Double.POSITIVE_INFINITY;'
+                ].join('\n')
+
+                String oldStateTickFields = [
+                        '        private int captureEntryLagTicks;',
+                        '        private boolean captureEntryLagUsed;'
+                ].join('\n')
+                String newStateTickFields = [
+                        '        private int captureEntryLagTicks;',
+                        '        private int targetTurnRateSamples;',
+                        '        private boolean captureEntryLagUsed;'
+                ].join('\n')
+
+                String oldStateConstructor = [
+                        '        private State(UUID targetPilotUuid, int initialShots, double turnSign,',
+                        '                      double startAltitude, double startAgl,',
+                        '                      double startYaw, double startPitch) {',
+                        '            this.targetPilotUuid = targetPilotUuid;',
+                        '            this.initialShots = initialShots;',
+                        '            this.turnSign = turnSign;',
+                        '            this.startAltitude = startAltitude;',
+                        '            this.pivotStartYaw = startYaw;',
+                        '            this.maximumAltitude = startAltitude;',
+                        '            this.minimumAgl = startAgl;',
+                        '            this.lastYawDeg = startYaw;',
+                        '            this.lastPitchDeg = startPitch;',
+                        '        }'
+                ].join('\n')
+                String newStateConstructor = [
+                        '        private State(UUID targetPilotUuid, int initialShots, double turnSign,',
+                        '                      double startAltitude, double startAgl,',
+                        '                      double startYaw, double startPitch,',
+                        '                      double targetMovementYaw) {',
+                        '            this.targetPilotUuid = targetPilotUuid;',
+                        '            this.initialShots = initialShots;',
+                        '            this.turnSign = turnSign;',
+                        '            this.startAltitude = startAltitude;',
+                        '            this.pivotStartYaw = startYaw;',
+                        '            this.maximumAltitude = startAltitude;',
+                        '            this.minimumAgl = startAgl;',
+                        '            this.lastYawDeg = startYaw;',
+                        '            this.lastPitchDeg = startPitch;',
+                        '            this.lastTargetMovementYawDeg = targetMovementYaw;',
+                        '        }'
+                ].join('\n')
+
+                Map<String, List<String>> replacements = [
+                        leadConstants: [oldLeadConstants, newLeadConstants],
+                        snapshot: [oldSnapshot, newSnapshot],
+                        constructorCall: [oldConstructorCall, newConstructorCall],
+                        motionUpdate: [oldMotionUpdate, newMotionUpdate],
+                        leadHelper: [oldLeadHelper, newLeadHelper],
+                        description: [oldDescriptionTail, newDescriptionTail],
+                        stateMotion: [oldStateMotionFields, newStateMotionFields],
+                        stateTicks: [oldStateTickFields, newStateTickFields],
+                        stateConstructor: [oldStateConstructor, newStateConstructor]
+                ]
+                if (text.contains('turnAwareLeadDirection(Entity aircraft, Entity target,')) {
+                    project.logger.lifecycle('Turn-aware CAPTURE lead prediction already applied.')
+                    return
+                }
+                replacements.each { name, pair ->
+                    int count = text.split(java.util.regex.Pattern.quote(pair[0]), -1).length - 1
+                    if (count != 1) {
+                        throw new GradleException("Refusing turn-aware CAPTURE experiment: ${name}=${count}")
+                    }
+                }
+                replacements.each { name, pair -> text = text.replace(pair[0], pair[1]) }
+                source.setText(text, 'UTF-8')
+                project.logger.lifecycle('Applied measured turn-rate prediction during energy-fighter CAPTURE.')
+            }
+        }
+
         project.apply from: new File(settingsDir, 'coupled-handoff-validation.gradle')
         project.tasks.withType(org.gradle.api.tasks.compile.JavaCompile).configureEach {
             doFirst {
