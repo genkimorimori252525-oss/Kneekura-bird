@@ -105,7 +105,16 @@ diff --git a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutonomousFl
 -            }
 +            startMeasuredBenchmark(source, server, target);
          }
-@@ -130,6 +129,45 @@ public final class AutonomousFlightGameTests {
+@@ -104,7 +103,7 @@ public final class AutonomousFlightGameTests {
+             if (!validationStarted.get()) {
+                 Path generatedProfile = newestProfile(benchmarkDirectory, orchestrationStartedAt)
+                         .orElseThrow(() -> new GameTestAssertException(
+-                                "Measured fighter benchmark is still running"));
++                                "Measured aircraft benchmark is still running"));
+                 installProfile(generatedProfile, configuredProfile);
+                 AutopilotProfileRegistry.reload(server);
+                 startValidation(source, target, validationStarted, validationStartedAt);
+@@ -128,6 +127,45 @@ public final class AutonomousFlightGameTests {
          });
      }
  
