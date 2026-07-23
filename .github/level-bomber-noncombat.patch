@@ -1,16 +1,3 @@
-diff --git a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/FlightProfile.java b/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/FlightProfile.java
---- a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/FlightProfile.java
-+++ b/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/FlightProfile.java
-@@ -31,1 +31,9 @@
-     }
-+
-+    public boolean isLevelBomber() {
-+        return "bomber".equalsIgnoreCase(role);
-+    }
-+
-+    public boolean supportsAutonomousFlight() {
-+        return isFighter() || isLevelBomber();
-+    }
 diff --git a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutonomousFlightManager.java b/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutonomousFlightManager.java
 --- a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutonomousFlightManager.java
 +++ b/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutonomousFlightManager.java
