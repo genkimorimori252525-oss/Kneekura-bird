@@ -1,4 +1,4 @@
-# Local validation request reduced-pivot-climb-1
+# Local validation request reduced-pivot-climb-reproduction-1
 ref=50d65be1da967c8fc7bda73aec404e5bf807aecb
 aircraft=warfare_wings:a6m
 gametest=true
