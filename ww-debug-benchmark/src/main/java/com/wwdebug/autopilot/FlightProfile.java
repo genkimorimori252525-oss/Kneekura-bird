@@ -24,6 +24,14 @@ public record FlightProfile(
         climbTargetSpeedBps = positive(climbTargetSpeedBps, "climbTargetSpeedBps");
         turnSpeedFloorBps = positive(turnSpeedFloorBps, "turnSpeedFloorBps");
         measuredTopSpeedBps = positive(measuredTopSpeedBps, "measuredTopSpeedBps");
+
+        if ("bomber".equalsIgnoreCase(role)) {
+            // A full-throttle sustained-turn sample is not a safe minimum-speed requirement.
+            // Keep heavy bombers above stall margin without making their normal measured cruise
+            // speed immediately trigger the turn-speed recovery limiter.
+            double bomberFloor = Math.max(stallGuardSpeedBps * 1.15, cruiseSpeedBps * 0.90);
+            turnSpeedFloorBps = Math.min(turnSpeedFloorBps, bomberFloor);
+        }
     }
 
     public boolean isFighter() {
