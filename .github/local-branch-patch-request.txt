@@ -1,4 +1,4 @@
-# Temporary branch patch request flight-validation-concurrency-1
-branch=agent/fix-flight-validation-concurrency
-patch=.github/flight-validation-concurrency.patch
-message=Isolate selectable flight validation concurrency
+# Temporary branch patch request benchmark-clean-start-1
+branch=agent/level-bomber-clean-integration
+patch=.github/benchmark-clean-acceleration-start.patch
+message=Measure acceleration start after benchmark reset
