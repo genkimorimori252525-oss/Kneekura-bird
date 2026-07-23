@@ -8,6 +8,9 @@ tasks.withType(JavaCompile).configureEach {
         File adapterSource = file('src/main/java/com/wwdebug/autopilot/EnergyFighterApexYawAdapter.java')
         String adapter = adapterSource.getText('UTF-8').replace('\r\n', '\n')
 
+        String oldPivotCapture = '    private static final double PIVOT_COMPLETE_HEADING_DEG = 65.0;'
+        String newPivotCapture = '    private static final double PIVOT_COMPLETE_HEADING_DEG = 80.0;'
+
         String oldConstants = [
                 '    private static final double ATTACK_MAX_RAW_ANGLE_DEG = 45.0;',
                 '    private static final double ATTACK_MAX_LEAD_ANGLE_DEG = 12.0;'
@@ -215,33 +218,36 @@ tasks.withType(JavaCompile).configureEach {
                 '        private int totalTicks;'
         ].join('\n')
 
-        boolean fullyApplied = adapter.contains('CAPTURE_ENTRY_LAG_MAX_HORIZONTAL_ERROR_DEG')
+        boolean fullyApplied = adapter.contains(newPivotCapture)
+                && adapter.contains('CAPTURE_ENTRY_LAG_MAX_HORIZONTAL_ERROR_DEG')
                 && adapter.contains('preserve_pivot_turn_for_lag_capture')
                 && adapter.contains('captureEntryLagActive')
         if (fullyApplied) {
-            logger.lifecycle('Coupled-climb CAPTURE target-pitch lag-turn experiment already applied in this workspace.')
+            logger.lifecycle('Coupled-climb early PIVOT capture experiment already applied in this workspace.')
             return
         }
 
+        int pivotCount = adapter.split(Pattern.quote(oldPivotCapture), -1).length - 1
         int constantsCount = adapter.split(Pattern.quote(oldConstants), -1).length - 1
         int captureCount = adapter.split(Pattern.quote(oldCapture), -1).length - 1
         int applyCaptureCount = adapter.split(Pattern.quote(oldApplyCapture), -1).length - 1
         int descriptionCount = adapter.split(Pattern.quote(oldDescriptionTail), -1).length - 1
         int stateCount = adapter.split(Pattern.quote(oldStateFields), -1).length - 1
-        if (constantsCount != 1 || captureCount != 1 || applyCaptureCount != 1
-                || descriptionCount != 1 || stateCount != 1) {
-            throw new GradleException('Refusing CAPTURE target-pitch lag-turn experiment: '
-                    + "constants=${constantsCount}, capture=${captureCount}, "
+        if (pivotCount != 1 || constantsCount != 1 || captureCount != 1
+                || applyCaptureCount != 1 || descriptionCount != 1 || stateCount != 1) {
+            throw new GradleException('Refusing early PIVOT capture experiment: '
+                    + "pivot=${pivotCount}, constants=${constantsCount}, capture=${captureCount}, "
                     + "applyCapture=${applyCaptureCount}, description=${descriptionCount}, "
                     + "state=${stateCount}")
         }
 
-        adapter = adapter.replace(oldConstants, newConstants)
+        adapter = adapter.replace(oldPivotCapture, newPivotCapture)
+                .replace(oldConstants, newConstants)
                 .replace(oldCapture, newCapture)
                 .replace(oldApplyCapture, newApplyCapture)
                 .replace(oldDescriptionTail, newDescriptionTail)
                 .replace(oldStateFields, newStateFields)
         adapterSource.setText(adapter, 'UTF-8')
-        logger.lifecycle('Applied CAPTURE target-pitch lag-turn experiment.')
+        logger.lifecycle('Applied early PIVOT capture at 80 degrees.')
     }
 }
