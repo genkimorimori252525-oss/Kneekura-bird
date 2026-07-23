@@ -22,9 +22,6 @@ on:
         required: true
         default: true
         type: boolean
-  issue_comment:
-    types: [created]
-
 permissions:
   contents: write
   issues: write
@@ -36,12 +33,9 @@ concurrency:
 jobs:
   validate:
     if: >-
-      (github.event_name == 'push' && github.actor == 'genkimorimori252525-oss') ||
-      (github.event_name == 'workflow_dispatch' && github.actor == 'genkimorimori252525-oss') ||
-      (github.event_name == 'issue_comment' &&
-       github.event.issue.number == 7 &&
-       github.event.comment.user.login == 'genkimorimori252525-oss' &&
-       startsWith(github.event.comment.body, '/validate-local'))
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' &&
+       github.actor == 'genkimorimori252525-oss')
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 110
     defaults:
@@ -62,7 +56,6 @@ jobs:
           DISPATCH_REF: ${{ inputs.ref }}
           DISPATCH_AIRCRAFT: ${{ inputs.aircraft }}
           DISPATCH_GAMETEST: ${{ inputs.run_gametest }}
-          COMMENT_BODY: ${{ github.event.comment.body }}
         run: |
           $ref = 'agent/mutual-dogfight-mission-hold'
           $aircraft = 'warfare_wings:a6m'
@@ -93,29 +86,6 @@ jobs:
             if ($values.ContainsKey('aircraft')) { $aircraft = $values['aircraft'] }
             if ($values.ContainsKey('gametest')) { $runGameTest = $values['gametest'].ToLowerInvariant() }
           }
-          else {
-            $tokens = @($env:COMMENT_BODY.Trim() -split '\s+')
-            if ($tokens.Count -eq 0 -or $tokens[0] -ne '/validate-local') {
-              throw 'Invalid local validation command.'
-            }
-            if ($tokens.Count -gt 1) {
-              foreach ($token in $tokens[1..($tokens.Count - 1)]) {
-                if ($token -match '^ref=(.+)$') {
-                  $ref = $Matches[1]
-                }
-                elseif ($token -match '^aircraft=(.+)$') {
-                  $aircraft = $Matches[1]
-                }
-                elseif ($token -match '^gametest=(true|false)$') {
-                  $runGameTest = $Matches[1]
-                }
-                else {
-                  throw "Unknown validation argument: $token"
-                }
-              }
-            }
-          }
-
           if ($ref -notmatch '^[A-Za-z0-9._/-]+$') {
             throw "Unsafe repository ref: $ref"
           }
