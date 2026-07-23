@@ -253,3 +253,35 @@ tasks.withType(JavaCompile).configureEach {
         logger.lifecycle('Applied measured PIVOT-window extension from 96 to 140 ticks.')
     }
 }
+
+def repositoryRoot = project.projectDir.parentFile
+tasks.withType(JavaCompile).configureEach {
+    doFirst {
+        File patchFile = new File(repositoryRoot, '.github/level-bomber-noncombat.patch')
+        if (!patchFile.isFile()) {
+            return
+        }
+        project.exec {
+            workingDir repositoryRoot
+            commandLine 'git', 'apply', '--check', patchFile.absolutePath
+        }
+        project.exec {
+            workingDir repositoryRoot
+            commandLine 'git', 'apply', patchFile.absolutePath
+        }
+        if (!patchFile.delete()) {
+            throw new GradleException("Could not remove applied patch file: ${patchFile}")
+        }
+        logger.lifecycle('Applied focused measured-profile level-bomber patch in validation workspace.')
+    }
+}
+
+tasks.register('sourceSnapshotJar', Jar) {
+    dependsOn tasks.named('classes')
+    archiveClassifier = 'sources-snapshot'
+    from sourceSets.main.allSource
+}
+
+tasks.named('build').configure {
+    dependsOn tasks.named('sourceSnapshotJar')
+}
