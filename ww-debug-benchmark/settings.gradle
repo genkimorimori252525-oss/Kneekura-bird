@@ -10,6 +10,61 @@ rootProject.name = 'ww-debug-benchmark'
 
 gradle.beforeProject { project ->
     if (project.path == ':') {
+        // Register before the coupled-handoff patch so this doFirst action runs after that patch
+        // has produced the CAPTURE controller source.
+        project.tasks.withType(org.gradle.api.tasks.compile.JavaCompile).configureEach {
+            doFirst {
+                File source = project.file('src/main/java/com/wwdebug/autopilot/EnergyFighterApexYawAdapter.java')
+                String text = source.getText('UTF-8').replace('\r\n', '\n')
+                String oldCaptureTurnControl = [
+                        '        float x = state.captureEntryLagActive',
+                        '                ? (float) (state.captureEntryLagTurnInputSign',
+                        '                * CAPTURE_ENTRY_LAG_TURN_INPUT)',
+                        '                : (float) Mth.clamp(',
+                        '                headingError / 18.0 - YAW_RATE_DAMPING * yawRate,',
+                        '                -0.94, 0.94);'
+                ].join('\n')
+                String newCaptureTurnControl = [
+                        '        boolean counterRotateForIntercept =',
+                        '                Math.abs(headingError) > ATTACK_MAX_RAW_ANGLE_DEG;',
+                        '        float x = counterRotateForIntercept',
+                        '                ? (float) (-state.turnSign * 0.94)',
+                        '                : state.captureEntryLagActive',
+                        '                ? (float) (state.captureEntryLagTurnInputSign',
+                        '                * CAPTURE_ENTRY_LAG_TURN_INPUT)',
+                        '                : (float) Mth.clamp(',
+                        '                headingError / 18.0 - YAW_RATE_DAMPING * yawRate,',
+                        '                -0.94, 0.94);'
+                ].join('\n')
+                String oldOverride = [
+                        '                state.captureEntryLagActive',
+                        '                        ? "preserve_pivot_turn_for_lag_capture"',
+                        '                        : "damped_vector_capture_after_climbing_turn");'
+                ].join('\n')
+                String newOverride = [
+                        '                counterRotateForIntercept',
+                        '                        ? "counter_rotating_intercept_capture"',
+                        '                        : state.captureEntryLagActive',
+                        '                        ? "preserve_pivot_turn_for_lag_capture"',
+                        '                        : "damped_vector_capture_after_climbing_turn");'
+                ].join('\n')
+
+                if (text.contains('boolean counterRotateForIntercept =')) {
+                    project.logger.lifecycle('Counter-rotating CAPTURE intercept already applied.')
+                    return
+                }
+                int turnCount = text.split(java.util.regex.Pattern.quote(oldCaptureTurnControl), -1).length - 1
+                int overrideCount = text.split(java.util.regex.Pattern.quote(oldOverride), -1).length - 1
+                if (turnCount != 1 || overrideCount != 1) {
+                    throw new GradleException('Refusing counter-rotating CAPTURE experiment: '
+                            + "turn=${turnCount}, override=${overrideCount}")
+                }
+                source.setText(text.replace(oldCaptureTurnControl, newCaptureTurnControl)
+                        .replace(oldOverride, newOverride), 'UTF-8')
+                project.logger.lifecycle('Applied counter-rotating intercept while CAPTURE bearing error is large.')
+            }
+        }
+
         project.apply from: new File(settingsDir, 'coupled-handoff-validation.gradle')
         project.tasks.withType(org.gradle.api.tasks.compile.JavaCompile).configureEach {
             doFirst {
