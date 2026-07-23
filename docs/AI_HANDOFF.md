@@ -1,199 +1,136 @@
 # AI development handoff
 
-Last updated: 2026-07-22 (Asia/Tokyo)
+Last updated: 2026-07-24 (Asia/Tokyo)
 
 ## Read first
 
 Follow `/AGENTS.md` before changing code. The hard session limits are 60 minutes, 8 remote CI attempts, 10 changed files, and 800 added/changed lines, with a mandatory checkpoint at 30 minutes or 4 CI attempts.
 
-## Repository state
+GitHub state, merged commits, open PRs, and current workflow results override older notes in this file.
 
-- `main` contains merged PR #4 at commit `8a91e7e44d8050505cd3ec948a2ed3c263ec342c`.
-- PR #4 established doctrine-specific fighter combat, the neutral opposed opening, stale rear-threat release, fixed-gun rear-target rejection, and initial P-47N re-engagement safeguards.
-- The remaining acceptance gap is still `dogfight_mutual`: the A6M fires legitimately, but the P-47N has not fired in the same passing run.
+## Current repository state
 
-## Active focused PR
+- `main` contains merged PR #21 at commit `8b533fa0817e83762e6ef973b3b1e58a6179fb98`.
+- PR #21 extends the measured-profile autonomous-flight stack to level bombers while keeping fighter-only awareness, defensive manoeuvre, re-engagement, and weapons behind `FighterCombatFacade`.
+- `ControlAuthorityArbiter` is already integrated and must not be reimplemented.
+- The reciprocal A6M/P-47N qualification is complete and must not be retuned unless a later change causes a measured regression.
+- Old fighter experiment PRs and branches are research history, not coding baselines.
 
-- PR #6: `Add bounded P-47N re-engagement`
-- Draft branch: `agent/mutual-p47-counterattack-minimal`
-- Current head: `257d300feccf9087e5c1804bc035a37b2542dc5a`
-- Current scope: 3 changed files, 725 additions, 5 deletions.
-- Current files:
-  - `EnergyFighterReengagementAdapter.java`
-  - `EnergyFighterForwardAlignmentAdapter.java`
-  - `VehicleEntityBenchmarkMixin.java`
-- Normal benchmark build and deterministic simulation pass.
-- Keep PR #6 Draft. Do not merge until both aircraft fire in one run and the result is repeated for stability.
+## Latest validated milestone: PR #21
 
-The branch was intentionally returned to `257d300f` after the 8-attempt session. Later experiment commits and workflow artifacts remain available by SHA/run ID, but they are not the recommended coding baseline.
+PR: `#21 Enable measured-profile noncombat level bomber autonomy`
 
-## Current best focused candidate
+Final main-relative commit: `f2839fe99ab452eda393ed5d4e17761fbfd0542b`
+Merged commit: `8b533fa0817e83762e6ef973b3b1e58a6179fb98`
 
-Commit: `257d300feccf9087e5c1804bc035a37b2542dc5a`
+### B-17 full autonomous mission
 
-Observed targeted result:
+Windows self-hosted run: `30037836662`
 
-- A6M fire count: 7
-- P-47N fire count: 0
-- minimum separation: 11.79 blocks
-- maximum separation: 158.44 blocks
-- no ground contact for either aircraft
-- primary mission returned to a passing parked result
-- only behavioral acceptance failure: P-47N produced no firing event
+- build and deterministic simulation passed;
+- measured BOMBER profiles were generated for B-17, B-29, He 111, G10N1, G10N2, and G4M;
+- 6,215 autonomous frames;
+- both 170-degree turns passed;
+- controlled stall and recovery passed;
+- return, pattern entry, final, flare/go-around recovery, touchdown, braking, and parking passed;
+- final phase `PARKED`;
+- final speed `0.0 bps`;
+- verifier `passed=true`;
+- no crash report.
 
-This candidate adaptively hands off the crossing near the measured 83–90 degree sector. It is the smallest stable point from the latest session, even though the ordinary energy-fighter doctrine then chooses `REPOSITION` and loses the geometry.
+### Reciprocal fighter regression
 
-Useful artifact:
+Windows self-hosted run: `30038437329`
 
-- workflow run: `29855959212`
-- results artifact: `8505326040`
+- build and deterministic simulation passed;
+- real-physics reciprocal dogfight passed;
+- A6M fire count: 5;
+- P-47N fire count: 1;
+- minimum separation: 11.75 blocks;
+- maximum separation: 189.12 blocks;
+- ground-contact frames: 0 / 0;
+- primary A6M resumed the ordinary mission and ended `PARKED`.
 
-## Latest session: eight targeted CI attempts
+Hosted PR jobs for this period sometimes ended before executing any step because hosted Actions capacity was unavailable. Do not treat a zero-step hosted job as a code failure. Prefer the Windows self-hosted path while that condition persists.
 
-### Attempt 1 — adaptive crossing handoff
+## Preserved safety invariants
 
-- commit: `257d300feccf9087e5c1804bc035a37b2542dc5a`
-- adaptive handoff activated near the broadside minimum
-- A6M fired 7 times; P-47N fired 0 times
-- ordinary energy doctrine selected `REPOSITION` and the raw target angle worsened
-- retained as the current branch head because it was small, safe, and stable
+Never weaken these to make a validation pass:
 
-### Attempt 2 — same-direction lead pursuit
+- player-controlled aircraft receive no AI flight input;
+- fixed forward guns never fire at a target behind the aircraft;
+- line-of-sight, range, friendly-fire, terrain, and collision checks remain authoritative;
+- reciprocal dogfight minimum separation remains at least 8 blocks;
+- no ground contact or aircraft collision during the combat window;
+- bombers do not inherit fighter targeting, defensive manoeuvre, re-engagement, or fixed-gun combat authority;
+- an aircraft without an explicit attack-capable mission order must not attack by default.
 
-- commit: `0e68272dedc1c414c1fc6c45411eaefe0ae5449e`
-- a custom lead approach continued the crossing turn
-- lead/raw angle worsened from roughly 89 degrees toward 132 degrees
-- conclusion: following the same horizontal circle after the local minimum does not convert the geometry
+## Architecture already present
 
-### Attempt 3 — reverse horizontal turn
+The repository now has validated pieces of the intended stack:
 
-- commit: `63b89acee3484fdb7f963c8a65944d1326ea02bd`
-- the controller reversed the turn at the local minimum
-- raw target angle worsened from roughly 81 degrees toward 170 degrees
-- conclusion: a simple left/right reversal is not the missing behavior
+```text
+Mob pilot eligibility
+    -> measured FlightProfile resolution
+    -> role gating
+    -> ControlAuthorityArbiter
+    -> fighter-only FighterCombatFacade when applicable
+    -> terrain/collision-safe flight guidance
+    -> real aircraft inputs
+```
 
-### Attempt 4 — late high-yoyo capture
+Do not create a second control-authority dispatcher or a parallel fighter combat tick path.
 
-- commit: `eec52a6f40fe7fa3207f10872d4d27d5482391ce`
-- high-yoyo began around raw angle 99.5 degrees and closure 8.6 bps
-- closure could be reduced, but turn authority fell and best angle stopped near 95 degrees
-- conclusion: the maneuver started too late and coupled speed loss with insufficient turning
+## Next focused milestone
 
-### Attempt 5 — earlier capture
+Start the common mission-order and navigation foundation as a small, noncombat PR.
 
-- commit: `cf9664fb97f4cca121e7c09afd746f4cf2423d7d`
-- capture began near raw angle 108.8 degrees and closure 3.2 bps
-- a start/release threshold contradiction caused the energy-bleed phase to be skipped
-- best angle reached about 94.8 degrees before defensive priority returned
+Recommended first slice:
 
-### Attempt 6 — sustained high-yoyo
+1. Introduce an immutable mission-order data model and order type enum.
+2. Add a server-side `MissionOrderManager` keyed by aircraft UUID.
+3. Support only safe initial commands:
+   - `HOLD_POSITION`
+   - `RETURN_TO_BASE`
+   - `LAND`
+4. Store optional target position, home-base/runway reference, mission altitude, engagement permission, and abort reason without changing current flight behaviour yet.
+5. Add deterministic tests for assignment, replacement, clearing, and default no-order behaviour.
+6. Keep persistence, chunk reload, fuel prediction, formation data, and attack orders out of the first slice unless they can be added without expanding beyond one focused hypothesis.
 
-- commit: `78902005ec2fe29a479f3784ea8fd3d0682406ab`
-- corrected the threshold contradiction
-- closure was reduced from about 13.4 bps to 2.3 bps
-- speed/turn protection then reduced yaw authority; best angle was about 92.3 degrees and later worsened
+The first mission-order PR should be plumbing only. It must not grant new weapon authority, alter existing dogfight geometry, or change the validated B-17 flight path.
 
-### Attempt 7 — powered high-yoyo
+## Follow-on slices after the mission-order model
 
-- commit: `1ee8f962f87d4a50520f01a2d5d12653e00f4ce0`
-- preserved engine power and yaw rate during the climb
-- best raw target angle reached 79.83 degrees
-- closure still increased to roughly 17.4 bps while the P-47N remained in the same horizontal turning circle
-- the aircraft passed the useful geometry without firing
-- A6M fired 3 times; P-47N fired 0 times
-- minimum separation 10.86 blocks; maximum separation 158.44 blocks; no ground contact
+Proceed in separate PRs:
 
-Useful artifact:
+1. `WaypointRoute` and route-progress state.
+2. Home base and runway registration.
+3. Safe route guidance using measured `flight_profiles`.
+4. Fuel, ammunition, and damage-based return decisions.
+5. Save/load restoration and chunk-boundary continuity.
+6. Noncombat all-aircraft flight matrix.
+7. Role-specific bomber, attacker, and torpedo-bomber mission execution.
+8. Escort, formation, target allocation, and multi-aircraft runway sequencing.
 
-- workflow run: `29859047267`
-- results artifact: `8506580265`
+## Validation order for the next code PR
 
-### Attempt 8 — vertical zoom and lead re-entry
+1. Static inspection and deterministic tests.
+2. Normal benchmark build.
+3. Existing fighter deterministic regression.
+4. One targeted noncombat mission-order scenario only after the data model and manager are stable.
+5. Real-physics GameTest only when the change actually affects live flight behaviour.
 
-- experiment commit: `f35cca4436e6bf73351e8f471862f309864068fc`
-- the controller left the horizontal crossing circle in a short vertical zoom
-- closure dropped from 14.35 bps to -2.0 bps
-- raw target angle regressed from 86.91 degrees to 121.52 degrees during the zoom
-- the later lead re-entry improved only to 108.96 degrees before timing out
-- A6M fired 6 times; P-47N fired 0 times
-- minimum separation 11.66 blocks; maximum separation 158.44 blocks
-- no ground contact; primary mission returned and parked
-- only verifier error remained `P-47N never fired at the A6M`
+A pure data-model/manager PR should not consume a Windows GameTest run unless it connects to the live controller.
 
-Useful artifact:
+## Current single next action
 
-- workflow run: `29859888869`
-- results artifact: `8506900520`
-
-## Root cause now established
-
-This is not primarily a threshold-selection problem.
-
-- Horizontal pursuit can preserve bearing progress, but it cannot remove closure before overshoot.
-- Reversing the horizontal turn loses the geometry immediately.
-- Continuous high-yoyo control remains inside the A6M turning circle; powered variants preserve turn rate but closure still grows.
-- A wings-level vertical zoom removes closure successfully, but discards too much bearing and leaves the target behind the usable attack sector.
-
-The missing behavior is a coupled three-dimensional trajectory that controls **closure and bearing together**. It should retain the target near the measured 80–90 degree sector while converting excess horizontal closure into altitude, then re-enter with a genuine predicted lead solution.
-
-## Mandatory next workflow
-
-Do not immediately add another production controller and do not start with another remote GameTest.
-
-1. Download the preserved attempt 7 and attempt 8 result artifacts.
-2. Build a deterministic telemetry-replay or geometry-analysis tool under `ww-debug-benchmark/tools/`.
-3. Feed it the P-47N and A6M JSONL frames around the crossing minimum.
-4. Plot or calculate, tick by tick:
-   - relative position and velocity;
-   - raw target angle and predicted lead angle;
-   - closure;
-   - horizontal and vertical speed;
-   - yaw rate, pitch rate, roll, and altitude difference.
-5. Use the replay to compare an **oblique lag-yoyo** against the failed controls. The candidate should:
-   - keep raw target angle approximately in the 80–90 degree sector;
-   - drive closure toward zero;
-   - avoid joining the A6M horizontal turning circle;
-   - retain sufficient speed and yaw authority;
-   - hand off only when predicted lead angle is inside a real attack sector.
-6. Run static/deterministic checks first. Use one targeted remote GameTest only after the replay shows simultaneous improvement in closure and bearing.
-
-Do not resume blind threshold tuning. If the replay cannot produce a plausible coupled trajectory, stop and reconsider the aircraft control model rather than adding another adapter layer.
-
-## Closed experiment directions
-
-- Do not change the neutral opening offset. Lateral 75 was unsafe and lateral 110 caused excessive separation; retain the merged 55-block opening.
-- Do not bypass collision avoidance.
-- Do not weaken the real firing gates.
-- Do not retry simple same-turn pursuit, simple opposite-turn pursuit, or wings-level vertical zoom as standalone fixes.
-- Do not append experiments to oversized PR #5.
-
-## Oversized research PR
-
-- PR #5, `Recover energy fighters from stale defensive extensions`, remains an open Draft research branch: `agent/energy-fighter-counterattack-recovery`.
-- It grew to roughly 40 commits, 12 changed files, and more than 2,000 additions.
-- Use it only for telemetry and comparison history.
-
-## Safety and acceptance criteria
-
-A candidate is not complete until one run satisfies all of the following:
-
-- neutral opposed opening; no initial rear free shot;
-- A6M fires at least once through the real weapon manager;
-- P-47N fires at least once through the real weapon manager;
-- no fixed-gun firing at a target behind the aircraft;
-- both aircraft perform autonomous attack and defensive behavior;
-- no ground contact or aircraft collision;
-- minimum separation at least 8 blocks;
-- maximum separation at most 480 blocks;
-- P-47N remains inside the useful simulation area;
-- primary aircraft resumes the normal mission and returns/lands/parks;
-- the targeted result is repeated for stability before the full regression matrix.
+Create a clean `agent/mission-order-foundation` branch from current `main`, inspect existing package conventions and persistence helpers, then implement the smallest mission-order model plus manager and deterministic tests. Keep it Draft until build and deterministic checks pass.
 
 ## Useful references
 
-- merged baseline: `8a91e7e44d8050505cd3ec948a2ed3c263ec342c`
-- active focused PR: `#6`
-- active branch: `agent/mutual-p47-counterattack-minimal`
-- recommended current head: `257d300feccf9087e5c1804bc035a37b2542dc5a`
-- research PR: `#5`
-- research branch: `agent/energy-fighter-counterattack-recovery`
+- parent roadmap: Issue #7
+- merged reciprocal fighter qualification: PR #17 and PR #18 history
+- merged level-bomber autonomy: PR #21
+- B-17 validation run: `30037836662`
+- fighter regression run: `30038437329`
+- current merged baseline: `8b533fa0817e83762e6ef973b3b1e58a6179fb98`
