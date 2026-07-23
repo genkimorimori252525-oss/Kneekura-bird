@@ -1,0 +1,14 @@
+diff --git a/.github/workflows/ww-local-flight-validation.yml b/.github/workflows/ww-local-flight-validation.yml
+--- a/.github/workflows/ww-local-flight-validation.yml
++++ b/.github/workflows/ww-local-flight-validation.yml
+@@ -46,8 +46,8 @@ permissions:
+   contents: write
+ 
+ concurrency:
+-  group: ww-local-self-hosted-validation
+-  cancel-in-progress: true
++  group: ww-local-flight-validation
++  cancel-in-progress: false
+ 
+ jobs:
+   validate:
