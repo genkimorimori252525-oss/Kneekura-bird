@@ -1,0 +1,25 @@
+diff --git a/ww-debug-benchmark/src/main/java/com/wwdebug/benchmark/BenchmarkManager.java b/ww-debug-benchmark/src/main/java/com/wwdebug/benchmark/BenchmarkManager.java
+--- a/ww-debug-benchmark/src/main/java/com/wwdebug/benchmark/BenchmarkManager.java
++++ b/ww-debug-benchmark/src/main/java/com/wwdebug/benchmark/BenchmarkManager.java
+@@ -628,9 +628,9 @@ public final class BenchmarkManager {
+             phase = switch (phase) {
+                 case PREPARE -> {
++                    resetFlight();
+                     accelerationInitialSpeed = aircraft.getDeltaMovement().horizontalDistance() * 20.0;
+                     accelerationInitialEnginePower = ReflectiveAircraft.enginePower(aircraft);
+-                    resetFlight();
+                     yield Phase.STRAIGHT_ACCELERATION;
+                 }
+                 case STRAIGHT_ACCELERATION -> {
+diff --git a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutopilotSession.java b/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutopilotSession.java
+--- a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutopilotSession.java
++++ b/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutopilotSession.java
+@@ -361,7 +361,7 @@ final class AutopilotSession {
+         if (horizontalDistance(snapshot.position(), waypoint) < 30.0) {
+             transition(server, aircraft, snapshot, FlightPhase.DOWNWIND,
+                     "downwind_entry_waypoint_reached");
+-        } else if (phaseTicks > 1800) {
++        } else if (phaseTicks > (profile.isLevelBomber() ? 2600 : 1800)) {
+             transition(server, aircraft, snapshot, FlightPhase.ABORTED,
+                     "return_to_pattern_timeout");
+         }
