@@ -10,6 +10,43 @@ rootProject.name = 'ww-debug-benchmark'
 
 gradle.beforeProject { project ->
     if (project.path == ':') {
+        // Register this before the coupled-handoff patch so Gradle's doFirst ordering applies it
+        // after that patch has produced the CAPTURE controller source.
+        project.tasks.withType(org.gradle.api.tasks.compile.JavaCompile).configureEach {
+            doFirst {
+                File source = project.file('src/main/java/com/wwdebug/autopilot/EnergyFighterApexYawAdapter.java')
+                String text = source.getText('UTF-8').replace('\r\n', '\n')
+                String oldCapturePitchControl = [
+                        '        double desiredPitch = desiredPitchDegrees(leadDirection);',
+                        '        float z = (float) Mth.clamp(',
+                        '                (desiredPitch - snapshot.pitchDeg()) / CAPTURE_PITCH_DIVISOR',
+                        '                        - CAPTURE_PITCH_RATE_DAMPING * pitchRate,',
+                        '                -0.88, 0.88);'
+                ].join('\n')
+                String newCapturePitchControl = [
+                        '        double desiredPitch = desiredPitchDegrees(leadDirection);',
+                        '        double capturePitchCommand =',
+                        '                (desiredPitch - snapshot.pitchDeg()) / CAPTURE_PITCH_DIVISOR',
+                        '                        - CAPTURE_PITCH_RATE_DAMPING * pitchRate;',
+                        '        double maximumNoseDownInput =',
+                        '                Math.abs(headingError) > ATTACK_MAX_RAW_ANGLE_DEG ? 0.35 : 0.88;',
+                        '        float z = (float) Mth.clamp(',
+                        '                capturePitchCommand, -0.88, maximumNoseDownInput);'
+                ].join('\n')
+
+                if (text.contains('double maximumNoseDownInput =')) {
+                    project.logger.lifecycle('Capture yaw-priority pitch limit already applied.')
+                    return
+                }
+                int count = text.split(java.util.regex.Pattern.quote(oldCapturePitchControl), -1).length - 1
+                if (count != 1) {
+                    throw new GradleException("Refusing capture yaw-priority experiment: matches=${count}")
+                }
+                source.setText(text.replace(oldCapturePitchControl, newCapturePitchControl), 'UTF-8')
+                project.logger.lifecycle('Limited nose-down CAPTURE input until horizontal attack alignment.')
+            }
+        }
+
         project.apply from: new File(settingsDir, 'coupled-handoff-validation.gradle')
         project.tasks.withType(org.gradle.api.tasks.compile.JavaCompile).configureEach {
             doFirst {
