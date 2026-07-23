@@ -1,4 +1,4 @@
-# Local validation request level-bomber-source-snapshot-5
-ref=e5b372a435991e3f0edc058ea3576b103a575763
-aircraft=warfare_wings:b17
-gametest=false
+# Local validation request pr21-fighter-regression
+ref=2fca3326f762c13cf767b181dce22d3373c3d97b
+aircraft=warfare_wings:a6m
+gametest=true
