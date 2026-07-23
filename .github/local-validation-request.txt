@@ -1,4 +1,4 @@
-# Local validation request energy-approach-release-1
-ref=726b6be853c321b91a03c835c136fd5333e2db7b
+# Local validation request energy-short-reposition-1
+ref=5d58c794346e0238bf0ad9b5393a7baff19e521c
 aircraft=warfare_wings:a6m
 gametest=true
