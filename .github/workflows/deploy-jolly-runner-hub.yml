@@ -30,14 +30,27 @@ jobs:
 
       - name: Build and install desktop app
         run: |
-          .\tools\JollyRunnerHub\Build-Deploy.ps1 -Install
+          $log = '.\tools\JollyRunnerHub\build\deploy.log'
+          New-Item -ItemType Directory -Force -Path (Split-Path -Parent $log) | Out-Null
+          try {
+            & .\tools\JollyRunnerHub\Build-Deploy.ps1 -Install *>&1 |
+              Tee-Object -FilePath $log
+          }
+          catch {
+            ($_ | Out-String) | Tee-Object -FilePath $log -Append
+            throw
+          }
 
-      - name: Upload portable launcher
+      - name: Upload portable launcher and diagnostics
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: JollyRunnerHub-${{ github.run_id }}
+          if-no-files-found: warn
           path: |
             tools/JollyRunnerHub/build/JollyRunnerHub.exe
+            tools/JollyRunnerHub/build/JollyRunnerHub.ico
+            tools/JollyRunnerHub/build/deploy.log
             tools/JollyRunnerHub/JollyRunnerHub.ps1
             tools/JollyRunnerHub/profiles.default.json
             tools/JollyRunnerHub/README.md
