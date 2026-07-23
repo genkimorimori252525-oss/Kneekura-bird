@@ -1,5 +1,5 @@
-# Local flight validation request attacker-il2-autonomy-1
-ref=5e6ed21ee8e22b904e7eaf7b6013b4dafde1b744
+# Local flight validation request attacker-final-il2-1
+ref=5d7853783e04c34f4ac4363755d7ae1a1508d3ba
 aircraft=warfare_wings:il2
 scenario=full
 gametest=true
