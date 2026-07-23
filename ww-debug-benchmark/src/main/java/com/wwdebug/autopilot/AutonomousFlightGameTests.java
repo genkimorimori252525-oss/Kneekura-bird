@@ -39,10 +39,10 @@ import java.util.stream.Stream;
 /**
  * Headless integration test using the real Forge server, real aircraft entities and real physics.
  *
- * <p>Set {@code -PflightTestAircraft=all} to execute every fighter sequentially. The default smoke
- * test executes the A6M only. If no measured profile file is staged, the test first runs the real
- * fixed-input fighter benchmark, installs its generated profiles, and only then starts autonomous
- * flight validation.</p>
+ * <p>Set {@code -PflightTestAircraft=all} to execute every fighter sequentially, or pass one
+ * supported aircraft id for a focused validation. If that aircraft has no staged measured profile,
+ * the test first runs the matching real fixed-input category benchmark, installs its generated
+ * profiles, and only then starts autonomous flight validation.</p>
  */
 @GameTestHolder(WWDebugBenchmarkMod.MOD_ID)
 @PrefixGameTestTemplate(false)
@@ -91,20 +91,17 @@ public final class AutonomousFlightGameTests {
         AtomicLong validationStartedAt = new AtomicLong(0L);
         long orchestrationStartedAt = System.currentTimeMillis();
 
-        if (Files.isRegularFile(configuredProfile)) {
+        if (AutonomousProfileBootstrap.measuredProfileAvailable(server, configuredProfile, target)) {
             startValidation(source, target, validationStarted, validationStartedAt);
         } else {
-            int benchmarkCount = BenchmarkManager.start(source, BenchmarkCategory.FIGHTER, false);
-            if (benchmarkCount <= 0) {
-                throw new IllegalStateException("Could not start measured fighter benchmark");
-            }
+            AutonomousProfileBootstrap.startMeasuredBenchmark(source, server, target);
         }
 
         helper.succeedWhen(() -> {
             if (!validationStarted.get()) {
                 Path generatedProfile = newestProfile(benchmarkDirectory, orchestrationStartedAt)
                         .orElseThrow(() -> new GameTestAssertException(
-                                "Measured fighter benchmark is still running"));
+                                "Measured aircraft benchmark is still running"));
                 installProfile(generatedProfile, configuredProfile);
                 AutopilotProfileRegistry.reload(server);
                 startValidation(source, target, validationStarted, validationStartedAt);

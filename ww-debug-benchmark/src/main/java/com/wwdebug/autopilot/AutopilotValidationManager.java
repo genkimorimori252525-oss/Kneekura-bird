@@ -86,7 +86,7 @@ public final class AutopilotValidationManager {
         AutopilotProfileRegistry.reload(server);
         CandidateLookup lookup = candidate(source.getLevel(), id);
         if (lookup.candidate() == null) {
-            String message = "No compatible fighter found for " + id + ": " + lookup.reason();
+            String message = "No compatible autonomous aircraft found for " + id + ": " + lookup.reason();
             WWDebugBenchmarkMod.LOGGER.error("{}; {}", message,
                     AutopilotProfileRegistry.resolutionDiagnostics(server, id));
             source.sendFailure(Component.literal(message));
@@ -183,8 +183,8 @@ public final class AutopilotValidationManager {
         if (profile == null) {
             return new CandidateLookup(null, "measured_profile_not_resolved");
         }
-        if (!profile.isFighter()) {
-            return new CandidateLookup(null, "profile_role_is_" + profile.role());
+        if (!profile.supportsAutonomousFlight()) {
+            return new CandidateLookup(null, "profile_role_not_supported_" + profile.role());
         }
 
         AircraftMetadata metadata = AircraftMetadataResolver.resolve(server.getResourceManager(), id);
