@@ -1,4 +1,4 @@
-# Local validation request capture-yaw-priority-1
+# Local validation request capture-yaw-priority-reproduction-1
 ref=9d7493124e2492e82b5d1d2fbb8ff9cad7aa357f
 aircraft=warfare_wings:a6m
 gametest=true
