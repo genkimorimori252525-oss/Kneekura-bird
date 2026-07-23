@@ -1,4 +1,4 @@
-# Local validation request energy-short-reposition-1
-ref=5d58c794346e0238bf0ad9b5393a7baff19e521c
+# Local validation request clean-mutual-integration-1
+ref=cb2d16f4c731d154c3e033a0486b47541a078be4
 aircraft=warfare_wings:a6m
 gametest=true
