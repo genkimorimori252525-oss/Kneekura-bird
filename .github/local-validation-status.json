@@ -1,8 +1,8 @@
 {
   "run_id": 30025888496,
   "run_attempt": 1,
-  "status": "in_progress",
-  "conclusion": null,
+  "status": "completed",
+  "conclusion": "success",
   "event": "push",
   "head_branch": "main",
   "head_sha": "7a53c72b2e60e7b8646cea8dc504de1a3143ff47",
@@ -11,5 +11,5 @@
   "aircraft": "warfare_wings:a6m",
   "gametest": "true",
   "url": "https://github.com/genkimorimori252525-oss/warfare_wings-1.1.4-1.20.1-forge/actions/runs/30025888496",
-  "updated_at": "2026-07-23T16:37:40.892Z"
+  "updated_at": "2026-07-23T16:41:21.218Z"
 }
