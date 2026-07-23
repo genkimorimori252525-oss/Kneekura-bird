@@ -1,5 +1,5 @@
-# Local flight validation request attacker-final-il2-1
-ref=5d7853783e04c34f4ac4363755d7ae1a1508d3ba
+# Local flight validation request pr25-head-il2-1
+ref=86a14f8556a7ec1f493d22e34430d9b645a2f994
 aircraft=warfare_wings:il2
 scenario=full
 gametest=true
