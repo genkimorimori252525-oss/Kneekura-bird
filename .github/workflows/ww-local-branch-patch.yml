@@ -66,12 +66,30 @@ jobs:
           COMMIT_MESSAGE: ${{ steps.request.outputs.message }}
           TARGET_BRANCH: ${{ steps.request.outputs.branch }}
         run: |
-          git apply --check $env:PATCH_PATH
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $checkOutput = & git apply --check $env:PATCH_PATH 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            $diagnosticPath = '.github\level-bomber-patch-error.txt'
+            @(
+              "patch=$env:PATCH_PATH",
+              "branch=$env:TARGET_BRANCH",
+              'git_apply_check_output:',
+              ($checkOutput | Out-String)
+            ) | Set-Content -Path $diagnosticPath -Encoding UTF8
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add $diagnosticPath
+            git commit -m "Record level bomber patch check failure"
+            git push origin "HEAD:$env:TARGET_BRANCH"
+            exit 1
+          }
+
           git apply $env:PATCH_PATH
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
           Remove-Item $env:PATCH_PATH
+          if (Test-Path '.github\level-bomber-patch-error.txt') {
+            Remove-Item '.github\level-bomber-patch-error.txt'
+          }
           if (Test-Path '.github\level-bomber-apply-request.txt') {
             Remove-Item '.github\level-bomber-apply-request.txt'
           }
