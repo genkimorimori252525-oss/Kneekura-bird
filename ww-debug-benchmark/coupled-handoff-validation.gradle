@@ -251,3 +251,24 @@ tasks.withType(JavaCompile).configureEach {
         logger.lifecycle('Applied early PIVOT capture at 80 degrees.')
     }
 }
+
+// The measured 110-block extension now provides enough horizontal room. Keep the energy turn,
+// but reduce the sustained PIVOT climb that previously created a 49.5-block altitude gap.
+tasks.withType(JavaCompile).configureEach {
+    doFirst {
+        File adapterSource = file('src/main/java/com/wwdebug/autopilot/EnergyFighterApexYawAdapter.java')
+        String adapter = adapterSource.getText('UTF-8').replace('\r\n', '\n')
+        String oldPitch = '    private static final double CLIMB_TARGET_PITCH_DEG = -22.0;'
+        String newPitch = '    private static final double CLIMB_TARGET_PITCH_DEG = -10.0;'
+        if (adapter.contains(newPitch)) {
+            logger.lifecycle('Reduced coupled PIVOT climb pitch already applied.')
+            return
+        }
+        int count = adapter.split(Pattern.quote(oldPitch), -1).length - 1
+        if (count != 1) {
+            throw new GradleException("Refusing reduced PIVOT climb experiment: pitch=${count}")
+        }
+        adapterSource.setText(adapter.replace(oldPitch, newPitch), 'UTF-8')
+        logger.lifecycle('Reduced coupled CLIMB/PIVOT pitch from -22 to -10 degrees.')
+    }
+}
