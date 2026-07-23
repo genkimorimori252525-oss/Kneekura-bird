@@ -1,4 +1,4 @@
-# Local flight validation request g4m-common-flight-2
+# Local flight validation request g4m-common-flight-3
 ref=723dc519de7144e42338fd34053c0e20c1f81ba7
 aircraft=warfare_wings:g4m
 scenario=full
