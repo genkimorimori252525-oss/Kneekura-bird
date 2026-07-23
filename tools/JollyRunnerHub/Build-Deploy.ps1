@@ -39,10 +39,30 @@ if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $exePath)) {
     throw "Launcher compilation failed with exit code $LASTEXITCODE"
 }
 
+function Copy-Or-StageUpdate {
+    param(
+        [Parameter(Mandatory=$true)][string]$Source,
+        [Parameter(Mandatory=$true)][string]$Destination,
+        [Parameter(Mandatory=$true)][string]$Staged
+    )
+    try {
+        Copy-Item -LiteralPath $Source -Destination $Destination -Force -ErrorAction Stop
+        if (Test-Path -LiteralPath $Staged) { Remove-Item -LiteralPath $Staged -Force -ErrorAction SilentlyContinue }
+        return $false
+    }
+    catch [System.IO.IOException] {
+        Copy-Item -LiteralPath $Source -Destination $Staged -Force
+        return $true
+    }
+    catch [System.UnauthorizedAccessException] {
+        Copy-Item -LiteralPath $Source -Destination $Staged -Force
+        return $true
+    }
+}
+
 if ($Install) {
     Copy-Item -LiteralPath $scriptPath -Destination (Join-Path $appData 'JollyRunnerHub.ps1') -Force
     Copy-Item -LiteralPath $defaultConfig -Destination (Join-Path $appData 'profiles.default.json') -Force
-    Copy-Item -LiteralPath $iconPath -Destination (Join-Path $appData 'JollyRunnerHub.ico') -Force
 
     $profilePath = Join-Path $appData 'profiles.json'
     if (-not (Test-Path -LiteralPath $profilePath)) {
@@ -52,17 +72,53 @@ if ($Install) {
     if (-not (Test-Path -LiteralPath $desktop)) {
         New-Item -ItemType Directory -Force -Path $desktop | Out-Null
     }
-    Copy-Item -LiteralPath $exePath -Destination (Join-Path $desktop 'JollyRunnerHub.exe') -Force
+
+    $desktopExe = Join-Path $desktop 'JollyRunnerHub.exe'
+    $installedIcon = Join-Path $appData 'JollyRunnerHub.ico'
+    $stagedExe = Join-Path $appData 'JollyRunnerHub.pending.exe'
+    $stagedIcon = Join-Path $appData 'JollyRunnerHub.pending.ico'
+
+    $exePending = Copy-Or-StageUpdate -Source $exePath -Destination $desktopExe -Staged $stagedExe
+    $iconPending = Copy-Or-StageUpdate -Source $iconPath -Destination $installedIcon -Staged $stagedIcon
+    $pendingRestart = $exePending -or $iconPending
+
+    if ($pendingRestart) {
+        $updaterPath = Join-Path $appData 'Apply-Pending-JollyRunnerHubUpdate.ps1'
+        $updater = @'
+$ErrorActionPreference = 'SilentlyContinue'
+$appData = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'JollyRunnerHub'
+$desktop = [Environment]::GetFolderPath('Desktop')
+$desktopExe = Join-Path $desktop 'JollyRunnerHub.exe'
+$installedIcon = Join-Path $appData 'JollyRunnerHub.ico'
+$stagedExe = Join-Path $appData 'JollyRunnerHub.pending.exe'
+$stagedIcon = Join-Path $appData 'JollyRunnerHub.pending.ico'
+for ($attempt = 0; $attempt -lt 21600; $attempt++) {
+    if (-not (Get-Process -Name 'JollyRunnerHub' -ErrorAction SilentlyContinue)) {
+        if (Test-Path -LiteralPath $stagedExe) { Copy-Item -LiteralPath $stagedExe -Destination $desktopExe -Force; Remove-Item -LiteralPath $stagedExe -Force }
+        if (Test-Path -LiteralPath $stagedIcon) { Copy-Item -LiteralPath $stagedIcon -Destination $installedIcon -Force; Remove-Item -LiteralPath $stagedIcon -Force }
+        break
+    }
+    Start-Sleep -Seconds 1
+}
+'@
+        Set-Content -LiteralPath $updaterPath -Value $updater -Encoding UTF8
+        Start-Process powershell.exe -ArgumentList @(
+            '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden',
+            '-File', ('"{0}"' -f $updaterPath)
+        ) -WindowStyle Hidden | Out-Null
+        Write-Host 'JollyRunnerHub is currently open. The new icon and executable are staged and will replace the old files after the app closes.'
+    }
 
     $installInfo = [ordered]@{
         installed_at = (Get-Date).ToString('o')
-        executable = (Join-Path $desktop 'JollyRunnerHub.exe')
+        executable = $desktopExe
         app_root = $appData
         config = $profilePath
         icon_sha256 = (Get-FileHash -LiteralPath $iconPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        pending_restart = $pendingRestart
     }
     $installInfo | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $appData 'install-status.json') -Encoding UTF8
-    Write-Host "Installed JollyRunnerHub to $desktop"
+    Write-Host "Installed JollyRunnerHub to $desktop (pending_restart=$pendingRestart)"
 }
 
 Write-Host "Built: $exePath"
