@@ -1,4 +1,4 @@
-# Local validation request capture-target-pitch-lag-resume-1
+# Local validation request capture-target-pitch-lag-resume-2-controlled-repeat
 ref=03f525abc395fdcf8d397d4658b77a1f04ef7a01
 aircraft=warfare_wings:a6m
 gametest=true
