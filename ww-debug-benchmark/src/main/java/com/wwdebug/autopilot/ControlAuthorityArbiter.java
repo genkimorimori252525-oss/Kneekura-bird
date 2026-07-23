@@ -50,29 +50,10 @@ public final class ControlAuthorityArbiter {
         MutualDogfightMissionHoldAdapter.apply(aircraft);
         FormationFlightManager.applyControl(aircraft);
 
-        boolean collisionRisk = AirspaceSafetyProbe.collisionRisk(aircraft);
-        boolean energyFighterControl = false;
-        if (!collisionRisk) {
-            energyFighterControl = EnergyFighterApexYawAdapter.applyControl(aircraft);
-            if (!energyFighterControl) {
-                DefensiveAirCombatManager.applyControl(aircraft);
-                if (!DefensiveAirCombatManager.active(aircraft)) {
-                    AirCombatManeuverManager.applyControl(aircraft);
-                }
-            }
-        }
-
-        if (collisionRisk) {
-            return Authority.COLLISION_AVOIDANCE;
-        }
-        if (energyFighterControl) {
-            return Authority.ENERGY_FIGHTER_REENGAGEMENT;
-        }
-        if (DefensiveAirCombatManager.active(aircraft)) {
-            return Authority.DEFENSIVE_COMBAT;
-        }
-        if (AirCombatManeuverManager.active(aircraft)) {
-            return Authority.OFFENSIVE_COMBAT;
+        Authority combatAuthority = FighterCombatFacade.applyControl(
+                aircraft, AirspaceSafetyProbe.collisionRisk(aircraft));
+        if (combatAuthority != Authority.NONE) {
+            return combatAuthority;
         }
         if (TerrainAvoidancePlanner.active(aircraft)) {
             return Authority.TERRAIN_AVOIDANCE;
