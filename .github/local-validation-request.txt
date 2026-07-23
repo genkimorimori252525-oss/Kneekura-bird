@@ -1,4 +1,4 @@
-# Local validation request turn-aware-capture-1
-ref=514212f1553c29f4f973bf6030a9c37a5af68c5b
+# Local validation request turn-aware-terminal-handoff-1
+ref=e0308274fb40e7c8a1e53253f100581752b3fff5
 aircraft=warfare_wings:a6m
 gametest=true
