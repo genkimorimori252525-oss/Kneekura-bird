@@ -60,8 +60,12 @@ gradle.beforeProject { project ->
                         '        double targetTurnRateDegPerTick = updateTargetTurnRate(state, targetSnapshot);',
                         '        state.captureLeadTicks = LEAD_TICKS;',
                         '        if (state.stage == Stage.CAPTURE) {',
+                        '            double priorMaximumCaptureClosure = state.maximumCaptureClosure;',
+                        '            state.maximumCaptureClosure = Math.max(',
+                        '                    state.maximumCaptureClosure, closure);',
                         '            if (!state.terminalCaptureHandoff',
-                        '                    && rawAngle <= PIVOT_COMPLETE_HEADING_DEG) {',
+                        '                    && rawAngle <= PIVOT_COMPLETE_HEADING_DEG',
+                        '                    && closure < priorMaximumCaptureClosure) {',
                         '                state.terminalCaptureHandoff = true;',
                         '            }',
                         '            if (!state.terminalCaptureHandoff) {',
@@ -159,6 +163,7 @@ gradle.beforeProject { project ->
                         '                + ":target_turn_rate_deg_per_tick="',
                         '                + round(state.smoothedTargetTurnRateDegPerTick)',
                         '                + ":capture_lead_ticks=" + round(state.captureLeadTicks)',
+                        '                + ":maximum_capture_closure=" + round(state.maximumCaptureClosure)',
                         '                + ":terminal_capture_handoff=" + state.terminalCaptureHandoff;'
                 ].join('\n')
 
@@ -173,6 +178,7 @@ gradle.beforeProject { project ->
                         '        private double lastTargetMovementYawDeg;',
                         '        private double smoothedTargetTurnRateDegPerTick;',
                         '        private double captureLeadTicks = LEAD_TICKS;',
+                        '        private double maximumCaptureClosure = Double.NEGATIVE_INFINITY;',
                         '        private double bestCaptureHorizontalError = Double.POSITIVE_INFINITY;'
                 ].join('\n')
 
@@ -231,19 +237,19 @@ gradle.beforeProject { project ->
                         stateTicks: [oldStateTickFields, newStateTickFields],
                         stateConstructor: [oldStateConstructor, newStateConstructor]
                 ]
-                if (text.contains('turnAwareLeadDirection(Entity aircraft, Entity target,')) {
-                    project.logger.lifecycle('Turn-aware CAPTURE lead prediction already applied.')
+                if (text.contains('maximumCaptureClosure = Double.NEGATIVE_INFINITY')) {
+                    project.logger.lifecycle('Closure-peak CAPTURE handoff already applied.')
                     return
                 }
                 replacements.each { name, pair ->
                     int count = text.split(java.util.regex.Pattern.quote(pair[0]), -1).length - 1
                     if (count != 1) {
-                        throw new GradleException("Refusing turn-aware CAPTURE experiment: ${name}=${count}")
+                        throw new GradleException("Refusing closure-peak CAPTURE experiment: ${name}=${count}")
                     }
                 }
                 replacements.each { name, pair -> text = text.replace(pair[0], pair[1]) }
                 source.setText(text, 'UTF-8')
-                project.logger.lifecycle('Applied turn-aware CAPTURE acquisition with terminal short-lead handoff.')
+                project.logger.lifecycle('Applied turn-aware CAPTURE until closure peaks inside the existing capture cone.')
             }
         }
 
