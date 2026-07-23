@@ -42,8 +42,12 @@ public record FlightProfile(
         return "bomber".equalsIgnoreCase(role);
     }
 
+    public boolean isAttacker() {
+        return "attacker".equalsIgnoreCase(role);
+    }
+
     public boolean supportsAutonomousFlight() {
-        return isFighter() || isLevelBomber();
+        return isFighter() || isLevelBomber() || isAttacker();
     }
 
     public double rotateSpeedBps() {
