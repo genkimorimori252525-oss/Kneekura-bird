@@ -1,5 +1,4 @@
 diff --git a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/FlightProfile.java b/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/FlightProfile.java
-index 999fbd7..0000000 100644
 --- a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/FlightProfile.java
 +++ b/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/FlightProfile.java
 @@ -24,6 +24,14 @@ public record FlightProfile(
@@ -18,7 +17,6 @@ index 999fbd7..0000000 100644
          return Math.max(stallGuardSpeedBps * 1.15, climbTargetSpeedBps * 0.82);
      }
 diff --git a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutonomousFlightManager.java b/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutonomousFlightManager.java
-index bd7556e..0000000 100644
 --- a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutonomousFlightManager.java
 +++ b/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutonomousFlightManager.java
 @@ -66,7 +66,7 @@ public final class AutonomousFlightManager {
@@ -41,7 +39,6 @@ index bd7556e..0000000 100644
          }
  
 diff --git a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutopilotValidationManager.java b/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutopilotValidationManager.java
-index d602595..0000000 100644
 --- a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutopilotValidationManager.java
 +++ b/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutopilotValidationManager.java
 @@ -88,7 +88,7 @@ public final class AutopilotValidationManager {
@@ -65,24 +62,23 @@ index d602595..0000000 100644
  
          AircraftMetadata metadata = AircraftMetadataResolver.resolve(server.getResourceManager(), id);
 diff --git a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutonomousFlightGameTests.java b/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutonomousFlightGameTests.java
-index ec97ebc..0000000 100644
 --- a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutonomousFlightGameTests.java
 +++ b/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutonomousFlightGameTests.java
-@@ -6,6 +6,7 @@ import com.google.gson.JsonArray;
+@@ -6,5 +6,6 @@ import com.google.gson.JsonArray;
  import com.google.gson.JsonElement;
  import com.google.gson.JsonObject;
 +import com.wwdebug.benchmark.AircraftMetadataResolver;
  import com.wwdebug.benchmark.BenchmarkCategory;
  import com.wwdebug.benchmark.BenchmarkManager;
  import com.wwdebug.benchmark.WWDebugBenchmarkMod;
-@@ -14,6 +15,7 @@ import net.minecraft.gametest.framework.GameTest;
+@@ -14,5 +15,6 @@ import net.minecraft.gametest.framework.GameTest;
  import net.minecraft.gametest.framework.GameTestAssertException;
  import net.minecraft.gametest.framework.GameTestHelper;
 +import net.minecraft.resources.ResourceLocation;
  import net.minecraft.server.MinecraftServer;
  import net.minecraft.server.level.ServerLevel;
  import net.minecraft.world.level.block.Blocks;
-@@ -41,10 +43,10 @@ import java.util.stream.Stream;
+@@ -41,8 +43,8 @@ import java.util.stream.Stream;
  /**
   * Headless integration test using the real Forge server, real aircraft entities and real physics.
   *
@@ -95,7 +91,7 @@ index ec97ebc..0000000 100644
 + * the test first runs the matching real fixed-input category benchmark, installs its generated
 + * profiles, and only then starts autonomous flight validation.</p>
   */
-@@ -93,13 +95,10 @@ public final class AutonomousFlightGameTests {
+@@ -93,11 +95,8 @@ public final class AutonomousFlightGameTests {
          AtomicLong validationStartedAt = new AtomicLong(0L);
          long orchestrationStartedAt = System.currentTimeMillis();
  
@@ -109,7 +105,7 @@ index ec97ebc..0000000 100644
 -            }
 +            startMeasuredBenchmark(source, server, target);
          }
-@@ -130,6 +129,41 @@ public final class AutonomousFlightGameTests {
+@@ -130,6 +129,45 @@ public final class AutonomousFlightGameTests {
          });
      }
  
@@ -156,10 +152,9 @@ index ec97ebc..0000000 100644
                                           AtomicBoolean started, AtomicLong startedAt) {
          int count = "all".equalsIgnoreCase(target)
 diff --git a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/ControlAuthorityArbiter.java b/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/ControlAuthorityArbiter.java
-index 8f25133..0000000 100644
 --- a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/ControlAuthorityArbiter.java
 +++ b/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/ControlAuthorityArbiter.java
-@@ -52,29 +52,12 @@ public final class ControlAuthorityArbiter {
+@@ -52,29 +52,10 @@ public final class ControlAuthorityArbiter {
          MutualDogfightMissionHoldAdapter.apply(aircraft);
          FormationFlightManager.applyControl(aircraft);
  
@@ -194,10 +189,9 @@ index 8f25133..0000000 100644
          if (TerrainAvoidancePlanner.active(aircraft)) {
              return Authority.TERRAIN_AVOIDANCE;
 diff --git a/ww-debug-benchmark/src/main/java/com/wwdebug/benchmark/mixin/VehicleEntityBenchmarkMixin.java b/ww-debug-benchmark/src/main/java/com/wwdebug/benchmark/mixin/VehicleEntityBenchmarkMixin.java
-index e1715ce..0000000 100644
 --- a/ww-debug-benchmark/src/main/java/com/wwdebug/benchmark/mixin/VehicleEntityBenchmarkMixin.java
 +++ b/ww-debug-benchmark/src/main/java/com/wwdebug/benchmark/mixin/VehicleEntityBenchmarkMixin.java
-@@ -4,9 +4,8 @@ package com.wwdebug.benchmark.mixin;
+@@ -4,6 +4,5 @@ package com.wwdebug.benchmark.mixin;
  import com.wwdebug.autopilot.AutonomousFlightManager;
  import com.wwdebug.autopilot.AutopilotWheelLockAdapter;
 -import com.wwdebug.autopilot.CombatAwarenessManager;
@@ -216,10 +210,9 @@ index e1715ce..0000000 100644
  }
 diff --git a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/FighterCombatFacade.java b/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/FighterCombatFacade.java
 new file mode 100644
-index 0000000..0000000
 --- /dev/null
 +++ b/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/FighterCombatFacade.java
-@@ -0,0 +1,72 @@
+@@ -0,0 +1,64 @@
 +package com.wwdebug.autopilot;
 +
 +import net.minecraft.server.level.ServerLevel;
