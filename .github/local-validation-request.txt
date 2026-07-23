@@ -1,4 +1,4 @@
-# Local validation request attack-gated-moderate-capture-reproduction-1
-ref=f6b6f8f4e6d10ad80723c03e0839415ff0966358
+# Local validation request ballistic-turn-aware-capture-1
+ref=40b781f16bd50ea693435e480c1a46a866c15d29
 aircraft=warfare_wings:a6m
 gametest=true
