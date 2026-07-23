@@ -28,7 +28,7 @@ import java.util.UUID;
  * ordinary mobs retain the legacy Enemy/active-attacker fallback.</p>
  */
 final class CombatTargetSelector {
-    private static final double HORIZONTAL_RANGE = 192.0;
+    private static final double HORIZONTAL_RANGE = 320.0;
     private static final double VERTICAL_RANGE = 96.0;
     private static final int RESCAN_TICKS = 10;
     private static final int LOST_GRACE_TICKS = 30;
