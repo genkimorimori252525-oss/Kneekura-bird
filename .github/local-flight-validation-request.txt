@@ -1,5 +1,5 @@
-# Local flight validation request level-bomber-clean-full-2
-ref=8fb7304c5f474c2a0d18acd357ad92b61d74607d
+# Local flight validation request level-bomber-clean-start-mixin-1
+ref=fef80bab716632613330f1341915c6968c949eae
 aircraft=warfare_wings:b17
 scenario=full
 gametest=true
