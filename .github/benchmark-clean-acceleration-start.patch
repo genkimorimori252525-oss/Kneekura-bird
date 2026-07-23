@@ -1,0 +1,13 @@
+diff --git a/ww-debug-benchmark/src/main/java/com/wwdebug/benchmark/BenchmarkManager.java b/ww-debug-benchmark/src/main/java/com/wwdebug/benchmark/BenchmarkManager.java
+--- a/ww-debug-benchmark/src/main/java/com/wwdebug/benchmark/BenchmarkManager.java
++++ b/ww-debug-benchmark/src/main/java/com/wwdebug/benchmark/BenchmarkManager.java
+@@ -628,9 +628,9 @@ public final class BenchmarkManager {
+             phase = switch (phase) {
+                 case PREPARE -> {
++                    resetFlight();
+                     accelerationInitialSpeed = aircraft.getDeltaMovement().horizontalDistance() * 20.0;
+                     accelerationInitialEnginePower = ReflectiveAircraft.enginePower(aircraft);
+-                    resetFlight();
+                     yield Phase.STRAIGHT_ACCELERATION;
+                 }
+                 case STRAIGHT_ACCELERATION -> {
