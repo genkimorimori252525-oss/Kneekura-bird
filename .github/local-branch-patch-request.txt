@@ -1,4 +1,4 @@
-# Temporary branch patch request benchmark-clean-start-2
+# Temporary branch patch request finalize-level-bomber-source-1
 branch=agent/level-bomber-clean-integration
-patch=.github/benchmark-clean-acceleration-start.patch
-message=Measure acceleration start after benchmark reset
+patch=.github/finalize-level-bomber-source.patch
+message=Move validated bomber fixes into production sources
