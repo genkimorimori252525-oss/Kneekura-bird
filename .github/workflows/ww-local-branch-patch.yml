@@ -15,7 +15,6 @@ concurrency:
 
 jobs:
   apply:
-    if: github.actor == 'genkimorimori252525-oss'
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 15
     defaults:
