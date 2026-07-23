@@ -48,6 +48,41 @@ namespace JollyRunnerHubLauncher
                     .Replace("$cells.Add([string]$a.Name)", "[void]$cells.Add([string]$a.Name)")
                     .Replace("{$cells.Add($a.Values[[string]$m.key])}", "{[void]$cells.Add($a.Values[[string]$m.key])}");
 
+                // Setting SelectedIndex raises SelectedIndexChanged synchronously. The original
+                // script therefore entered Select-Profile while the ComboBox was only half rebuilt;
+                // PowerShell reported the nested handler failure as an exception setting
+                // SelectedIndex. Suppress that event during rebuild and select exactly once after it.
+                const string oldReload =
+                    "function Reload-Profiles([string]$Id) {\r\n" +
+                    "    $profiles.Items.Clear()\r\n" +
+                    "    foreach($p in @($script:Config.profiles)){[void]$profiles.Items.Add($p)}\r\n" +
+                    "    $profiles.DisplayMember='name';$index=0\r\n" +
+                    "    for($i=0;$i -lt $profiles.Items.Count;$i++){if([string]$profiles.Items[$i].id -eq $Id){$index=$i;break}}\r\n" +
+                    "    if($profiles.Items.Count -gt 0){$profiles.SelectedIndex=$index}\r\n" +
+                    "}";
+                const string newReload =
+                    "function Reload-Profiles([string]$Id) {\r\n" +
+                    "    $script:ReloadingProfiles=$true\r\n" +
+                    "    try {\r\n" +
+                    "        $profiles.BeginUpdate()\r\n" +
+                    "        $profiles.Items.Clear()\r\n" +
+                    "        foreach($p in @($script:Config.profiles)){[void]$profiles.Items.Add($p)}\r\n" +
+                    "        $profiles.DisplayMember='name'\r\n" +
+                    "        [int]$index=0\r\n" +
+                    "        for([int]$i=0;$i -lt $profiles.Items.Count;$i++){if([string]$profiles.Items[$i].id -eq $Id){$index=$i;break}}\r\n" +
+                    "        if($profiles.Items.Count -gt 0){$profiles.SelectedIndex=[int]$index}\r\n" +
+                    "    } finally {\r\n" +
+                    "        $profiles.EndUpdate()\r\n" +
+                    "        $script:ReloadingProfiles=$false\r\n" +
+                    "    }\r\n" +
+                    "    Select-Profile\r\n" +
+                    "}";
+                scriptText = scriptText
+                    .Replace(oldReload, newReload)
+                    .Replace("$profiles.add_SelectedIndexChanged({Select-Profile})",
+                        "$profiles.add_SelectedIndexChanged({if(-not $script:ReloadingProfiles){Select-Profile}})")
+                    .Replace("Reload-Profiles ''\r\nSelect-Profile", "Reload-Profiles ''");
+
                 // A BOM keeps Japanese text reliable under Windows PowerShell 5.1.
                 File.WriteAllText(runtimeScript, scriptText, new UTF8Encoding(true));
 
