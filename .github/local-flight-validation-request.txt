@@ -1,5 +1,5 @@
-# Local flight validation request g4m-common-flight-3
-ref=723dc519de7144e42338fd34053c0e20c1f81ba7
-aircraft=warfare_wings:g4m
+# Local flight validation request mission-order-foundation-1
+ref=4cfde46477cf99e34949421ce501547d563a5106
+aircraft=warfare_wings:a6m
 scenario=full
 gametest=true
