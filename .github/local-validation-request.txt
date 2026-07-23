@@ -1,4 +1,4 @@
-# Local validation request turn-aware-terminal-handoff-1
-ref=e0308274fb40e7c8a1e53253f100581752b3fff5
+# Local validation request turn-aware-distance-handoff-1
+ref=00d7919ae82d58dee32b56736ab4e697e2807ea7
 aircraft=warfare_wings:a6m
 gametest=true
