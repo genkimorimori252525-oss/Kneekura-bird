@@ -31,13 +31,13 @@ gradle.beforeProject { project ->
                         '        double maximumNoseDownInput =',
                         '                (rawAngle > ATTACK_MAX_RAW_ANGLE_DEG',
                         '                        || leadAngle > ATTACK_MAX_LEAD_ANGLE_DEG',
-                        '                        || closure > ATTACK_MAX_CLOSURE_BPS) ? 0.15 : 0.88;',
+                        '                        || closure > ATTACK_MAX_CLOSURE_BPS) ? 0.35 : 0.88;',
                         '        float z = (float) Mth.clamp(',
                         '                capturePitchCommand, -0.88, maximumNoseDownInput);'
                 ].join('\n')
 
                 if (text.contains('double maximumNoseDownInput =')) {
-                    project.logger.lifecycle('Attack-gated shallow CAPTURE limit already applied.')
+                    project.logger.lifecycle('Attack-gated moderate CAPTURE limit already applied.')
                     return
                 }
                 int count = text.split(java.util.regex.Pattern.quote(oldCapturePitchControl), -1).length - 1
@@ -45,7 +45,7 @@ gradle.beforeProject { project ->
                     throw new GradleException("Refusing attack-gated capture experiment: pitch=${count}")
                 }
                 source.setText(text.replace(oldCapturePitchControl, newCapturePitchControl), 'UTF-8')
-                project.logger.lifecycle('Held shallow CAPTURE dive until existing attack geometry is satisfied.')
+                project.logger.lifecycle('Held moderate CAPTURE dive until existing attack geometry is satisfied.')
             }
         }
 
