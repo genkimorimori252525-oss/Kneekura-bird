@@ -1,5 +1,5 @@
-# Local flight validation request pr25-head-il2-1
-ref=86a14f8556a7ec1f493d22e34430d9b645a2f994
-aircraft=warfare_wings:il2
+# Local flight validation request g4m-common-flight-1
+ref=723dc519de7144e42338fd34053c0e20c1f81ba7
+aircraft=warfare_wings:g4m
 scenario=full
 gametest=true
