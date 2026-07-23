@@ -6,7 +6,8 @@
   "refmap": "wwdebug_benchmark.refmap.json",
   "mixins": [
     "VehicleEntityBenchmarkMixin",
-    "BenchmarkCleanAccelerationStartMixin"
+    "BenchmarkCleanAccelerationStartMixin",
+    "LevelBomberMissionTimingMixin"
   ],
   "injectors": {
     "defaultRequire": 0
