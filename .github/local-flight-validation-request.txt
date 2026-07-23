@@ -1,5 +1,5 @@
-# Local flight validation request scenario-routing-smoke-2
-ref=f79d761d99b9a1bab01d6da4f5696700c0523ccd
-aircraft=warfare_wings:a6m
+# Local flight validation request level-bomber-clean-full-1
+ref=8fb7304c5f474c2a0d18acd357ad92b61d74607d
+aircraft=warfare_wings:b17
 scenario=full
 gametest=true
