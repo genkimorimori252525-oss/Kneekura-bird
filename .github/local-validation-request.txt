@@ -1,4 +1,4 @@
-# Local validation request extended-pivot-entry-lag-5-correct-ref-retry-1
-ref=b4a03d2772ae43c3985eb5a3cb346b07ab216c0e
+# Local validation request capture-target-pitch-lag-turn-1
+ref=7075ae6cb23212c3e3216dcf8d21af529767a631
 aircraft=warfare_wings:a6m
 gametest=true
