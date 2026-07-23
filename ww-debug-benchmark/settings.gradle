@@ -60,17 +60,20 @@ gradle.beforeProject { project ->
                         '        double targetTurnRateDegPerTick = updateTargetTurnRate(state, targetSnapshot);',
                         '        state.captureLeadTicks = LEAD_TICKS;',
                         '        if (state.stage == Stage.CAPTURE) {',
-                        '            if (!state.terminalCaptureHandoff',
-                        '                    && rawAngle <= PIVOT_COMPLETE_HEADING_DEG) {',
-                        '                state.terminalCaptureHandoff = true;',
-                        '            }',
                         '            if (!state.terminalCaptureHandoff) {',
                         '                state.captureLeadTicks = Mth.clamp(',
                         '                        distance / Math.max(1.0, snapshot.horizontalSpeedBps()) * 20.0,',
                         '                        LEAD_TICKS, CAPTURE_MAX_LEAD_TICKS);',
-                        '                leadDirection = turnAwareLeadDirection(aircraft, target.aircraft(),',
-                        '                        targetSnapshot, targetDirection, state.captureLeadTicks,',
+                        '                Vec3 turnAwareLeadVector = turnAwareLeadVector(aircraft, target.aircraft(),',
+                        '                        targetSnapshot, state.captureLeadTicks,',
                         '                        targetTurnRateDegPerTick);',
+                        '                state.captureLeadDistance = turnAwareLeadVector.length();',
+                        '                if (state.captureLeadDistance <= ATTACK_MIN_DISTANCE) {',
+                        '                    state.terminalCaptureHandoff = true;',
+                        '                    state.captureLeadTicks = LEAD_TICKS;',
+                        '                } else {',
+                        '                    leadDirection = safeNormalize(turnAwareLeadVector, targetDirection);',
+                        '                }',
                         '            }',
                         '            leadAngle = angleDegrees(snapshot.forward(), leadDirection);',
                         '        }',
@@ -114,10 +117,10 @@ gradle.beforeProject { project ->
                         '        return state.smoothedTargetTurnRateDegPerTick;',
                         '    }',
                         '',
-                        '    private static Vec3 turnAwareLeadDirection(Entity aircraft, Entity target,',
-                        '                                               FlightSnapshot targetSnapshot,',
-                        '                                               Vec3 fallback, double leadTicks,',
-                        '                                               double targetTurnRateDegPerTick) {',
+                        '    private static Vec3 turnAwareLeadVector(Entity aircraft, Entity target,',
+                        '                                            FlightSnapshot targetSnapshot,',
+                        '                                            double leadTicks,',
+                        '                                            double targetTurnRateDegPerTick) {',
                         '        Vec3 velocity = target.getDeltaMovement();',
                         '        double horizontalSpeed = velocity.horizontalDistance();',
                         '        Vec3 displacement;',
@@ -144,8 +147,7 @@ gradle.beforeProject { project ->
                         '            displacement = new Vec3(x, velocity.y * leadTicks, z);',
                         '        }',
                         '        Vec3 leadPoint = target.getBoundingBox().getCenter().add(displacement);',
-                        '        return safeNormalize(leadPoint.subtract(aircraft.getBoundingBox().getCenter()),',
-                        '                fallback);',
+                        '        return leadPoint.subtract(aircraft.getBoundingBox().getCenter());',
                         '    }'
                 ].join('\n')
 
@@ -159,6 +161,7 @@ gradle.beforeProject { project ->
                         '                + ":target_turn_rate_deg_per_tick="',
                         '                + round(state.smoothedTargetTurnRateDegPerTick)',
                         '                + ":capture_lead_ticks=" + round(state.captureLeadTicks)',
+                        '                + ":capture_lead_distance=" + round(state.captureLeadDistance)',
                         '                + ":terminal_capture_handoff=" + state.terminalCaptureHandoff;'
                 ].join('\n')
 
@@ -173,6 +176,7 @@ gradle.beforeProject { project ->
                         '        private double lastTargetMovementYawDeg;',
                         '        private double smoothedTargetTurnRateDegPerTick;',
                         '        private double captureLeadTicks = LEAD_TICKS;',
+                        '        private double captureLeadDistance = Double.POSITIVE_INFINITY;',
                         '        private double bestCaptureHorizontalError = Double.POSITIVE_INFINITY;'
                 ].join('\n')
 
@@ -231,19 +235,19 @@ gradle.beforeProject { project ->
                         stateTicks: [oldStateTickFields, newStateTickFields],
                         stateConstructor: [oldStateConstructor, newStateConstructor]
                 ]
-                if (text.contains('turnAwareLeadDirection(Entity aircraft, Entity target,')) {
-                    project.logger.lifecycle('Turn-aware CAPTURE lead prediction already applied.')
+                if (text.contains('turnAwareLeadVector(Entity aircraft, Entity target,')) {
+                    project.logger.lifecycle('Distance-gated turn-aware CAPTURE handoff already applied.')
                     return
                 }
                 replacements.each { name, pair ->
                     int count = text.split(java.util.regex.Pattern.quote(pair[0]), -1).length - 1
                     if (count != 1) {
-                        throw new GradleException("Refusing turn-aware CAPTURE experiment: ${name}=${count}")
+                        throw new GradleException("Refusing distance-gated CAPTURE experiment: ${name}=${count}")
                     }
                 }
                 replacements.each { name, pair -> text = text.replace(pair[0], pair[1]) }
                 source.setText(text, 'UTF-8')
-                project.logger.lifecycle('Applied turn-aware CAPTURE acquisition with terminal short-lead handoff.')
+                project.logger.lifecycle('Applied turn-aware CAPTURE until the predicted point reaches attack minimum distance.')
             }
         }
 
