@@ -1,8 +1,8 @@
 {
-  "run_id": 30000178639,
-  "status": "failure",
-  "head_sha": "b9e09cb814dc6c69a46ca9b284f4adb85394f2fc",
+  "run_id": 30000425310,
+  "status": "success",
+  "head_sha": "26290035a8ea61c46275276d1b34d002b1e6ff00",
   "runner": "ジョリー",
   "installed_executable": "Desktop/JollyRunnerHub.exe",
-  "updated_at": "2026-07-23T10:40:36.366Z"
+  "updated_at": "2026-07-23T10:44:42.052Z"
 }
