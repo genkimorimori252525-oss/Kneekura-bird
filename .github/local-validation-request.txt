@@ -1,4 +1,4 @@
-# Local validation request turn-aware-distance-handoff-reproduction-1
-ref=00d7919ae82d58dee32b56736ab4e697e2807ea7
+# Local validation request delayed-turn-aware-capture-1
+ref=6217b2d0423e9642e6151abb1278ff7fb4d7cd16
 aircraft=warfare_wings:a6m
 gametest=true
