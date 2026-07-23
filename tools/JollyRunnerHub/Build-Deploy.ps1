@@ -19,7 +19,13 @@ $scriptPath = Join-Path $root 'JollyRunnerHub.ps1'
 New-Item -ItemType Directory -Force -Path $buildDir | Out-Null
 New-Item -ItemType Directory -Force -Path $appData | Out-Null
 
-$b64 = (Get-Content -LiteralPath (Join-Path $root 'JollyRunnerHub.ico.b64') -Raw) -replace '\s',''
+$iconParts = @(Get-ChildItem -LiteralPath $root -Filter 'JollyRunnerHub.ico.b64.part*' -File |
+    Sort-Object Name)
+if ($iconParts.Count -gt 0) {
+    $b64 = (($iconParts | ForEach-Object { Get-Content -LiteralPath $_.FullName -Raw }) -join '') -replace '\s',''
+} else {
+    $b64 = (Get-Content -LiteralPath (Join-Path $root 'JollyRunnerHub.ico.b64') -Raw) -replace '\s',''
+}
 [System.IO.File]::WriteAllBytes($iconPath, [Convert]::FromBase64String($b64))
 
 $cscCandidates = @(
