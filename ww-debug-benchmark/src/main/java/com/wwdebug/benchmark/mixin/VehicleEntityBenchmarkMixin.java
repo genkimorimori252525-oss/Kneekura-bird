@@ -2,9 +2,8 @@ package com.wwdebug.benchmark.mixin;
 
 import com.wwdebug.autopilot.AutonomousFlightManager;
 import com.wwdebug.autopilot.AutopilotWheelLockAdapter;
-import com.wwdebug.autopilot.CombatAwarenessManager;
-import com.wwdebug.autopilot.CombatWeaponManager;
 import com.wwdebug.autopilot.ControlAuthorityArbiter;
+import com.wwdebug.autopilot.FighterCombatFacade;
 import net.minecraft.world.entity.Entity;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Pseudo;
@@ -26,7 +25,6 @@ public abstract class VehicleEntityBenchmarkMixin {
         Entity aircraft = (Entity) (Object) this;
         AutonomousFlightManager.applyPostPhysics(aircraft);
         AutopilotWheelLockAdapter.apply(aircraft);
-        CombatAwarenessManager.tick(aircraft);
-        CombatWeaponManager.tick(aircraft);
+        FighterCombatFacade.tick(aircraft);
     }
 }
