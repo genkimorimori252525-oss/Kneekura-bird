@@ -1,4 +1,4 @@
-# Local validation request ballistic-turn-aware-capture-1
-ref=40b781f16bd50ea693435e480c1a46a866c15d29
+# Local validation request reduced-pivot-climb-1
+ref=50d65be1da967c8fc7bda73aec404e5bf807aecb
 aircraft=warfare_wings:a6m
 gametest=true
