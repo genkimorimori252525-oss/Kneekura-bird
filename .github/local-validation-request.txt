@@ -1,4 +1,4 @@
-# Local validation request pr25-fighter-regression
-ref=5d7853783e04c34f4ac4363755d7ae1a1508d3ba
+# Local validation request pr25-head-fighter-regression-1
+ref=86a14f8556a7ec1f493d22e34430d9b645a2f994
 aircraft=warfare_wings:a6m
 gametest=true
