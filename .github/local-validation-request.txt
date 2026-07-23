@@ -1,4 +1,4 @@
-# Local validation request delayed-coupled-start-1
-ref=a521f1d0afd9d4ef3d4fd72a8aa625100ad60248
+# Local validation request turn-aware-capture-1
+ref=514212f1553c29f4f973bf6030a9c37a5af68c5b
 aircraft=warfare_wings:a6m
 gametest=true
