@@ -1,4 +1,4 @@
-# Local validation request capture-target-pitch-lag-resume-2-controlled-repeat
-ref=03f525abc395fdcf8d397d4658b77a1f04ef7a01
+# Local validation request pivot-capture-80deg-1
+ref=cd2eee43e95a5efd3f9f6f9a46c1308b26b1cb15
 aircraft=warfare_wings:a6m
 gametest=true
