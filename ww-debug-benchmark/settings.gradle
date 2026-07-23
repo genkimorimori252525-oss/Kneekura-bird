@@ -52,18 +52,23 @@ gradle.beforeProject { project ->
             doFirst {
                 File source = project.file('src/main/java/com/wwdebug/autopilot/EnergyFighterApexYawAdapter.java')
                 String text = source.getText('UTF-8').replace('\r\n', '\n')
-                String oldValue = '    private static final double START_MIN_AGL = 90.0;'
-                String newValue = '    private static final double START_MIN_AGL = 80.0;'
-                if (text.contains(newValue)) {
-                    project.logger.lifecycle('Measured safe AGL start gate already applied.')
-                    return
+                String oldAgl = '    private static final double START_MIN_AGL = 90.0;'
+                String newAgl = '    private static final double START_MIN_AGL = 80.0;'
+                String oldDistance = '    private static final double START_MIN_DISTANCE = 82.0;'
+                String newDistance = '    private static final double START_MIN_DISTANCE = 110.0;'
+
+                int aglCount = text.contains(newAgl) ? 0
+                        : text.split(java.util.regex.Pattern.quote(oldAgl), -1).length - 1
+                int distanceCount = text.contains(newDistance) ? 0
+                        : text.split(java.util.regex.Pattern.quote(oldDistance), -1).length - 1
+                if (aglCount > 1 || distanceCount > 1
+                        || (!text.contains(newAgl) && aglCount != 1)
+                        || (!text.contains(newDistance) && distanceCount != 1)) {
+                    throw new GradleException("Refusing delayed-start experiment: agl=${aglCount}, distance=${distanceCount}")
                 }
-                int count = text.split(java.util.regex.Pattern.quote(oldValue), -1).length - 1
-                if (count != 1) {
-                    throw new GradleException("Refusing measured AGL experiment: matches=${count}")
-                }
-                source.setText(text.replace(oldValue, newValue), 'UTF-8')
-                project.logger.lifecycle('Applied measured AGL start gate from 90 to 80 blocks.')
+                text = text.replace(oldAgl, newAgl).replace(oldDistance, newDistance)
+                source.setText(text, 'UTF-8')
+                project.logger.lifecycle('Applied measured AGL gate and delayed coupled start at 110 blocks.')
             }
         }
     }
