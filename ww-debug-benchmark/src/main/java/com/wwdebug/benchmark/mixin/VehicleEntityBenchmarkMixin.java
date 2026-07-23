@@ -7,7 +7,9 @@ import com.wwdebug.autopilot.AutopilotWheelLockAdapter;
 import com.wwdebug.autopilot.CombatAwarenessManager;
 import com.wwdebug.autopilot.CombatWeaponManager;
 import com.wwdebug.autopilot.DefensiveAirCombatManager;
+import com.wwdebug.autopilot.EnergyFighterApexYawAdapter;
 import com.wwdebug.autopilot.FormationFlightManager;
+import com.wwdebug.autopilot.MutualDogfightMissionHoldAdapter;
 import com.wwdebug.benchmark.BenchmarkManager;
 import net.minecraft.world.entity.Entity;
 import org.spongepowered.asm.mixin.Mixin;
@@ -24,13 +26,18 @@ public abstract class VehicleEntityBenchmarkMixin {
         Entity aircraft = (Entity) (Object) this;
         BenchmarkManager.applyControl(aircraft);
         AutonomousFlightManager.applyControl(aircraft);
+        MutualDogfightMissionHoldAdapter.apply(aircraft);
         FormationFlightManager.applyControl(aircraft);
-        // Formation collision avoidance has already been applied at this point. Do not let either
-        // defensive or offensive combat overwrite it while the shared CPA probe is dangerous.
+        // Formation collision avoidance has already been applied at this point. Do not let combat
+        // overwrite it while the shared CPA probe is dangerous. The coupled-climb adapter performs
+        // its own same-package terrain-authority check before accepting control.
         if (!AirspaceSafetyProbe.collisionRisk(aircraft)) {
-            DefensiveAirCombatManager.applyControl(aircraft);
-            if (!DefensiveAirCombatManager.active(aircraft)) {
-                AirCombatManeuverManager.applyControl(aircraft);
+            boolean coupledClimbControl = EnergyFighterApexYawAdapter.applyControl(aircraft);
+            if (!coupledClimbControl) {
+                DefensiveAirCombatManager.applyControl(aircraft);
+                if (!DefensiveAirCombatManager.active(aircraft)) {
+                    AirCombatManeuverManager.applyControl(aircraft);
+                }
             }
         }
     }

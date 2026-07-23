@@ -16,11 +16,14 @@ final class AirCombatDoctrineTuning {
     );
     private static final Tuning ENERGY_FIGHTER = tuning(
             "energy_fighter",
-            weights(1.12, 0.94, 1.04, 1.18, 1.22, 1.16, 1.0),
-            // Once an energy fighter has opened the range and recovered speed, another forty
-            // committed ticks can carry it outside useful combat and simulation range. Twenty
-            // ticks still establishes a real extension while allowing timely repositioning.
-            durations(26, 18, 11, 31, 20, 34, 50),
+            // EXTEND enters REPOSITION explicitly after opening the range. Keep that committed setup,
+            // but do not let high off-nose REPOSITION or ATTACK_APPROACH utility suppress the turn
+            // back into INTERCEPT after the energy fighter has recovered speed.
+            weights(1.12, 0.35, 1.04, 1.18, 1.22, 0.30, 1.0),
+            // At roughly fifty blocks per second of opening closure, a 34-tick reposition commitment
+            // adds about ninety blocks before the fighter may turn back. Twelve ticks still establishes
+            // the offset manoeuvre, but releases before the opponent can settle into a rear-quarter lock.
+            durations(26, 18, 11, 31, 20, 12, 50),
             durations(8, 10, 18, 10, 8, 8, 20),
             13.0
     );
