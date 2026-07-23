@@ -1,4 +1,4 @@
-# Temporary branch patch request retry 3
+# Temporary branch patch request validated 1
 branch=agent/level-bomber-noncombat-autonomy
 patch=.github/level-bomber-noncombat.patch
 message=Enable measured-profile level bomber autonomy
