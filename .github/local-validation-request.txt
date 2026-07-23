@@ -1,4 +1,4 @@
-# Local validation request level-bomber-source-snapshot-2
-ref=cf03a49ed55ba89617db0de6759a239fee2f2e7e
+# Local validation request level-bomber-source-snapshot-3
+ref=1c44f7eafa7c3cfa07deea18414bd1a822dbc39b
 aircraft=warfare_wings:b17
 gametest=false
