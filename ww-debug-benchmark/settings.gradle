@@ -11,5 +11,23 @@ rootProject.name = 'ww-debug-benchmark'
 gradle.beforeProject { project ->
     if (project.path == ':') {
         project.apply from: new File(settingsDir, 'coupled-handoff-validation.gradle')
+        project.tasks.withType(org.gradle.api.tasks.compile.JavaCompile).configureEach {
+            doFirst {
+                File source = project.file('src/main/java/com/wwdebug/autopilot/EnergyFighterApexYawAdapter.java')
+                String text = source.getText('UTF-8').replace('\r\n', '\n')
+                String oldValue = '    private static final double START_MIN_AGL = 90.0;'
+                String newValue = '    private static final double START_MIN_AGL = 80.0;'
+                if (text.contains(newValue)) {
+                    project.logger.lifecycle('Measured safe AGL start gate already applied.')
+                    return
+                }
+                int count = text.split(java.util.regex.Pattern.quote(oldValue), -1).length - 1
+                if (count != 1) {
+                    throw new GradleException("Refusing measured AGL experiment: matches=${count}")
+                }
+                source.setText(text.replace(oldValue, newValue), 'UTF-8')
+                project.logger.lifecycle('Applied measured AGL start gate from 90 to 80 blocks.')
+            }
+        }
     }
 }
