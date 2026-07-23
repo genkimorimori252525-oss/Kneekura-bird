@@ -1,4 +1,4 @@
-# Local validation request mutual-opponent-ticking-range-1
-ref=a1a78b3a1c2edd52e1bad0cddad158767bf9ac7d
+# Local validation request release-nonclosing-threats-all-ranges-1
+ref=ecd5e2e9ce7f57cf387217518b1f87def9253e5a
 aircraft=warfare_wings:a6m
 gametest=true
