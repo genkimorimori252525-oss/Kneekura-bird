@@ -1,4 +1,4 @@
-# Local validation request attack-gated-moderate-capture-1
+# Local validation request attack-gated-moderate-capture-reproduction-1
 ref=f6b6f8f4e6d10ad80723c03e0839415ff0966358
 aircraft=warfare_wings:a6m
 gametest=true
