@@ -10,6 +10,43 @@ rootProject.name = 'ww-debug-benchmark'
 
 gradle.beforeProject { project ->
     if (project.path == ':') {
+        // Register first so this action runs last, after the coupled-handoff and turn-aware
+        // source transforms have produced the CAPTURE controller source.
+        project.tasks.withType(org.gradle.api.tasks.compile.JavaCompile).configureEach {
+            doFirst {
+                File source = project.file('src/main/java/com/wwdebug/autopilot/EnergyFighterApexYawAdapter.java')
+                String text = source.getText('UTF-8').replace('\r\n', '\n')
+                String oldCapturePitchControl = [
+                        '        double desiredPitch = desiredPitchDegrees(leadDirection);',
+                        '        float z = (float) Mth.clamp(',
+                        '                (desiredPitch - snapshot.pitchDeg()) / CAPTURE_PITCH_DIVISOR',
+                        '                        - CAPTURE_PITCH_RATE_DAMPING * pitchRate,',
+                        '                -0.88, 0.88);'
+                ].join('\n')
+                String newCapturePitchControl = [
+                        '        double desiredPitch = desiredPitchDegrees(leadDirection);',
+                        '        double capturePitchCommand =',
+                        '                (desiredPitch - snapshot.pitchDeg()) / CAPTURE_PITCH_DIVISOR',
+                        '                        - CAPTURE_PITCH_RATE_DAMPING * pitchRate;',
+                        '        double maximumNoseDownInput =',
+                        '                Math.abs(headingError) > ATTACK_MAX_RAW_ANGLE_DEG ? 0.35 : 0.88;',
+                        '        float z = (float) Mth.clamp(',
+                        '                capturePitchCommand, -0.88, maximumNoseDownInput);'
+                ].join('\n')
+
+                if (text.contains('double maximumNoseDownInput =')) {
+                    project.logger.lifecycle('Capture yaw-priority pitch limit already applied.')
+                    return
+                }
+                int count = text.split(java.util.regex.Pattern.quote(oldCapturePitchControl), -1).length - 1
+                if (count != 1) {
+                    throw new GradleException("Refusing combined capture experiment: pitch=${count}")
+                }
+                source.setText(text.replace(oldCapturePitchControl, newCapturePitchControl), 'UTF-8')
+                project.logger.lifecycle('Limited nose-down CAPTURE input during turn-aware horizontal capture.')
+            }
+        }
+
         // Register before the coupled-handoff patch so this doFirst action runs after that patch
         // has produced the CAPTURE controller source.
         project.tasks.withType(org.gradle.api.tasks.compile.JavaCompile).configureEach {
@@ -244,18 +281,23 @@ gradle.beforeProject { project ->
             doFirst {
                 File source = project.file('src/main/java/com/wwdebug/autopilot/EnergyFighterApexYawAdapter.java')
                 String text = source.getText('UTF-8').replace('\r\n', '\n')
-                String oldValue = '    private static final double START_MIN_AGL = 90.0;'
-                String newValue = '    private static final double START_MIN_AGL = 80.0;'
-                if (text.contains(newValue)) {
-                    project.logger.lifecycle('Measured safe AGL start gate already applied.')
-                    return
+                String oldAgl = '    private static final double START_MIN_AGL = 90.0;'
+                String newAgl = '    private static final double START_MIN_AGL = 80.0;'
+                String oldDistance = '    private static final double START_MIN_DISTANCE = 82.0;'
+                String newDistance = '    private static final double START_MIN_DISTANCE = 110.0;'
+
+                int aglCount = text.contains(newAgl) ? 0
+                        : text.split(java.util.regex.Pattern.quote(oldAgl), -1).length - 1
+                int distanceCount = text.contains(newDistance) ? 0
+                        : text.split(java.util.regex.Pattern.quote(oldDistance), -1).length - 1
+                if (aglCount > 1 || distanceCount > 1
+                        || (!text.contains(newAgl) && aglCount != 1)
+                        || (!text.contains(newDistance) && distanceCount != 1)) {
+                    throw new GradleException("Refusing delayed turn-aware experiment: agl=${aglCount}, distance=${distanceCount}")
                 }
-                int count = text.split(java.util.regex.Pattern.quote(oldValue), -1).length - 1
-                if (count != 1) {
-                    throw new GradleException("Refusing measured AGL experiment: matches=${count}")
-                }
-                source.setText(text.replace(oldValue, newValue), 'UTF-8')
-                project.logger.lifecycle('Applied measured AGL start gate from 90 to 80 blocks.')
+                text = text.replace(oldAgl, newAgl).replace(oldDistance, newDistance)
+                source.setText(text, 'UTF-8')
+                project.logger.lifecycle('Applied measured AGL gate and delayed coupled start at 110 blocks.')
             }
         }
     }
