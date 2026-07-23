@@ -1,4 +1,4 @@
-# Local validation request clean-mutual-integration-1
-ref=cb2d16f4c731d154c3e033a0486b47541a078be4
+# Local validation request control-authority-arbiter-1
+ref=b4225957dbd617b02901cb6bb0dc31742626ce8e
 aircraft=warfare_wings:a6m
 gametest=true
