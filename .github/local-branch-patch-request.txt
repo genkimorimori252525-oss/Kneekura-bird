@@ -1,4 +1,4 @@
-# Temporary branch patch request finalize-level-bomber-source-1
+# Temporary branch patch request finalize-level-bomber-source-2
 branch=agent/level-bomber-clean-integration
 patch=.github/finalize-level-bomber-source.patch
 message=Move validated bomber fixes into production sources
