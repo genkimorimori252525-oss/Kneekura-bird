@@ -1,10 +1,9 @@
 diff --git a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/FlightProfile.java b/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/FlightProfile.java
 --- a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/FlightProfile.java
 +++ b/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/FlightProfile.java
-@@ -24,6 +24,14 @@ public record FlightProfile(
-         return "fighter".equalsIgnoreCase(role);
+@@ -31,1 +31,9 @@
      }
- 
++
 +    public boolean isLevelBomber() {
 +        return "bomber".equalsIgnoreCase(role);
 +    }
@@ -12,60 +11,40 @@ diff --git a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/FlightProfil
 +    public boolean supportsAutonomousFlight() {
 +        return isFighter() || isLevelBomber();
 +    }
-+
-     public double rotateSpeedBps() {
-         return Math.max(stallGuardSpeedBps * 1.15, climbTargetSpeedBps * 0.82);
-     }
 diff --git a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutonomousFlightManager.java b/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutonomousFlightManager.java
 --- a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutonomousFlightManager.java
 +++ b/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutonomousFlightManager.java
-@@ -66,7 +66,7 @@ public final class AutonomousFlightManager {
-                 return;
-             }
+@@ -66,3 +66,3 @@
              FlightProfile profile = resolved.get();
 -            if (!profile.isFighter()) {
 +            if (!profile.supportsAutonomousFlight()) {
                  return;
-             }
-             AutopilotSession session = new AutopilotSession(aircraft, profile);
-@@ -74,7 +74,8 @@ public final class AutonomousFlightManager {
-             SESSIONS.put(aircraft.getUUID(), entry);
-             MISSING_PROFILE_WARNINGS.remove(aircraft.getUUID());
+@@ -74,3 +74,4 @@
              AutopilotLogManager.writeEvent(server, aircraft, "session_start",
 -                    "mob_controlling_passenger_and_measured_fighter_profile", FlightPhase.STARTUP);
 +                    "mob_controlling_passenger_and_measured_" + profile.role() + "_profile",
 +                    FlightPhase.STARTUP);
              AutopilotValidationCheckpoint.applyIfRequested(server, aircraft, session);
-         }
- 
 diff --git a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutopilotValidationManager.java b/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutopilotValidationManager.java
 --- a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutopilotValidationManager.java
 +++ b/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutopilotValidationManager.java
-@@ -88,7 +88,7 @@ public final class AutopilotValidationManager {
-         AutopilotProfileRegistry.reload(server);
+@@ -87,5 +87,5 @@
          CandidateLookup lookup = candidate(source.getLevel(), id);
          if (lookup.candidate() == null) {
 -            String message = "No compatible fighter found for " + id + ": " + lookup.reason();
 +            String message = "No compatible autonomous aircraft found for " + id + ": " + lookup.reason();
              WWDebugBenchmarkMod.LOGGER.error("{}; {}", message,
                      AutopilotProfileRegistry.resolutionDiagnostics(server, id));
-             source.sendFailure(Component.literal(message));
-@@ -185,8 +185,8 @@ public final class AutopilotValidationManager {
-         if (profile == null) {
-             return new CandidateLookup(null, "measured_profile_not_resolved");
-         }
+@@ -186,3 +186,3 @@
 -        if (!profile.isFighter()) {
 -            return new CandidateLookup(null, "profile_role_is_" + profile.role());
 +        if (!profile.supportsAutonomousFlight()) {
 +            return new CandidateLookup(null, "profile_role_not_supported_" + profile.role());
          }
- 
-         AircraftMetadata metadata = AircraftMetadataResolver.resolve(server.getResourceManager(), id);
 diff --git a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutonomousFlightGameTests.java b/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutonomousFlightGameTests.java
 --- a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutonomousFlightGameTests.java
 +++ b/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutonomousFlightGameTests.java
-@@ -41,8 +41,8 @@ import java.util.stream.Stream;
- /**
+@@ -40,7 +40,7 @@
   * Headless integration test using the real Forge server, real aircraft entities and real physics.
   *
 - * <p>Set {@code -PflightTestAircraft=all} to execute every fighter sequentially. The default smoke
@@ -77,10 +56,7 @@ diff --git a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutonomousFl
 + * the test first runs the matching real fixed-input category benchmark, installs its generated
 + * profiles, and only then starts autonomous flight validation.</p>
   */
-@@ -93,11 +93,8 @@ public final class AutonomousFlightGameTests {
-         AtomicLong validationStartedAt = new AtomicLong(0L);
-         long orchestrationStartedAt = System.currentTimeMillis();
- 
+@@ -94,8 +94,5 @@
 -        if (Files.isRegularFile(configuredProfile)) {
 +        if (AutonomousProfileBootstrap.measuredProfileAvailable(server, configuredProfile, target)) {
              startValidation(source, target, validationStarted, validationStartedAt);
@@ -91,15 +67,13 @@ diff --git a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutonomousFl
 -            }
 +            AutonomousProfileBootstrap.startMeasuredBenchmark(source, server, target);
          }
-@@ -104,7 +101,7 @@ public final class AutonomousFlightGameTests {
-             if (!validationStarted.get()) {
+@@ -105,5 +102,5 @@
                  Path generatedProfile = newestProfile(benchmarkDirectory, orchestrationStartedAt)
                          .orElseThrow(() -> new GameTestAssertException(
 -                                "Measured fighter benchmark is still running"));
 +                                "Measured aircraft benchmark is still running"));
                  installProfile(generatedProfile, configuredProfile);
                  AutopilotProfileRegistry.reload(server);
-                 startValidation(source, target, validationStarted, validationStartedAt);
 diff --git a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutonomousProfileBootstrap.java b/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutonomousProfileBootstrap.java
 new file mode 100644
 --- /dev/null
@@ -168,10 +142,7 @@ new file mode 100644
 +diff --git a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/ControlAuthorityArbiter.java b/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/ControlAuthorityArbiter.java
 +--- a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/ControlAuthorityArbiter.java
 ++++ b/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/ControlAuthorityArbiter.java
-+@@ -52,29 +52,10 @@ public final class ControlAuthorityArbiter {
-+         MutualDogfightMissionHoldAdapter.apply(aircraft);
-+         FormationFlightManager.applyControl(aircraft);
-+ 
++@@ -53,25 +53,6 @@
 +-        boolean collisionRisk = AirspaceSafetyProbe.collisionRisk(aircraft);
 +-        boolean energyFighterControl = false;
 +-        if (!collisionRisk) {
@@ -201,27 +172,22 @@ new file mode 100644
 ++            return combatAuthority;
 +         }
 +         if (TerrainAvoidancePlanner.active(aircraft)) {
-+             return Authority.TERRAIN_AVOIDANCE;
 +diff --git a/ww-debug-benchmark/src/main/java/com/wwdebug/benchmark/mixin/VehicleEntityBenchmarkMixin.java b/ww-debug-benchmark/src/main/java/com/wwdebug/benchmark/mixin/VehicleEntityBenchmarkMixin.java
 +--- a/ww-debug-benchmark/src/main/java/com/wwdebug/benchmark/mixin/VehicleEntityBenchmarkMixin.java
 ++++ b/ww-debug-benchmark/src/main/java/com/wwdebug/benchmark/mixin/VehicleEntityBenchmarkMixin.java
-+@@ -4,6 +4,5 @@ package com.wwdebug.benchmark.mixin;
-+ import com.wwdebug.autopilot.AutonomousFlightManager;
++@@ -4,5 +4,4 @@
 + import com.wwdebug.autopilot.AutopilotWheelLockAdapter;
 +-import com.wwdebug.autopilot.CombatAwarenessManager;
 +-import com.wwdebug.autopilot.CombatWeaponManager;
 + import com.wwdebug.autopilot.ControlAuthorityArbiter;
 ++import com.wwdebug.autopilot.FighterCombatFacade;
 + import net.minecraft.world.entity.Entity;
-+@@ -28,7 +27,6 @@ public abstract class VehicleEntityBenchmarkMixin {
-+         Entity aircraft = (Entity) (Object) this;
-+         AutonomousFlightManager.applyPostPhysics(aircraft);
++@@ -28,4 +27,3 @@
 +         AutopilotWheelLockAdapter.apply(aircraft);
 +-        CombatAwarenessManager.tick(aircraft);
 +-        CombatWeaponManager.tick(aircraft);
 ++        FighterCombatFacade.tick(aircraft);
 +     }
-+ }
 +diff --git a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/FighterCombatFacade.java b/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/FighterCombatFacade.java
 +new file mode 100644
 +--- /dev/null
