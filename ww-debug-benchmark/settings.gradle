@@ -29,7 +29,7 @@ gradle.beforeProject { project ->
                         '                (desiredPitch - snapshot.pitchDeg()) / CAPTURE_PITCH_DIVISOR',
                         '                        - CAPTURE_PITCH_RATE_DAMPING * pitchRate;',
                         '        double maximumNoseDownInput =',
-                        '                Math.abs(headingError) > ATTACK_MAX_RAW_ANGLE_DEG ? 0.35 : 0.88;',
+                        '                Math.abs(headingError) > ATTACK_MAX_RAW_ANGLE_DEG ? 0.15 : 0.88;',
                         '        float z = (float) Mth.clamp(',
                         '                capturePitchCommand, -0.88, maximumNoseDownInput);'
                 ].join('\n')
