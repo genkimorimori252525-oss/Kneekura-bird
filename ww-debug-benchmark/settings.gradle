@@ -11,5 +11,43 @@ rootProject.name = 'ww-debug-benchmark'
 gradle.beforeProject { project ->
     if (project.path == ':') {
         project.apply from: new File(settingsDir, 'coupled-handoff-validation.gradle')
+        project.tasks.withType(org.gradle.api.tasks.compile.JavaCompile).configureEach {
+            doFirst {
+                File source = project.file('src/main/java/com/wwdebug/autopilot/DefensiveAirCombatManager.java')
+                String text = source.getText('UTF-8').replace('\r\n', '\n')
+
+                String oldConstant = '    private static final double STALE_THREAT_MIN_RANGE = 96.0;\n'
+                String oldCondition = [
+                        '        boolean staleRearThreat = !imminentFire',
+                        '                && distance >= STALE_THREAT_MIN_RANGE',
+                        '                && closure <= STALE_THREAT_MAX_CLOSURE_BPS',
+                        '                && attackerAimAngle >= STALE_THREAT_MIN_AIM_ERROR_DEG;'
+                ].join('\n')
+                String newCondition = [
+                        '        boolean staleRearThreat = !imminentFire',
+                        '                && closure <= STALE_THREAT_MAX_CLOSURE_BPS',
+                        '                && attackerAimAngle >= STALE_THREAT_MIN_AIM_ERROR_DEG;'
+                ].join('\n')
+
+                boolean alreadyApplied = !text.contains(oldConstant)
+                        && text.contains(newCondition)
+                if (alreadyApplied) {
+                    project.logger.lifecycle('Distance-independent stale-threat release already applied.')
+                    return
+                }
+
+                int constantCount = text.split(java.util.regex.Pattern.quote(oldConstant), -1).length - 1
+                int conditionCount = text.split(java.util.regex.Pattern.quote(oldCondition), -1).length - 1
+                if (constantCount != 1 || conditionCount != 1) {
+                    throw new GradleException('Could not apply stale-threat range experiment exactly once: '
+                            + "constant=${constantCount}, condition=${conditionCount}")
+                }
+
+                text = text.replace(oldConstant, '')
+                        .replace(oldCondition, newCondition)
+                source.setText(text, 'UTF-8')
+                project.logger.lifecycle('Applied distance-independent stale-threat release experiment.')
+            }
+        }
     }
 }
