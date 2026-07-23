@@ -29,7 +29,7 @@ gradle.beforeProject { project ->
                         '                (desiredPitch - snapshot.pitchDeg()) / CAPTURE_PITCH_DIVISOR',
                         '                        - CAPTURE_PITCH_RATE_DAMPING * pitchRate;',
                         '        double maximumNoseDownInput =',
-                        '                Math.abs(headingError) > ATTACK_MAX_RAW_ANGLE_DEG ? 0.35 : 0.88;',
+                        '                Math.abs(headingError) > ATTACK_MAX_RAW_ANGLE_DEG ? 0.0 : 0.88;',
                         '        float z = (float) Mth.clamp(',
                         '                capturePitchCommand, -0.88, maximumNoseDownInput);'
                 ].join('\n')
@@ -43,7 +43,7 @@ gradle.beforeProject { project ->
                     throw new GradleException("Refusing capture yaw-priority experiment: matches=${count}")
                 }
                 source.setText(text.replace(oldCapturePitchControl, newCapturePitchControl), 'UTF-8')
-                project.logger.lifecycle('Limited nose-down CAPTURE input until horizontal attack alignment.')
+                project.logger.lifecycle('Held level CAPTURE input until horizontal attack alignment.')
             }
         }
 
