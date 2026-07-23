@@ -1,0 +1,286 @@
+diff --git a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/FlightProfile.java b/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/FlightProfile.java
+index 999fbd7..0000000 100644
+--- a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/FlightProfile.java
++++ b/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/FlightProfile.java
+@@ -24,6 +24,14 @@ public record FlightProfile(
+         return "fighter".equalsIgnoreCase(role);
+     }
+ 
++    public boolean isLevelBomber() {
++        return "bomber".equalsIgnoreCase(role);
++    }
++
++    public boolean supportsAutonomousFlight() {
++        return isFighter() || isLevelBomber();
++    }
++
+     public double rotateSpeedBps() {
+         return Math.max(stallGuardSpeedBps * 1.15, climbTargetSpeedBps * 0.82);
+     }
+diff --git a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutonomousFlightManager.java b/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutonomousFlightManager.java
+index bd7556e..0000000 100644
+--- a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutonomousFlightManager.java
++++ b/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutonomousFlightManager.java
+@@ -66,7 +66,7 @@ public final class AutonomousFlightManager {
+                 return;
+             }
+             FlightProfile profile = resolved.get();
+-            if (!profile.isFighter()) {
++            if (!profile.supportsAutonomousFlight()) {
+                 return;
+             }
+             AutopilotSession session = new AutopilotSession(aircraft, profile);
+@@ -74,7 +74,8 @@ public final class AutonomousFlightManager {
+             SESSIONS.put(aircraft.getUUID(), entry);
+             MISSING_PROFILE_WARNINGS.remove(aircraft.getUUID());
+             AutopilotLogManager.writeEvent(server, aircraft, "session_start",
+-                    "mob_controlling_passenger_and_measured_fighter_profile", FlightPhase.STARTUP);
++                    "mob_controlling_passenger_and_measured_" + profile.role() + "_profile",
++                    FlightPhase.STARTUP);
+             AutopilotValidationCheckpoint.applyIfRequested(server, aircraft, session);
+         }
+ 
+diff --git a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutopilotValidationManager.java b/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutopilotValidationManager.java
+index d602595..0000000 100644
+--- a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutopilotValidationManager.java
++++ b/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutopilotValidationManager.java
+@@ -88,7 +88,7 @@ public final class AutopilotValidationManager {
+         AutopilotProfileRegistry.reload(server);
+         CandidateLookup lookup = candidate(source.getLevel(), id);
+         if (lookup.candidate() == null) {
+-            String message = "No compatible fighter found for " + id + ": " + lookup.reason();
++            String message = "No compatible autonomous aircraft found for " + id + ": " + lookup.reason();
+             WWDebugBenchmarkMod.LOGGER.error("{}; {}", message,
+                     AutopilotProfileRegistry.resolutionDiagnostics(server, id));
+             source.sendFailure(Component.literal(message));
+@@ -185,8 +185,8 @@ public final class AutopilotValidationManager {
+         if (profile == null) {
+             return new CandidateLookup(null, "measured_profile_not_resolved");
+         }
+-        if (!profile.isFighter()) {
+-            return new CandidateLookup(null, "profile_role_is_" + profile.role());
++        if (!profile.supportsAutonomousFlight()) {
++            return new CandidateLookup(null, "profile_role_not_supported_" + profile.role());
+         }
+ 
+         AircraftMetadata metadata = AircraftMetadataResolver.resolve(server.getResourceManager(), id);
+diff --git a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutonomousFlightGameTests.java b/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutonomousFlightGameTests.java
+index ec97ebc..0000000 100644
+--- a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutonomousFlightGameTests.java
++++ b/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/AutonomousFlightGameTests.java
+@@ -6,6 +6,7 @@ import com.google.gson.JsonArray;
+ import com.google.gson.JsonElement;
+ import com.google.gson.JsonObject;
++import com.wwdebug.benchmark.AircraftMetadataResolver;
+ import com.wwdebug.benchmark.BenchmarkCategory;
+ import com.wwdebug.benchmark.BenchmarkManager;
+ import com.wwdebug.benchmark.WWDebugBenchmarkMod;
+@@ -14,6 +15,7 @@ import net.minecraft.gametest.framework.GameTest;
+ import net.minecraft.gametest.framework.GameTestAssertException;
+ import net.minecraft.gametest.framework.GameTestHelper;
++import net.minecraft.resources.ResourceLocation;
+ import net.minecraft.server.MinecraftServer;
+ import net.minecraft.server.level.ServerLevel;
+ import net.minecraft.world.level.block.Blocks;
+@@ -41,10 +43,10 @@ import java.util.stream.Stream;
+ /**
+  * Headless integration test using the real Forge server, real aircraft entities and real physics.
+  *
+- * <p>Set {@code -PflightTestAircraft=all} to execute every fighter sequentially. The default smoke
+- * test executes the A6M only. If no measured profile file is staged, the test first runs the real
+- * fixed-input fighter benchmark, installs its generated profiles, and only then starts autonomous
+- * flight validation.</p>
++ * <p>Set {@code -PflightTestAircraft=all} to execute every fighter sequentially, or pass one
++ * supported aircraft id for a focused validation. If that aircraft has no staged measured profile,
++ * the test first runs the matching real fixed-input category benchmark, installs its generated
++ * profiles, and only then starts autonomous flight validation.</p>
+  */
+@@ -93,13 +95,10 @@ public final class AutonomousFlightGameTests {
+         AtomicLong validationStartedAt = new AtomicLong(0L);
+         long orchestrationStartedAt = System.currentTimeMillis();
+ 
+-        if (Files.isRegularFile(configuredProfile)) {
++        if (measuredProfileAvailable(server, configuredProfile, target)) {
+             startValidation(source, target, validationStarted, validationStartedAt);
+         } else {
+-            int benchmarkCount = BenchmarkManager.start(source, BenchmarkCategory.FIGHTER, false);
+-            if (benchmarkCount <= 0) {
+-                throw new IllegalStateException("Could not start measured fighter benchmark");
+-            }
++            startMeasuredBenchmark(source, server, target);
+         }
+@@ -130,6 +129,41 @@ public final class AutonomousFlightGameTests {
+         });
+     }
+ 
++    private static boolean measuredProfileAvailable(MinecraftServer server, Path configuredProfile,
++                                                    String target) {
++        if (!Files.isRegularFile(configuredProfile)) {
++            return false;
++        }
++        AutopilotProfileRegistry.reload(server);
++        if ("all".equalsIgnoreCase(target)) {
++            return !AutopilotProfileRegistry.fighterProfiles(server).isEmpty();
++        }
++        ResourceLocation id = ResourceLocation.tryParse(target);
++        return id != null && AutopilotProfileRegistry.resolve(server, id).isPresent();
++    }
++
++    private static void startMeasuredBenchmark(CommandSourceStack source, MinecraftServer server,
++                                               String target) {
++        BenchmarkCategory category = benchmarkCategory(server, target);
++        int benchmarkCount = BenchmarkManager.start(source, category, false);
++        if (benchmarkCount <= 0) {
++            throw new IllegalStateException("Could not start measured " + category.id() + " benchmark");
++        }
++    }
++
++    private static BenchmarkCategory benchmarkCategory(MinecraftServer server, String target) {
++        if ("all".equalsIgnoreCase(target)) {
++            return BenchmarkCategory.FIGHTER;
++        }
++        ResourceLocation id = ResourceLocation.tryParse(target);
++        if (id == null) {
++            throw new IllegalStateException("Invalid aircraft id for measured benchmark: " + target);
++        }
++        BenchmarkCategory category = AircraftMetadataResolver.resolve(server.getResourceManager(), id)
++                .category();
++        if (category == BenchmarkCategory.ALL || category == BenchmarkCategory.OTHER) {
++            throw new IllegalStateException("Unsupported measured benchmark category for " + target
++                    + ": " + category.id());
++        }
++        return category;
++    }
++
+     private static void startValidation(CommandSourceStack source, String target,
+                                          AtomicBoolean started, AtomicLong startedAt) {
+         int count = "all".equalsIgnoreCase(target)
+diff --git a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/ControlAuthorityArbiter.java b/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/ControlAuthorityArbiter.java
+index 8f25133..0000000 100644
+--- a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/ControlAuthorityArbiter.java
++++ b/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/ControlAuthorityArbiter.java
+@@ -52,29 +52,12 @@ public final class ControlAuthorityArbiter {
+         MutualDogfightMissionHoldAdapter.apply(aircraft);
+         FormationFlightManager.applyControl(aircraft);
+ 
+-        boolean collisionRisk = AirspaceSafetyProbe.collisionRisk(aircraft);
+-        boolean energyFighterControl = false;
+-        if (!collisionRisk) {
+-            energyFighterControl = EnergyFighterApexYawAdapter.applyControl(aircraft);
+-            if (!energyFighterControl) {
+-                DefensiveAirCombatManager.applyControl(aircraft);
+-                if (!DefensiveAirCombatManager.active(aircraft)) {
+-                    AirCombatManeuverManager.applyControl(aircraft);
+-                }
+-            }
+-        }
+-
+-        if (collisionRisk) {
+-            return Authority.COLLISION_AVOIDANCE;
+-        }
+-        if (energyFighterControl) {
+-            return Authority.ENERGY_FIGHTER_REENGAGEMENT;
+-        }
+-        if (DefensiveAirCombatManager.active(aircraft)) {
+-            return Authority.DEFENSIVE_COMBAT;
+-        }
+-        if (AirCombatManeuverManager.active(aircraft)) {
+-            return Authority.OFFENSIVE_COMBAT;
++        Authority combatAuthority = FighterCombatFacade.applyControl(
++                aircraft, AirspaceSafetyProbe.collisionRisk(aircraft));
++        if (combatAuthority != Authority.NONE) {
++            return combatAuthority;
+         }
+         if (TerrainAvoidancePlanner.active(aircraft)) {
+             return Authority.TERRAIN_AVOIDANCE;
+diff --git a/ww-debug-benchmark/src/main/java/com/wwdebug/benchmark/mixin/VehicleEntityBenchmarkMixin.java b/ww-debug-benchmark/src/main/java/com/wwdebug/benchmark/mixin/VehicleEntityBenchmarkMixin.java
+index e1715ce..0000000 100644
+--- a/ww-debug-benchmark/src/main/java/com/wwdebug/benchmark/mixin/VehicleEntityBenchmarkMixin.java
++++ b/ww-debug-benchmark/src/main/java/com/wwdebug/benchmark/mixin/VehicleEntityBenchmarkMixin.java
+@@ -4,9 +4,8 @@ package com.wwdebug.benchmark.mixin;
+ import com.wwdebug.autopilot.AutonomousFlightManager;
+ import com.wwdebug.autopilot.AutopilotWheelLockAdapter;
+-import com.wwdebug.autopilot.CombatAwarenessManager;
+-import com.wwdebug.autopilot.CombatWeaponManager;
+ import com.wwdebug.autopilot.ControlAuthorityArbiter;
++import com.wwdebug.autopilot.FighterCombatFacade;
+ import net.minecraft.world.entity.Entity;
+@@ -28,7 +27,6 @@ public abstract class VehicleEntityBenchmarkMixin {
+         Entity aircraft = (Entity) (Object) this;
+         AutonomousFlightManager.applyPostPhysics(aircraft);
+         AutopilotWheelLockAdapter.apply(aircraft);
+-        CombatAwarenessManager.tick(aircraft);
+-        CombatWeaponManager.tick(aircraft);
++        FighterCombatFacade.tick(aircraft);
+     }
+ }
+diff --git a/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/FighterCombatFacade.java b/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/FighterCombatFacade.java
+new file mode 100644
+index 0000000..0000000
+--- /dev/null
++++ b/ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/FighterCombatFacade.java
+@@ -0,0 +1,72 @@
++package com.wwdebug.autopilot;
++
++import net.minecraft.server.level.ServerLevel;
++import net.minecraft.world.entity.Entity;
++
++import java.util.UUID;
++
++/** Keeps fighter-only awareness, manoeuvre and weapon policy out of noncombat aircraft roles. */
++public final class FighterCombatFacade {
++    private FighterCombatFacade() {
++    }
++
++    public static ControlAuthorityArbiter.Authority applyControl(Entity aircraft,
++                                                                  boolean collisionRisk) {
++        if (collisionRisk) {
++            return ControlAuthorityArbiter.Authority.COLLISION_AVOIDANCE;
++        }
++        if (!isFighter(aircraft)) {
++            clear(aircraft.getUUID());
++            return ControlAuthorityArbiter.Authority.NONE;
++        }
++
++        boolean energyFighterControl = EnergyFighterApexYawAdapter.applyControl(aircraft);
++        if (energyFighterControl) {
++            return ControlAuthorityArbiter.Authority.ENERGY_FIGHTER_REENGAGEMENT;
++        }
++
++        DefensiveAirCombatManager.applyControl(aircraft);
++        if (DefensiveAirCombatManager.active(aircraft)) {
++            return ControlAuthorityArbiter.Authority.DEFENSIVE_COMBAT;
++        }
++
++        AirCombatManeuverManager.applyControl(aircraft);
++        if (AirCombatManeuverManager.active(aircraft)) {
++            return ControlAuthorityArbiter.Authority.OFFENSIVE_COMBAT;
++        }
++        return ControlAuthorityArbiter.Authority.NONE;
++    }
++
++    public static void tick(Entity aircraft) {
++        if (!isFighter(aircraft)) {
++            clear(aircraft.getUUID());
++            return;
++        }
++        CombatAwarenessManager.tick(aircraft);
++        CombatWeaponManager.tick(aircraft);
++    }
++
++    public static boolean isFighter(Entity aircraft) {
++        if (!(aircraft.level() instanceof ServerLevel level) || aircraft.level().isClientSide) {
++            return false;
++        }
++        return AutopilotProfileRegistry.resolve(level.getServer(), aircraft)
++                .map(FlightProfile::isFighter)
++                .orElse(false);
++    }
++
++    public static void clear(UUID aircraftUuid) {
++        CombatAwarenessManager.clear(aircraftUuid);
++        CombatWeaponManager.clear(aircraftUuid);
++        DefensiveAirCombatManager.clear(aircraftUuid);
++        AirCombatManeuverManager.clear(aircraftUuid);
++    }
++}
