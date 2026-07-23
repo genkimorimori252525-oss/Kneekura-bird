@@ -60,12 +60,18 @@ gradle.beforeProject { project ->
                         '        double targetTurnRateDegPerTick = updateTargetTurnRate(state, targetSnapshot);',
                         '        state.captureLeadTicks = LEAD_TICKS;',
                         '        if (state.stage == Stage.CAPTURE) {',
-                        '            state.captureLeadTicks = Mth.clamp(',
-                        '                    distance / Math.max(1.0, snapshot.horizontalSpeedBps()) * 20.0,',
-                        '                    LEAD_TICKS, CAPTURE_MAX_LEAD_TICKS);',
-                        '            leadDirection = turnAwareLeadDirection(aircraft, target.aircraft(),',
-                        '                    targetSnapshot, targetDirection, state.captureLeadTicks,',
-                        '                    targetTurnRateDegPerTick);',
+                        '            if (!state.terminalCaptureHandoff',
+                        '                    && rawAngle <= PIVOT_COMPLETE_HEADING_DEG) {',
+                        '                state.terminalCaptureHandoff = true;',
+                        '            }',
+                        '            if (!state.terminalCaptureHandoff) {',
+                        '                state.captureLeadTicks = Mth.clamp(',
+                        '                        distance / Math.max(1.0, snapshot.horizontalSpeedBps()) * 20.0,',
+                        '                        LEAD_TICKS, CAPTURE_MAX_LEAD_TICKS);',
+                        '                leadDirection = turnAwareLeadDirection(aircraft, target.aircraft(),',
+                        '                        targetSnapshot, targetDirection, state.captureLeadTicks,',
+                        '                        targetTurnRateDegPerTick);',
+                        '            }',
                         '            leadAngle = angleDegrees(snapshot.forward(), leadDirection);',
                         '        }',
                         '',
@@ -152,7 +158,8 @@ gradle.beforeProject { project ->
                         '                + state.captureEntryLagTurnInputSign',
                         '                + ":target_turn_rate_deg_per_tick="',
                         '                + round(state.smoothedTargetTurnRateDegPerTick)',
-                        '                + ":capture_lead_ticks=" + round(state.captureLeadTicks);'
+                        '                + ":capture_lead_ticks=" + round(state.captureLeadTicks)',
+                        '                + ":terminal_capture_handoff=" + state.terminalCaptureHandoff;'
                 ].join('\n')
 
                 String oldStateMotionFields = [
@@ -176,7 +183,8 @@ gradle.beforeProject { project ->
                 String newStateTickFields = [
                         '        private int captureEntryLagTicks;',
                         '        private int targetTurnRateSamples;',
-                        '        private boolean captureEntryLagUsed;'
+                        '        private boolean captureEntryLagUsed;',
+                        '        private boolean terminalCaptureHandoff;'
                 ].join('\n')
 
                 String oldStateConstructor = [
@@ -235,7 +243,7 @@ gradle.beforeProject { project ->
                 }
                 replacements.each { name, pair -> text = text.replace(pair[0], pair[1]) }
                 source.setText(text, 'UTF-8')
-                project.logger.lifecycle('Applied measured turn-rate prediction during energy-fighter CAPTURE.')
+                project.logger.lifecycle('Applied turn-aware CAPTURE acquisition with terminal short-lead handoff.')
             }
         }
 
