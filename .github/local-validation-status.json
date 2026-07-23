@@ -1,15 +1,15 @@
 {
-  "run_id": 29991008522,
+  "run_id": 29992346743,
   "run_attempt": 1,
   "status": "completed",
-  "conclusion": "failure",
-  "event": "workflow_dispatch",
+  "conclusion": "cancelled",
+  "event": "push",
   "head_branch": "main",
-  "head_sha": "91ab1ac89659860c9c2f63b6b8ce663d802bc532",
-  "requested_ref": "agent/mutual-dogfight-mission-hold",
-  "requested_sha": "c85b0bd53a8c8f3fb8b2633f15b43c857471dea4",
+  "head_sha": "3b16cbcc51a34d69642f29cbdd8fd9302f841093",
+  "requested_ref": "b4a03d2772ae43c3985eb5a3cb346b07ab216c0e",
+  "requested_sha": "b4a03d2772ae43c3985eb5a3cb346b07ab216c0e",
   "aircraft": "warfare_wings:a6m",
   "gametest": "true",
-  "url": "https://github.com/genkimorimori252525-oss/warfare_wings-1.1.4-1.20.1-forge/actions/runs/29991008522",
-  "updated_at": "2026-07-23T08:33:45.416Z"
+  "url": "https://github.com/genkimorimori252525-oss/warfare_wings-1.1.4-1.20.1-forge/actions/runs/29992346743",
+  "updated_at": "2026-07-23T08:47:51.780Z"
 }
