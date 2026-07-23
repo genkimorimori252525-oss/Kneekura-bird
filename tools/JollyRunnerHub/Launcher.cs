@@ -48,6 +48,12 @@ namespace JollyRunnerHubLauncher
                     .Replace("$cells.Add([string]$a.Name)", "[void]$cells.Add([string]$a.Name)")
                     .Replace("{$cells.Add($a.Values[[string]$m.key])}", "{[void]$cells.Add($a.Values[[string]$m.key])}");
 
+                // Windows PowerShell 5.1 can throw "Argument types do not match" when the array
+                // subexpression operator wraps a generic List<object>. Enumerate those lists directly.
+                scriptText = scriptText
+                    .Replace("foreach ($a in @($Snapshot.Aircraft))", "foreach ($a in $Snapshot.Aircraft)")
+                    .Replace("foreach ($e in @($Snapshot.Events))", "foreach ($e in $Snapshot.Events)");
+
                 // Setting SelectedIndex raises SelectedIndexChanged synchronously. The original
                 // script therefore entered Select-Profile while the ComboBox was only half rebuilt;
                 // PowerShell reported the nested handler failure as an exception setting
