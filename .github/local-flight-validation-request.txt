@@ -1,5 +1,5 @@
-# Local flight validation request level-bomber-he111-generality-1
+# Local flight validation request level-bomber-g4m-generality-1
 ref=8b533fa0817e83762e6ef973b3b1e58a6179fb98
-aircraft=warfare_wings:he111
+aircraft=warfare_wings:g4m
 scenario=full
 gametest=true
