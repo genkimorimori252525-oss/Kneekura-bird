@@ -1,5 +1,5 @@
-# Local flight validation request level-bomber-g4m-generality-1
-ref=8b533fa0817e83762e6ef973b3b1e58a6179fb98
-aircraft=warfare_wings:g4m
+# Local flight validation request attacker-d4y-autonomy-1
+ref=5e6ed21ee8e22b904e7eaf7b6013b4dafde1b744
+aircraft=warfare_wings:d4y
 scenario=full
 gametest=true
