@@ -1,0 +1,430 @@
+name: WW Local Windows Flight Validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/local-flight-validation-request.txt'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Repository branch, tag, or commit to validate'
+        required: true
+        default: 'main'
+        type: string
+      aircraft:
+        description: 'Aircraft entity id'
+        required: true
+        default: 'warfare_wings:a6m'
+        type: string
+      scenario:
+        description: 'Flight validation scenario'
+        required: true
+        default: 'full'
+        type: choice
+        options:
+          - full
+          - landing
+          - stall
+          - turn
+          - terrain
+          - targeting
+          - weapons
+          - formation
+          - dogfight
+          - dogfight_crossing
+          - dogfight_energy
+          - dogfight_evasive
+          - dogfight_mutual
+      run_gametest:
+        description: 'Run the selected real-physics GameTest after the build'
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ww-local-self-hosted-validation
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    if: >-
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' &&
+       github.actor == 'genkimorimori252525-oss')
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 110
+    defaults:
+      run:
+        shell: powershell
+
+    steps:
+      - name: Checkout request metadata
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+
+      - name: Resolve and validate request
+        id: request
+        env:
+          DISPATCH_REF: ${{ inputs.ref }}
+          DISPATCH_AIRCRAFT: ${{ inputs.aircraft }}
+          DISPATCH_SCENARIO: ${{ inputs.scenario }}
+          DISPATCH_GAMETEST: ${{ inputs.run_gametest }}
+        run: |
+          $ref = 'main'
+          $aircraft = 'warfare_wings:a6m'
+          $scenario = 'full'
+          $runGameTest = 'true'
+
+          if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') {
+            if ($env:DISPATCH_REF) { $ref = $env:DISPATCH_REF.Trim() }
+            if ($env:DISPATCH_AIRCRAFT) { $aircraft = $env:DISPATCH_AIRCRAFT.Trim() }
+            if ($env:DISPATCH_SCENARIO) { $scenario = $env:DISPATCH_SCENARIO.Trim().ToLowerInvariant() }
+            if ($env:DISPATCH_GAMETEST) { $runGameTest = $env:DISPATCH_GAMETEST.Trim().ToLowerInvariant() }
+          }
+          elseif ($env:GITHUB_EVENT_NAME -eq 'push') {
+            $requestPath = Join-Path $env:GITHUB_WORKSPACE '.github\local-flight-validation-request.txt'
+            if (-not (Test-Path $requestPath)) {
+              throw "Missing local flight validation request file: $requestPath"
+            }
+
+            $values = @{}
+            foreach ($line in Get-Content $requestPath) {
+              $trimmed = $line.Trim()
+              if (-not $trimmed -or $trimmed.StartsWith('#')) { continue }
+              if ($trimmed -notmatch '^([a-z_]+)=(.+)$') {
+                throw "Invalid request line: $trimmed"
+              }
+              $values[$Matches[1]] = $Matches[2].Trim()
+            }
+
+            if ($values.ContainsKey('ref')) { $ref = $values['ref'] }
+            if ($values.ContainsKey('aircraft')) { $aircraft = $values['aircraft'] }
+            if ($values.ContainsKey('scenario')) { $scenario = $values['scenario'].ToLowerInvariant() }
+            if ($values.ContainsKey('gametest')) { $runGameTest = $values['gametest'].ToLowerInvariant() }
+          }
+
+          $allowedScenarios = @(
+            'full', 'landing', 'stall', 'turn', 'terrain', 'targeting', 'weapons',
+            'formation', 'dogfight', 'dogfight_crossing', 'dogfight_energy',
+            'dogfight_evasive', 'dogfight_mutual'
+          )
+          if ($ref -notmatch '^[A-Za-z0-9._/-]+$') {
+            throw "Unsafe repository ref: $ref"
+          }
+          if ($aircraft -notmatch '^[a-z0-9_.-]+:[a-z0-9_./-]+$') {
+            throw "Unsafe aircraft id: $aircraft"
+          }
+          if ($scenario -notin $allowedScenarios) {
+            throw "Unsupported flight scenario: $scenario"
+          }
+          if ($runGameTest -notin @('true', 'false')) {
+            throw "Invalid gametest flag: $runGameTest"
+          }
+
+          "ref=$ref" >> $env:GITHUB_OUTPUT
+          "aircraft=$aircraft" >> $env:GITHUB_OUTPUT
+          "scenario=$scenario" >> $env:GITHUB_OUTPUT
+          "run_gametest=$runGameTest" >> $env:GITHUB_OUTPUT
+          "FLIGHT_TEST_TARGET=$aircraft" >> $env:GITHUB_ENV
+          "FLIGHT_TEST_SCENARIO=$scenario" >> $env:GITHUB_ENV
+
+          Write-Host "Validation ref: $ref"
+          Write-Host "Aircraft: $aircraft"
+          Write-Host "Scenario: $scenario"
+          Write-Host "Run GameTest: $runGameTest"
+
+      - name: Checkout requested repository ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.request.outputs.ref }}
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+
+      - name: Resolve checked-out commit
+        id: checked_out
+        run: |
+          $sha = (git rev-parse HEAD).Trim()
+          if ($sha -notmatch '^[0-9a-f]{40}$') {
+            throw "Invalid checked-out commit SHA: $sha"
+          }
+          "sha=$sha" >> $env:GITHUB_OUTPUT
+          Write-Host "Checked-out commit: $sha"
+
+      - name: Persist validation start
+        uses: actions/github-script@v7
+        env:
+          REQUEST_REF: ${{ steps.request.outputs.ref }}
+          REQUEST_SHA: ${{ steps.checked_out.outputs.sha }}
+          REQUEST_AIRCRAFT: ${{ steps.request.outputs.aircraft }}
+          REQUEST_SCENARIO: ${{ steps.request.outputs.scenario }}
+          REQUEST_GAMETEST: ${{ steps.request.outputs.run_gametest }}
+          EVENT_BRANCH: ${{ github.ref_name }}
+          EVENT_SHA: ${{ github.sha }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const path = '.github/local-flight-validation-status.json';
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const payload = {
+              run_id: context.runId,
+              run_attempt: Number(process.env.GITHUB_RUN_ATTEMPT || '1'),
+              status: 'in_progress',
+              conclusion: null,
+              event: context.eventName,
+              head_branch: process.env.EVENT_BRANCH,
+              head_sha: process.env.EVENT_SHA,
+              requested_ref: process.env.REQUEST_REF,
+              requested_sha: process.env.REQUEST_SHA,
+              aircraft: process.env.REQUEST_AIRCRAFT,
+              scenario: process.env.REQUEST_SCENARIO,
+              gametest: process.env.REQUEST_GAMETEST,
+              url: runUrl,
+              updated_at: new Date().toISOString(),
+            };
+            const content = Buffer.from(`${JSON.stringify(payload, null, 2)}\n`).toString('base64');
+            let sha;
+            try {
+              const existing = await github.rest.repos.getContent({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                path,
+                ref: 'main',
+              });
+              if (!Array.isArray(existing.data)) sha = existing.data.sha;
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+            await github.rest.repos.createOrUpdateFileContents({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              path,
+              branch: 'main',
+              message: `Record local flight validation start ${context.runId}`,
+              content,
+              ...(sha ? { sha } : {}),
+            });
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Gradle 8.8
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.8'
+
+      - name: Build benchmark mod and deterministic simulation
+        id: benchmark_build
+        continue-on-error: true
+        working-directory: ww-debug-benchmark
+        run: |
+          cmd /d /s /c "gradle --no-daemon --console=plain build > build.log 2>&1"
+          $status = $LASTEXITCODE
+          if (Test-Path build.log) {
+            Get-Content build.log -Tail 240
+          }
+          exit $status
+
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ww-local-flight-build-${{ github.run_id }}
+          path: |
+            ww-debug-benchmark/build.log
+            ww-debug-benchmark/build/reports/flight-simulation/report.json
+            ww-debug-benchmark/build/libs/*.jar
+          if-no-files-found: warn
+
+      - name: Stop after build failure
+        if: steps.benchmark_build.outcome == 'failure'
+        working-directory: ww-debug-benchmark
+        run: |
+          if (Test-Path build.log) {
+            Get-Content build.log -Tail 240
+          }
+          exit 1
+
+      - name: Download exact runtime aircraft mods
+        if: steps.request.outputs.run_gametest == 'true'
+        working-directory: ww-debug-benchmark
+        run: |
+          New-Item -ItemType Directory -Force flight-test-mods | Out-Null
+          @'
+          import json
+          import pathlib
+          import urllib.request
+
+          versions = {
+              "GsVmbbkj": "immersive_aircraft-1.3.3+1.20.1-forge.jar",
+              "q94LN7dV": "warfare_wings-1.1.4-1.20.1-forge.jar",
+          }
+          target = pathlib.Path("flight-test-mods")
+          for version_id, required_name in versions.items():
+              destination = target / required_name
+              if destination.is_file() and destination.stat().st_size > 0:
+                  print(f"using cached {destination} ({destination.stat().st_size} bytes)")
+                  continue
+              request = urllib.request.Request(
+                  f"https://api.modrinth.com/v2/version/{version_id}",
+                  headers={"User-Agent": "Kamogawa-WW-Local-Runner/1.0"},
+              )
+              with urllib.request.urlopen(request) as response:
+                  metadata = json.load(response)
+              files = metadata.get("files", [])
+              if not files:
+                  raise RuntimeError(f"Modrinth version {version_id} returned no files")
+              selected = next((item for item in files if item.get("primary")), files[0])
+              download = urllib.request.Request(
+                  selected["url"],
+                  headers={"User-Agent": "Kamogawa-WW-Local-Runner/1.0"},
+              )
+              with urllib.request.urlopen(download) as response, destination.open("wb") as output:
+                  output.write(response.read())
+              print(f"downloaded {destination} ({destination.stat().st_size} bytes)")
+          '@ | python -
+
+      - name: Run and verify selected real-physics flight scenario
+        id: gametest
+        if: steps.request.outputs.run_gametest == 'true'
+        continue-on-error: true
+        working-directory: ww-debug-benchmark
+        run: |
+          cmd /d /s /c "gradle --no-daemon --console=plain runGameTestServer -PflightTestAircraft=%FLIGHT_TEST_TARGET% -PflightTestScenario=%FLIGHT_TEST_SCENARIO% > headless-flight.log 2>&1"
+          $gradleStatus = $LASTEXITCODE
+          if (Test-Path headless-flight.log) {
+            Get-Content headless-flight.log -Tail 320
+          }
+
+          if ($env:FLIGHT_TEST_SCENARIO -eq 'terrain') {
+            python tools/verify_terrain_scenario.py --root run-gametest --gradle-status $gradleStatus --output "run-gametest/scenario-verification-$env:FLIGHT_TEST_SCENARIO.json"
+          }
+          elseif ($env:FLIGHT_TEST_SCENARIO -eq 'targeting') {
+            python tools/verify_targeting_scenario.py --root run-gametest --gradle-status $gradleStatus --output "run-gametest/scenario-verification-$env:FLIGHT_TEST_SCENARIO.json"
+          }
+          elseif ($env:FLIGHT_TEST_SCENARIO -eq 'weapons') {
+            python tools/verify_weapons_scenario.py --root run-gametest --gradle-status $gradleStatus --output "run-gametest/scenario-verification-$env:FLIGHT_TEST_SCENARIO.json"
+          }
+          elseif ($env:FLIGHT_TEST_SCENARIO -eq 'formation') {
+            python tools/verify_formation_scenario.py --root run-gametest --gradle-status $gradleStatus --output "run-gametest/scenario-verification-$env:FLIGHT_TEST_SCENARIO.json"
+          }
+          elseif ($env:FLIGHT_TEST_SCENARIO -eq 'dogfight') {
+            python tools/verify_dogfight_scenario.py --root run-gametest --gradle-status $gradleStatus --output "run-gametest/scenario-verification-$env:FLIGHT_TEST_SCENARIO.json"
+          }
+          elseif ($env:FLIGHT_TEST_SCENARIO -eq 'dogfight_crossing') {
+            python tools/verify_crossing_dogfight_scenario.py --root run-gametest --gradle-status $gradleStatus --output "run-gametest/scenario-verification-$env:FLIGHT_TEST_SCENARIO.json"
+          }
+          elseif ($env:FLIGHT_TEST_SCENARIO -eq 'dogfight_energy') {
+            python tools/verify_energy_dogfight_scenario.py --root run-gametest --gradle-status $gradleStatus --output "run-gametest/scenario-verification-$env:FLIGHT_TEST_SCENARIO.json"
+          }
+          elseif ($env:FLIGHT_TEST_SCENARIO -eq 'dogfight_evasive') {
+            python tools/verify_evasive_dogfight_scenario.py --root run-gametest --gradle-status $gradleStatus --output "run-gametest/scenario-verification-$env:FLIGHT_TEST_SCENARIO.json"
+          }
+          elseif ($env:FLIGHT_TEST_SCENARIO -eq 'dogfight_mutual') {
+            python tools/verify_mutual_dogfight_scenario.py --root run-gametest --gradle-status $gradleStatus --output "run-gametest/scenario-verification-$env:FLIGHT_TEST_SCENARIO.json"
+          }
+          else {
+            python tools/verify_flight_scenario.py --root run-gametest --scenario "$env:FLIGHT_TEST_SCENARIO" --gradle-status $gradleStatus --output "run-gametest/scenario-verification-$env:FLIGHT_TEST_SCENARIO.json"
+          }
+
+      - name: Render flight diagnostics
+        if: always() && steps.request.outputs.run_gametest == 'true'
+        continue-on-error: true
+        working-directory: ww-debug-benchmark
+        run: |
+          python tools/render_flight_diagnostics.py --root run-gametest --output "run-gametest/flight-diagnostics-$env:FLIGHT_TEST_SCENARIO.html" --scenario "$env:FLIGHT_TEST_SCENARIO"
+
+      - name: Upload GameTest diagnostics
+        if: always() && steps.request.outputs.run_gametest == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ww-local-flight-${{ steps.request.outputs.scenario }}-${{ github.run_id }}
+          path: |
+            ww-debug-benchmark/headless-flight*.log
+            ww-debug-benchmark/run-gametest/**/wwdebug/**
+            ww-debug-benchmark/run-gametest/logs/**
+            ww-debug-benchmark/run-gametest/crash-reports/**
+            ww-debug-benchmark/run-gametest/config/warfare_wings/flight_profiles.json
+            ww-debug-benchmark/run-gametest/scenario-verification-*.json
+            ww-debug-benchmark/run-gametest/flight-diagnostics-*.html
+          if-no-files-found: warn
+
+      - name: Fail after preserving GameTest diagnostics
+        if: steps.request.outputs.run_gametest == 'true' && steps.gametest.outcome == 'failure'
+        working-directory: ww-debug-benchmark
+        run: |
+          if (Test-Path headless-flight.log) {
+            Get-Content headless-flight.log -Tail 320
+          }
+          exit 1
+
+      - name: Persist validation finish
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          REQUEST_REF: ${{ steps.request.outputs.ref }}
+          REQUEST_SHA: ${{ steps.checked_out.outputs.sha }}
+          REQUEST_AIRCRAFT: ${{ steps.request.outputs.aircraft }}
+          REQUEST_SCENARIO: ${{ steps.request.outputs.scenario }}
+          REQUEST_GAMETEST: ${{ steps.request.outputs.run_gametest }}
+          JOB_STATUS: ${{ job.status }}
+          EVENT_BRANCH: ${{ github.ref_name }}
+          EVENT_SHA: ${{ github.sha }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const path = '.github/local-flight-validation-status.json';
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const payload = {
+              run_id: context.runId,
+              run_attempt: Number(process.env.GITHUB_RUN_ATTEMPT || '1'),
+              status: 'completed',
+              conclusion: process.env.JOB_STATUS,
+              event: context.eventName,
+              head_branch: process.env.EVENT_BRANCH,
+              head_sha: process.env.EVENT_SHA,
+              requested_ref: process.env.REQUEST_REF || null,
+              requested_sha: process.env.REQUEST_SHA || null,
+              aircraft: process.env.REQUEST_AIRCRAFT || null,
+              scenario: process.env.REQUEST_SCENARIO || null,
+              gametest: process.env.REQUEST_GAMETEST || null,
+              url: runUrl,
+              updated_at: new Date().toISOString(),
+            };
+            const content = Buffer.from(`${JSON.stringify(payload, null, 2)}\n`).toString('base64');
+            let sha;
+            try {
+              const existing = await github.rest.repos.getContent({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                path,
+                ref: 'main',
+              });
+              if (!Array.isArray(existing.data)) sha = existing.data.sha;
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+            await github.rest.repos.createOrUpdateFileContents({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              path,
+              branch: 'main',
+              message: `Record local flight validation finish ${context.runId}`,
+              content,
+              ...(sha ? { sha } : {}),
+            });
