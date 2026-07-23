@@ -19,7 +19,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * GameTest-only scene with two real autonomous fighters using the same combat controller.
  * The primary A6M remains part of the normal validation mission; the opposing P-47N is discarded
- * after the combat window so the primary can return and park.
+ * after reciprocal fire or the bounded combat window so the primary can return and park.
  */
 final class MutualDogfightValidationManager {
     private static final String SCENARIO_PROPERTY = "wwdebug.flightGameTestScenario";
@@ -30,7 +30,7 @@ final class MutualDogfightValidationManager {
     private static final String BLUE_FACTION = "wwcombat:faction:blue";
     private static final String HOSTILE_RED = "wwcombat:hostile:red";
     private static final String HOSTILE_BLUE = "wwcombat:hostile:blue";
-    private static final int COMBAT_WINDOW_TICKS = 1_000;
+    private static final int COMBAT_WINDOW_TICKS = 2_000;
     private static final int MISSING_ENTITY_GRACE_TICKS = 40;
     private static final Map<UUID, Scene> SCENES = new ConcurrentHashMap<>();
 
@@ -116,11 +116,22 @@ final class MutualDogfightValidationManager {
                             + ":opponent_track_ticks=" + scene.opponentTrackTicks
                             + ":primary_combat_ticks=" + scene.primaryCombatTicks
                             + ":opponent_combat_ticks=" + scene.opponentCombatTicks
+                            + ":primary_shots="
+                            + ReflectiveArmament.estimatedShotsRemaining(aircraft)
+                            + ":opponent_shots="
+                            + ReflectiveArmament.estimatedShotsRemaining(opponent)
                             + ":opponent_phase=" + AutonomousFlightManager.status(opponent.getUUID())
                             .map(status -> status.phase().name()).orElse("NONE"),
                     phase);
         }
-        if (scene.ageTicks >= COMBAT_WINDOW_TICKS) {
+
+        boolean primaryFired = ReflectiveArmament.estimatedShotsRemaining(aircraft)
+                < scene.primaryInitialShots;
+        boolean opponentFired = ReflectiveArmament.estimatedShotsRemaining(opponent)
+                < scene.opponentInitialShots;
+        if (primaryFired && opponentFired) {
+            completeScene(level, aircraft, scene, phase, "reciprocal_fire_confirmed");
+        } else if (scene.ageTicks >= COMBAT_WINDOW_TICKS) {
             completeScene(level, aircraft, scene, phase, "combat_window_complete");
         }
     }
@@ -222,6 +233,8 @@ final class MutualDogfightValidationManager {
         scene.opponent = opponent;
         scene.opponentUuid = opponent.getUUID();
         scene.opponentPilotUuid = opponentPilot.getUUID();
+        scene.primaryInitialShots = ReflectiveArmament.estimatedShotsRemaining(primary);
+        scene.opponentInitialShots = ReflectiveArmament.estimatedShotsRemaining(opponent);
         scene.minimumSeparation = primary.distanceTo(opponent);
         scene.maximumSeparation = scene.minimumSeparation;
         AutopilotLogManager.writeEvent(level.getServer(), primary,
@@ -233,7 +246,9 @@ final class MutualDogfightValidationManager {
                         + ":opponent_pilot_uuid=" + opponentPilot.getUUID()
                         + ":opponent_faction=blue"
                         + ":initial_separation=" + round(primary.distanceTo(opponent))
-                        + ":opponent_speed_bps=" + round(opponentSpeed),
+                        + ":opponent_speed_bps=" + round(opponentSpeed)
+                        + ":primary_initial_shots=" + scene.primaryInitialShots
+                        + ":opponent_initial_shots=" + scene.opponentInitialShots,
                 phase);
     }
 
@@ -369,6 +384,8 @@ final class MutualDogfightValidationManager {
         private Entity opponent;
         private UUID opponentUuid;
         private UUID opponentPilotUuid;
+        private int primaryInitialShots;
+        private int opponentInitialShots;
         private int ageTicks;
         private int missingEntityTicks;
         private int primaryTrackTicks;

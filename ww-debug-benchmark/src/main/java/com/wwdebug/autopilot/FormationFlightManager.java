@@ -33,7 +33,8 @@ public final class FormationFlightManager {
     private static final double HARD_CURRENT_SEPARATION = 9.0;
     private static final double HARD_PREDICTED_SEPARATION = 13.0;
     private static final double PREDICTION_TICKS = 60.0;
-    private static final Set<UUID> ACTIVE_COLLISION = ConcurrentHashMap.newKeySet();
+    private static final ConcurrentHashMap<UUID, CollisionAvoidanceState> ACTIVE_COLLISION =
+            new ConcurrentHashMap<>();
     private static final Set<UUID> ACTIVE_FORMATION = ConcurrentHashMap.newKeySet();
     private static final ConcurrentHashMap<UUID, Integer> STATUS_TICKS = new ConcurrentHashMap<>();
 
@@ -79,7 +80,7 @@ public final class FormationFlightManager {
             ACTIVE_FORMATION.remove(aircraft.getUUID());
             return;
         }
-        if (ACTIVE_COLLISION.remove(aircraft.getUUID())) {
+        if (ACTIVE_COLLISION.remove(aircraft.getUUID()) != null) {
             AutopilotLogManager.writeEvent(level.getServer(), aircraft,
                     "collision_avoidance_clear", "predicted_separation_restored", phase);
         }
@@ -106,18 +107,16 @@ public final class FormationFlightManager {
                                                 FlightSnapshot snapshot, FlightProfile profile,
                                                 CollisionThreat threat) {
         Entity other = threat.other();
-        Vec3 away = horizontal(aircraft.position().subtract(other.position()));
-        if (away.lengthSqr() < 1.0e-8) {
-            Vec3 forward = snapshot.horizontalForward();
-            Vec3 right = new Vec3(-forward.z, 0.0, forward.x);
-            away = aircraft.getUUID().compareTo(other.getUUID()) <= 0 ? right : right.scale(-1.0);
+        CollisionAvoidanceState previous = ACTIVE_COLLISION.get(aircraft.getUUID());
+        boolean newThreat = previous == null || !previous.otherUuid().equals(other.getUUID());
+        CollisionAvoidanceState state;
+        if (newThreat) {
+            state = new CollisionAvoidanceState(other.getUUID(), initialEscapeDirection(aircraft, other, snapshot));
+            ACTIVE_COLLISION.put(aircraft.getUUID(), state);
+        } else {
+            state = previous;
         }
-        away = away.normalize();
-        Vec3 desired = horizontal(snapshot.horizontalForward().scale(0.45).add(away.scale(1.55)));
-        if (desired.lengthSqr() < 1.0e-8) {
-            desired = away;
-        }
-        desired = desired.normalize();
+        Vec3 desired = state.escapeDirection();
 
         boolean primary = aircraft.getUUID().compareTo(other.getUUID()) <= 0;
         double altitudeDelta = primary || snapshot.altitudeAboveGround() < 55.0 ? 14.0 : -10.0;
@@ -134,12 +133,29 @@ public final class FormationFlightManager {
                 + ":current=" + round(threat.currentSeparation())
                 + ":predicted=" + round(threat.predictedSeparation())
                 + ":closest_ticks=" + round(threat.closestTicks())
-                + ":vertical_split=" + round(altitudeDelta);
-        if (ACTIVE_COLLISION.add(aircraft.getUUID())) {
+                + ":vertical_split=" + round(altitudeDelta)
+                + ":escape_heading=" + round(Math.toDegrees(Math.atan2(-desired.x, desired.z)))
+                + ":direction_latched=true";
+        if (newThreat) {
             AutopilotLogManager.writeEvent(level.getServer(), aircraft,
                     "collision_avoidance_start", reason, phase);
         }
         writeAdapter(level, aircraft, phase, snapshot, output, reason);
+    }
+
+    private static Vec3 initialEscapeDirection(Entity aircraft, Entity other, FlightSnapshot snapshot) {
+        Vec3 away = horizontal(aircraft.position().subtract(other.position()));
+        if (away.lengthSqr() < 1.0e-8) {
+            Vec3 forward = snapshot.horizontalForward();
+            Vec3 right = new Vec3(-forward.z, 0.0, forward.x);
+            away = aircraft.getUUID().compareTo(other.getUUID()) <= 0 ? right : right.scale(-1.0);
+        }
+        away = away.normalize();
+        Vec3 desired = horizontal(snapshot.horizontalForward().scale(0.45).add(away.scale(1.55)));
+        if (desired.lengthSqr() < 1.0e-8) {
+            desired = away;
+        }
+        return desired.normalize();
     }
 
     private static void applyFormationSlot(ServerLevel level, Entity aircraft, FlightPhase phase,
@@ -355,7 +371,7 @@ public final class FormationFlightManager {
     }
 
     private static void clearModes(ServerLevel level, Entity aircraft, FlightPhase phase) {
-        if (ACTIVE_COLLISION.remove(aircraft.getUUID())) {
+        if (ACTIVE_COLLISION.remove(aircraft.getUUID()) != null) {
             AutopilotLogManager.writeEvent(level.getServer(), aircraft,
                     "collision_avoidance_clear", "flight_phase_or_terrain_priority", phase);
         }
@@ -380,6 +396,9 @@ public final class FormationFlightManager {
     private record CollisionThreat(Entity other, double currentSeparation,
                                    double predictedSeparation, double closestTicks,
                                    boolean dangerous, double urgency) {
+    }
+
+    private record CollisionAvoidanceState(UUID otherUuid, Vec3 escapeDirection) {
     }
 
     private record SlotOffset(double lateral, double trailing, double vertical) {
