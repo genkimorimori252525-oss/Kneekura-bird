@@ -64,7 +64,7 @@ public final class AutonomousFlightManager {
                 return;
             }
             FlightProfile profile = resolved.get();
-            if (!profile.isFighter()) {
+            if (!profile.supportsAutonomousFlight()) {
                 return;
             }
             AutopilotSession session = new AutopilotSession(aircraft, profile);
@@ -72,7 +72,8 @@ public final class AutonomousFlightManager {
             SESSIONS.put(aircraft.getUUID(), entry);
             MISSING_PROFILE_WARNINGS.remove(aircraft.getUUID());
             AutopilotLogManager.writeEvent(server, aircraft, "session_start",
-                    "mob_controlling_passenger_and_measured_fighter_profile", FlightPhase.STARTUP);
+                    "mob_controlling_passenger_and_measured_" + profile.role() + "_profile",
+                    FlightPhase.STARTUP);
             AutopilotValidationCheckpoint.applyIfRequested(server, aircraft, session);
         }
 

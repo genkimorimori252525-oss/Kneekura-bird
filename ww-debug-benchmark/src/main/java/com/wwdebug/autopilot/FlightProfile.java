@@ -30,6 +30,14 @@ public record FlightProfile(
         return "fighter".equalsIgnoreCase(role);
     }
 
+    public boolean isLevelBomber() {
+        return "bomber".equalsIgnoreCase(role);
+    }
+
+    public boolean supportsAutonomousFlight() {
+        return isFighter() || isLevelBomber();
+    }
+
     public double rotateSpeedBps() {
         return Math.max(stallGuardSpeedBps * 1.15, climbTargetSpeedBps * 0.82);
     }
