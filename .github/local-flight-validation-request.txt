@@ -1,4 +1,4 @@
-# Local flight validation request attacker-ju87-autonomy-2
+# Local flight validation request attacker-ju87-autonomy-3
 ref=5e6ed21ee8e22b904e7eaf7b6013b4dafde1b744
 aircraft=warfare_wings:ju87
 scenario=full
