@@ -39,7 +39,8 @@ public final class MissionRouteLiveControlBridge {
             return baseOutput;
         }
 
-        MissionRouteValidationSetup.applyIfRequested(server, aircraft);
+        MissionRouteValidationSetup.applyIfRequested(
+                server, aircraft, status.get().phase(), profile.get());
         FlightSnapshot snapshot = FlightSnapshot.capture(aircraft);
         MissionRouteGuidanceAdapter.Decision decision = MissionRouteGuidanceAdapter.plan(
                 aircraft.getUUID(),
