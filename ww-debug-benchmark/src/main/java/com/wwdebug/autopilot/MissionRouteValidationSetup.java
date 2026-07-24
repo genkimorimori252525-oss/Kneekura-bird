@@ -92,7 +92,8 @@ final class MissionRouteValidationSetup {
                         + ":waypoints=" + route.waypoints().size()
                         + ":leg=" + geometry.leg()
                         + ":radius=" + geometry.radius()
-                        + ":obstacle_longitudinal=" + geometry.obstacleLongitudinal(),
+                        + ":obstacle_longitudinal=" + geometry.obstacleLongitudinal()
+                        + ":obstacle_top_relative=12.0",
                 phase);
         return true;
     }
@@ -119,7 +120,7 @@ final class MissionRouteValidationSetup {
                 altitudeGain,
                 leg * 0.58,
                 obstacleHalfWidth,
-                40);
+                32);
     }
 
     private static WaypointRoute.Waypoint waypoint(Vec3 origin, Vec3 forward, Vec3 right,
@@ -136,7 +137,11 @@ final class MissionRouteValidationSetup {
                                                Vec3 forward,
                                                Vec3 right,
                                                RouteGeometry geometry) {
-        Vec3 center = origin.add(forward.scale(geometry.obstacleLongitudinal()));
+        // Match the proven PR #53 vertical relationship: the barrier intersects the current
+        // flight path, but its top is only 12 blocks above live cruise altitude. Terrain safety
+        // must still override route guidance without demanding an artificial 40-block zoom climb.
+        Vec3 center = origin.add(forward.scale(geometry.obstacleLongitudinal()))
+                .add(0.0, -20.0, 0.0);
         for (int lateral = -geometry.obstacleHalfWidth();
              lateral <= geometry.obstacleHalfWidth(); lateral++) {
             for (int depth = -2; depth <= 2; depth++) {
