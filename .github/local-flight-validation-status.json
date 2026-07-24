@@ -1,16 +1,16 @@
 {
-  "run_id": 30056855110,
+  "run_id": 30056908188,
   "run_attempt": 1,
-  "status": "completed",
-  "conclusion": "cancelled",
+  "status": "in_progress",
+  "conclusion": null,
   "event": "push",
   "head_branch": "main",
-  "head_sha": "9ab8012c748b493c4b02a330d8b1a0947d9fe488",
+  "head_sha": "d5d8ad8b827ca2f2a6dbf02f08ab65ba3d13c134",
   "requested_ref": "bb12d55744b6ac8d8ae728b94c5ea73919c66061",
   "requested_sha": "bb12d55744b6ac8d8ae728b94c5ea73919c66061",
   "aircraft": "warfare_wings:a6m",
   "scenario": "full",
   "gametest": "true",
-  "url": "https://github.com/genkimorimori252525-oss/warfare_wings-1.1.4-1.20.1-forge/actions/runs/30056855110",
-  "updated_at": "2026-07-24T00:41:39.132Z"
+  "url": "https://github.com/genkimorimori252525-oss/warfare_wings-1.1.4-1.20.1-forge/actions/runs/30056908188",
+  "updated_at": "2026-07-24T00:42:24.561Z"
 }
