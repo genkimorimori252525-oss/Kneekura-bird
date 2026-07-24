@@ -1,0 +1,102 @@
+name: Persist Kabuto Self-Hosted Runner
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/persist-kabuto-runner.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: persist-kabuto-runner
+  cancel-in-progress: true
+
+jobs:
+  persist:
+    if: github.actor == 'genkimorimori252525-oss'
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell
+
+    steps:
+      - name: Diagnose and persist Jolly-Kabuto
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = 'C:\actions-runner-kabuto'
+          $repo = 'genkimorimori252525-oss/kabuto'
+          $taskName = 'Jolly-Kabuto-Runner'
+          $runCmd = Join-Path $root 'run.cmd'
+          $log = Join-Path $root '_diag\jolly-kabuto-persistent.log'
+
+          if (-not ((Test-Path $runCmd) -and (Test-Path (Join-Path $root '.runner')) -and (Test-Path (Join-Path $root '.credentials')))) {
+            throw 'Jolly-Kabuto is not fully configured.'
+          }
+
+          function Get-KabutoProcesses {
+            param([string]$RunnerRoot)
+            $escaped = [regex]::Escape($RunnerRoot)
+            return @(Get-CimInstance Win32_Process -Filter "Name='Runner.Listener.exe'" |
+              Where-Object {
+                ([string]$_.ExecutablePath -match "^$escaped") -or
+                ([string]$_.CommandLine -match $escaped)
+              })
+          }
+
+          $existing = @(Get-KabutoProcesses -RunnerRoot $root)
+          Write-Host "Listener processes before persistence: $($existing.Count)"
+
+          $oldLaunchLog = Join-Path $root '_diag\jolly-kabuto-launch.log'
+          if (Test-Path $oldLaunchLog) {
+            Write-Host '--- previous launch log ---'
+            Get-Content $oldLaunchLog -Tail 120 |
+              ForEach-Object { ([string]$_) -replace '(?i)(token|authorization|access_token)[=: ]+\S+', '$1=***' }
+          }
+
+          foreach ($process in $existing) {
+            Start-Process taskkill.exe -ArgumentList '/PID',[string]$process.ProcessId,'/T','/F' -Wait -WindowStyle Hidden | Out-Null
+          }
+
+          $domainUser = if ($env:USERDOMAIN) { "$env:USERDOMAIN\$env:USERNAME" } else { $env:USERNAME }
+          $actionArgs = '/d /s /c ""{0}" >> "{1}" 2>&1"' -f $runCmd,$log
+          $action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument $actionArgs -WorkingDirectory $root
+          $trigger = New-ScheduledTaskTrigger -AtLogOn -User $domainUser
+          $principal = New-ScheduledTaskPrincipal -UserId $domainUser -LogonType Interactive -RunLevel Limited
+          $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 1)
+
+          Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
+          Start-ScheduledTask -TaskName $taskName
+          Start-Sleep -Seconds 15
+
+          $running = @(Get-KabutoProcesses -RunnerRoot $root)
+          Write-Host "Listener processes after persistence: $($running.Count)"
+          if ($running.Count -eq 0) {
+            if (Test-Path $log) {
+              Write-Host '--- persistent launch log ---'
+              Get-Content $log -Tail 160 |
+                ForEach-Object { ([string]$_) -replace '(?i)(token|authorization|access_token)[=: ]+\S+', '$1=***' }
+            }
+            $task = Get-ScheduledTaskInfo -TaskName $taskName
+            Write-Host "Task result: $($task.LastTaskResult)"
+            throw 'The scheduled Jolly-Kabuto listener did not remain running.'
+          }
+
+          $response = (& gh api "repos/$repo/actions/runners") -join [Environment]::NewLine
+          $payload = $response | ConvertFrom-Json
+          $runner = @($payload.runners | Where-Object { $_.name -eq 'Jolly-Kabuto' }) | Select-Object -First 1
+          if ($null -eq $runner) {
+            throw 'Jolly-Kabuto is not present in the repository runners API.'
+          }
+
+          Write-Host "Jolly-Kabuto API state: status=$($runner.status), busy=$($runner.busy)"
+          if ($runner.status -ne 'online') {
+            if (Test-Path $log) {
+              Write-Host '--- persistent launch log ---'
+              Get-Content $log -Tail 160 |
+                ForEach-Object { ([string]$_) -replace '(?i)(token|authorization|access_token)[=: ]+\S+', '$1=***' }
+            }
+            throw "Jolly-Kabuto is still not online: $($runner.status)"
+          }
