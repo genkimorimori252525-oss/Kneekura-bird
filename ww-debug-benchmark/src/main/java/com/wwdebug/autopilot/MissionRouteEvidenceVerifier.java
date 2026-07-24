@@ -24,6 +24,7 @@ public final class MissionRouteEvidenceVerifier {
     private static final String AIRCRAFT_PROPERTY = "wwdebug.flightGameTestAircraft";
     private static final String A6M = "warfare_wings:a6m";
     private static final String G4M = "warfare_wings:g4m";
+    private static final String IL2 = "warfare_wings:il2";
     private static final Set<String> TERRAIN_OVERRIDES = Set.of(
             "predictive_terrain_avoidance",
             "terrain_emergency_climb");
@@ -69,6 +70,12 @@ public final class MissionRouteEvidenceVerifier {
                     "G4M profile did not preserve torpedo_bomber role");
             require(assignedReason.contains("compact=true"),
                     "G4M did not use the compact representative route");
+        }
+        if (IL2.equals(requested)) {
+            require(assignedReason.contains("role=attacker"),
+                    "IL-2 profile did not preserve attacker role");
+            require(assignedReason.contains("compact=true"),
+                    "IL-2 did not use the compact representative route");
         }
         require(assignedIndex <= startIndex && completedIndex > startIndex && completedTick > startTick,
                 "route completion did not occur after assignment and activation");
@@ -140,7 +147,7 @@ public final class MissionRouteEvidenceVerifier {
 
     private static boolean proofRequested(String requested) {
         return "full".equals(System.getProperty(SCENARIO_PROPERTY, "").trim().toLowerCase(Locale.ROOT))
-                && (A6M.equals(requested) || G4M.equals(requested));
+                && (A6M.equals(requested) || G4M.equals(requested) || IL2.equals(requested));
     }
 
     private static String requestedAircraft() {
