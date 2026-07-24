@@ -58,27 +58,25 @@ Draft PR #70 combines only the two previously observed effects on a clean branch
 
 - `MissionRouteClockPolicy` credits owned `CRUISE_OUTBOUND` travel toward the fixed 240-tick sample while freezing the overall mission timeout;
 - `PatternRejoinSpeedPolicy` commands at least measured `turnSpeedFloorBps` only during RETURN_TO_PATTERN;
+- a deterministic contract verifies that the measured Ju 87 target retains more than 20% ideal travel margin over the artifact-observed 1,371-block clock-fixed rejoin distance inside the unchanged 1,800-tick timeout;
 - both mixin injection points use `require = 1`;
 - no timeout, route geometry, waypoint radius, landing-pattern geometry, terrain, collision, stall, combat, weapon, player-control, or separation threshold changes.
 
-Exact behavior head:
+Current exact behavior head:
 
-`bdce17573f0da5e1b90bf5566115013ec4d2734c`
+`361078f30f1dd348fa274050f89cdf413525d49e`
 
-The validation request is present on `main` in `.github/local-route-validation-request.txt`, committed as `62607f75c95685dc98ab69f16af041225ab12f14`:
+The validation request remains present on `main` in `.github/local-route-validation-request.txt`, committed as `62607f75c95685dc98ab69f16af041225ab12f14`, but intentionally still points to the previous PR head `bdce17573f0da5e1b90bf5566115013ec4d2734c` while the Windows runner is unavailable or unassigned.
 
-- aircraft: `warfare_wings:ju87`;
-- scenario: `route`;
-- exact ref: PR #70 behavior head above.
-
-At this checkpoint no new route-validation start commit, status update, check, or Run ID exists after the request. The previous status file still records completed failed Run `30124721947`. Treat the Windows self-hosted runner as unavailable or not assigned for this request. Do not edit the request file, retrigger, or create a no-op commit while this remains true.
+At this checkpoint no new route-validation start commit, status update, check, or Run ID exists after the request. The previous status file still records completed failed Run `30124721947`. Do not edit the request file, retrigger, or create a no-op commit while this remains true.
 
 ## Repository state
 
 - Parent roadmap: Issue #7 is the only open issue.
 - Draft PR #70 is the only open pull request.
 - Current request commit: `62607f75c95685dc98ab69f16af041225ab12f14`.
-- Current pending behavior head: `bdce17573f0da5e1b90bf5566115013ec4d2734c`.
+- Current PR #70 behavior head: `361078f30f1dd348fa274050f89cdf413525d49e`.
+- Request file still points to superseded head `bdce17573f0da5e1b90bf5566115013ec4d2734c` and must not be updated until runner availability is demonstrated.
 - Latest completed route status remains Run `30124721947`: build success, GameTest failure, artifact success.
 - No new Windows run has accepted the PR #70 request yet.
 
@@ -94,8 +92,8 @@ At this checkpoint no new route-validation start commit, status update, check, o
 ## Next exact action
 
 1. Read `.github/local-route-validation-status.json` and recent commits before touching the request.
-2. If a new Run ID appears for exact head `bdce17573f0da5e1b90bf5566115013ec4d2734c`, inspect that run once and do not duplicate it.
-3. If no Run ID exists and the runner remains unavailable, perform only GitHub-side review, deterministic-test inspection, or documentation work; do not retrigger.
-4. If the run succeeds, verify both deterministic policy batches, route `3,2,1,0`, immediate ordinary mission release, RETURN_TO_PATTERN target near 18.7537 BPS, downwind/base/final transitions, landing, final `PARKED`, summary 1/1, Gradle status 0, and no crash report.
+2. If no new Run ID exists and the runner remains unavailable, do not retrigger; perform only GitHub-side review or disconnected deterministic work.
+3. Once a fresh runner start or other direct evidence proves the self-hosted runner is online, update `.github/local-route-validation-request.txt` exactly once to `ref=361078f30f1dd348fa274050f89cdf413525d49e`, `aircraft=warfare_wings:ju87`.
+4. Follow that single exact-head Run. Require both deterministic policy batches, the combined-budget contract, route `3,2,1,0`, immediate ordinary mission release, RETURN_TO_PATTERN target near 18.7537 BPS, downwind/base/final transitions, landing, final `PARKED`, summary 1/1, Gradle status 0, and no crash report.
 5. If the run fails, fetch logs and artifact once, identify the first meaningful acceptance failure, and record one materially different next hypothesis without changing thresholds blindly.
 6. Only after exact-head success, rebuild the validated blobs from the latest `main` if metadata drift makes PR #70 stale, then mark ready and squash merge.
