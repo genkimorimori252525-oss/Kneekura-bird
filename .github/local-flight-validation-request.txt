@@ -1,5 +1,5 @@
 # Local flight validation request mission-order-persistence-final-hardening
 ref=0cfda884f20ab8e93754ad1286185f5f7a0af57d
-anircraft=warfare_wings:a6m
+aircraft=warfare_wings:a6m
 scenario=full
 gametest=true
