@@ -59,8 +59,11 @@ public final class MissionRouteLiveControlBridge {
             ACTIVE_LOGGED.remove(aircraft.getUUID());
         }
         if (decision.waypointAdvanced()) {
+            int remaining = MissionRouteManager.current(aircraft.getUUID())
+                    .map(value -> value.route().remainingWaypoints())
+                    .orElse(-1);
             AutopilotLogManager.writeEvent(server, aircraft, "route_waypoint_advanced",
-                    decision.description(), status.get().phase());
+                    decision.description() + ":remaining=" + remaining, status.get().phase());
         }
         if (decision.routeCompleted() && COMPLETION_LOGGED.add(aircraft.getUUID())) {
             AutopilotLogManager.writeEvent(server, aircraft, "route_guidance_completed",
@@ -68,5 +71,36 @@ public final class MissionRouteLiveControlBridge {
         }
 
         return decision.routeActive() ? decision.output() : baseOutput;
+    }
+
+    /**
+     * Holds only the ordinary demonstration-mission clocks while route guidance owns navigation.
+     * Safety transitions run before this check and immediately release the hold by entering a phase
+     * that is not route eligible.
+     */
+    public static boolean shouldHoldMissionClock(UUID aircraftId, FlightPhase phase) {
+        if (!routeEligiblePhase(phase)) {
+            return false;
+        }
+        MissionOrderManager.Assignment mission = MissionOrderManager.current(aircraftId).orElse(null);
+        MissionRouteManager.Assignment route = MissionRouteManager.current(aircraftId).orElse(null);
+        return mission != null
+                && route != null
+                && mission.revision() == route.missionRevision()
+                && mission.order().orderId().equals(route.orderId())
+                && !route.route().completed();
+    }
+
+    public static void forget(UUID aircraftId) {
+        ACTIVE_LOGGED.remove(aircraftId);
+        COMPLETION_LOGGED.remove(aircraftId);
+        MissionRouteValidationSetup.forget(aircraftId);
+    }
+
+    private static boolean routeEligiblePhase(FlightPhase phase) {
+        return phase == FlightPhase.CRUISE_OUTBOUND
+                || phase == FlightPhase.TURN_LEFT
+                || phase == FlightPhase.CRUISE_CROSS
+                || phase == FlightPhase.TURN_RIGHT;
     }
 }
