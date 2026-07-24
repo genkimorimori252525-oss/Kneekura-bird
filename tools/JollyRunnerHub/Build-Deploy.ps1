@@ -30,7 +30,7 @@ $runtimeScriptText = $runtimeScriptText.Replace(
     '$valueLabel.Size = New-Object Drawing.Size(($Width - 20),20)')
 $runtimeScriptText = $runtimeScriptText.Replace(
     '$historyRuns.SelectedIndex = [math]::Min($selected,$historyRuns.Items.Count-1)',
-    '$historyRuns.SelectedIndex = [int][math]::Min($selected,($historyRuns.Items.Count - 1))')
+    '$historyRuns.SelectedIndex = [int]([math]::Min($selected,($historyRuns.Items.Count - 1)))')
 
 if ($runtimeScriptText -match '\$Width-\d') {
     throw 'JollyRunnerHub.ps1 still contains an ambiguous PowerShell variable subtraction expression.'
@@ -47,7 +47,7 @@ if ($runtimeScriptText -notmatch 'param\(\[switch\]\$StartupSmokeTest\)') {
 if ($runtimeScriptText -notmatch 'startup smoke test passed') {
     $runtimeScriptText = $runtimeScriptText.Replace(
         '[void]$form.ShowDialog()',
-        "if (`$StartupSmokeTest) {`r`n    `$form.Dispose()`r`n    Write-Host 'Jolly Runner Hub startup smoke test passed.'`r`n    exit 0`r`n}`r`n[void]`$form.ShowDialog()")
+        "if (`$StartupSmokeTest) {`r`n    `$form.Dispose()`r`n    Write-Host 'Jolly Runner Hub startup smoke test passed.'`r`n    return`r`n}`r`n[void]`$form.ShowDialog()")
 }
 
 Set-Content -LiteralPath $runtimeScriptPath -Value $runtimeScriptText -Encoding UTF8
@@ -72,9 +72,16 @@ catch {
 
 $null = Get-Content -LiteralPath $defaultConfig -Raw -Encoding UTF8 | ConvertFrom-Json
 
-& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $runtimeScriptPath -StartupSmokeTest
-if ($LASTEXITCODE -ne 0) {
-    throw "JollyRunnerHub startup smoke test failed with exit code $LASTEXITCODE"
+try {
+    & $runtimeScriptPath -StartupSmokeTest
+}
+catch {
+    $details = @(
+        $_.Exception.Message,
+        $_.ScriptStackTrace,
+        ($_ | Out-String)
+    ) -join [Environment]::NewLine
+    throw "JollyRunnerHub startup smoke test failed:`n$details"
 }
 
 $iconParts = @(Get-ChildItem -LiteralPath $root -Filter 'JollyRunnerHub.ico.b64.part*' -File |
