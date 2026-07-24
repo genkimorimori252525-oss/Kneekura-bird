@@ -1,5 +1,5 @@
-# Local flight validation request waypoint-guidance-planner
-ref=c6e84e53263924129d3a3c52fdaad00ad749bfab
+# Local flight validation request pr48-waypoint-guidance-contract-fix
+ref=b1725bb7a3ae32ec33c27f81f33065a1715906d7
 aircraft=warfare_wings:a6m
 scenario=full
 gametest=true
