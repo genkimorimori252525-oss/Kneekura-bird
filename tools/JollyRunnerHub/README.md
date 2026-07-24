@@ -8,26 +8,31 @@ Windowsの自己ホストGitHub Actions Runnerをデスクトップから起動�
 - 選択したRunnerの自動接続、接続、切断
 - 複数リポジトリのプロファイル管理
 - 1秒ごとにJSONLテレメトリを読み込み
+- 実行中のテレメトリから機体名を自動検出
+- 検証終了後は直近の保存履歴から機体名を復元
 - 機体ごとの現在値カード
   - Phase / Stage
   - Speed
   - AGL
   - Separation
   - Stall / Terrain / Ground状態
-- 表示メトリクスを選べる2枚のリアルタイム折れ線グラフ
+- 表示メトリクスを個別に選べる6枚のリアルタイム折れ線グラフ
+  - 既定: Speed / AGL / Pitch / Roll / Separation / Control X
 - 全メトリクスの詳細表
 - 最新イベント一覧とRunnerログ
 - 実行履歴を `%LOCALAPPDATA%\JollyRunnerHub\history` へ自動保存
 - 保存済み実行を選び、任意の数値メトリクスをグラフと表で再表示
 - Separationを選択したグラフには安全下限8ブロックを表示
-- 検証停止中も直前のグラフを保持し、現在値カードと詳細表はIDLEへ戻す
+- 検証停止中も直前のグラフを保持
 - `profiles.json` の `metrics` 配列だけで表示項目を追加可能
 
 ## 画面構成
 
 ### ダッシュボード
 
-上段に機体ごとの状態カード、中段に2枚のリアルタイムグラフ、下段に全メトリクスの詳細表を表示します。グラフ右上のプルダウンからSpeed、AGL、Pitch、Roll、Separationなどを切り替えられます。
+ヘッダー、機体カード、6枚のミニグラフ、詳細表を重ならない固定レイアウト行に分けて表示します。各グラフのプルダウンからSpeed、AGL、Pitch、Roll、Separationなどを切り替えられます。
+
+機体カードと系列名は `expectedAircraft` の固定値ではなく、実行中のJSONLにある `aircraft_name` を優先します。そのため、A6M・P-47N以外の検証でも同じアプリをそのまま使用できます。待機中は直近のローカル履歴に含まれる機体名を表示し、まだ一度も履歴がない場合は機体カードを空にします。
 
 ### 履歴
 
@@ -67,6 +72,7 @@ GameTestのイベントとRunnerプロセスのログを別タブで確認でき
 2. Chartingアセンブリの存在確認
 3. `profiles.default.json` のJSON検証
 4. Windows標準の.NET FrameworkコンパイラでランチャーEXEを生成
-5. `%LOCALAPPDATA%\JollyRunnerHub` とデスクトップへ配置
+5. ヘッダー・タブ・6グラフを含む全UIの非表示起動スモークテスト
+6. `%LOCALAPPDATA%\JollyRunnerHub` とデスクトップへ配置
 
 追加ランタイムは不要です。GUI本体はWindows PowerShell 5.1 + WinForms + .NET Framework標準Chartingで動作します。
