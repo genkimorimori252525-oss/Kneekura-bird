@@ -1,0 +1,12 @@
+{
+  "run_id": 30118532513,
+  "status": "in_progress",
+  "conclusion": null,
+  "event": "push",
+  "branch": "main",
+  "event_sha": "5eeba0adc34968f6dde57d394f211390312a9385",
+  "requested_ref": "70af5ebcc427853ae9da6a6bb0c5dbc983885c7e",
+  "aircraft": "warfare_wings:p51d",
+  "scenario": "route",
+  "updated_at": "2026-07-24T18:52:06.316Z"
+}
