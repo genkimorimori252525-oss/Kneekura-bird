@@ -66,6 +66,35 @@ if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $exePath)) {
     throw "Launcher compilation failed with exit code $LASTEXITCODE"
 }
 
+$smokeDefaultConfig = Join-Path $appData 'profiles.default.json'
+$smokeProfile = Join-Path $appData 'profiles.json'
+if (-not (Test-Path -LiteralPath $smokeDefaultConfig)) {
+    Copy-Item -LiteralPath $defaultConfig -Destination $smokeDefaultConfig -Force
+}
+if (-not (Test-Path -LiteralPath $smokeProfile)) {
+    Copy-Item -LiteralPath $defaultConfig -Destination $smokeProfile -Force
+}
+
+$previousSmokeSource = [Environment]::GetEnvironmentVariable('JOLLY_RUNNER_HUB_SOURCE','Process')
+[Environment]::SetEnvironmentVariable('JOLLY_RUNNER_HUB_SOURCE',$scriptPath,'Process')
+try {
+    $smoke = Start-Process -FilePath $exePath -ArgumentList '--smoke-test' `
+        -PassThru -Wait -WindowStyle Hidden
+    if ($smoke.ExitCode -ne 0) {
+        $smokeLog = Join-Path $appData 'startup-error.log'
+        $detail = if (Test-Path -LiteralPath $smokeLog) {
+            Get-Content -LiteralPath $smokeLog -Raw -Encoding UTF8
+        } else {
+            'No startup-error.log was produced.'
+        }
+        throw "JollyRunnerHub startup smoke test failed with exit code $($smoke.ExitCode):`n$detail"
+    }
+}
+finally {
+    [Environment]::SetEnvironmentVariable(
+        'JOLLY_RUNNER_HUB_SOURCE',$previousSmokeSource,'Process')
+}
+
 function Copy-Or-StageUpdate {
     param(
         [Parameter(Mandatory=$true)][string]$Source,
@@ -92,9 +121,9 @@ function Copy-Or-StageUpdate {
 if ($Install) {
     $installedScriptPath = Join-Path $appData 'JollyRunnerHub.ps1'
     Set-Content -LiteralPath $installedScriptPath -Value $scriptText -Encoding UTF8
-    Copy-Item -LiteralPath $defaultConfig -Destination (Join-Path $appData 'profiles.default.json') -Force
+    Copy-Item -LiteralPath $defaultConfig -Destination $smokeDefaultConfig -Force
 
-    $profilePath = Join-Path $appData 'profiles.json'
+    $profilePath = $smokeProfile
     if (-not (Test-Path -LiteralPath $profilePath)) {
         Copy-Item -LiteralPath $defaultConfig -Destination $profilePath -Force
     }
@@ -153,10 +182,11 @@ for ($attempt = 0; $attempt -lt 21600; $attempt++) {
         icon_sha256 = (Get-FileHash -LiteralPath $iconPath -Algorithm SHA256).Hash.ToLowerInvariant()
         pending_restart = $pendingRestart
         dashboard_version = 2
+        startup_smoke_test = 'passed'
     }
     $installInfo | ConvertTo-Json |
         Set-Content -LiteralPath (Join-Path $appData 'install-status.json') -Encoding UTF8
     Write-Host "Installed JollyRunnerHub to $desktop (pending_restart=$pendingRestart)"
 }
 
-Write-Host "Built: $exePath"
+Write-Host "Built and startup-smoke-tested: $exePath"
