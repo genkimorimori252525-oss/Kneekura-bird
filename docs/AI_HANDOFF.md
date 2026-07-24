@@ -8,75 +8,70 @@ Follow `/AGENTS.md` before changing code. Live GitHub state, merged commits, ope
 
 ## Current production baseline
 
-- Current `main` before PR #53 behavior merge: `85b0b7b4496a60d8a41633016487c1364409436f` plus validation request/status commits.
+- Current `main` before PR #53 behavior merge: validation request/status commits after `85b0b7b4496a60d8a41633016487c1364409436f`.
 - Reciprocal A6M/P-47N combat qualification and `ControlAuthorityArbiter` are complete. Do not reimplement them.
 - Measured-profile common noncombat flight is enabled for fighters, level bombers, attackers, and G4M without granting non-fighters fighter weapon authority.
 - Immutable mission orders, mission persistence, immutable waypoint routes, route ownership, strict route NBT, route persistence, startup reconciliation, pure waypoint planning, pure control conversion, and owned-route proposal are merged.
 - Strike, dive-bomb, ground-attack, torpedo, fuel, damage, ammunition, and multi-formation mission execution remain unfinished.
 
-## Active PR #53 — live owned-route integration
+## PR #53 — live owned-route integration
 
 Branch: `agent/live-owned-route-guidance`
 
-Validated exact head currently running: `0ab6ce1c7e807a98cbc58a7c525c815ad6d932ab`
+Validated exact behavior head: `c2bfd2a4c90827bdf1ceaed0e90351ff0ae5c6d7`
 
-Windows self-hosted run: `30105432787`
+Windows self-hosted run: `30106085402`
 
-### Implemented hypothesis
+### Implemented behavior
 
 - The ordinary `AutopilotSession.tick(...)` output remains the base proposal.
-- `MissionRouteGuidanceAdapter.plan(...)` may replace that proposal only while an owned route is active.
+- `MissionRouteGuidanceAdapter.plan(...)` replaces that proposal only while an owned route is active.
 - Route proposal insertion occurs before the existing terrain planner, native-flight adaptation, combat overrides, and the single final `ReflectiveAircraft.applyControl` write.
 - The fixed demonstration mission's `phaseTicks` and `missionTicks` are held only while a valid owned route controls an eligible cruise/turn phase.
-- Safety transitions are evaluated before the clock hold and release route ownership by entering a non-route-eligible phase.
+- Safety transitions run before the clock hold and release route ownership by entering a non-route-eligible phase.
 - Session cleanup clears route logging and test-only setup state.
 
 ### Exact real-physics proof
 
 The A6M-only `full` validation assigns a noncombat `HOLD_POSITION` mission with four ordered waypoints at longitudinal offsets 1100, 1280, 1440, and 1580 blocks. A floating obstacle is placed at 970 blocks so terrain avoidance must override route guidance after route ownership begins.
 
-The Forge GameTest now fails unless telemetry proves all of the following:
+Forge GameTest requires telemetry proving:
 
 - exactly one route assignment, route start, and route completion;
-- waypoint remaining counts are exactly `3, 2, 1, 0`;
-- live route controls were applied;
+- waypoint remaining counts exactly `3, 2, 1, 0`;
+- live route controls applied;
 - terrain avoidance overwrote the route proposal later in the same tick;
 - the ordinary mission phase did not advance while route ownership was active;
-- no ground contact occurred during route guidance;
+- no ground contact during route guidance;
 - completion released the aircraft to the ordinary mission;
-- the existing full-flight contract still ends inside the runway corridor at `PARKED`.
+- the full mission ended inside the runway corridor at `PARKED`.
 
-### Current validation state
+### Validation result
 
-Run `30105432787` checked out exact head `0ab6ce1c7e807a98cbc58a7c525c815ad6d932ab`.
+Run `30106085402` checked out exact head `c2bfd2a4c90827bdf1ceaed0e90351ff0ae5c6d7`.
 
-- request parsing and exact checkout: passed;
-- Java/Gradle setup: passed;
 - normal build and deterministic simulation: passed;
-- exact runtime aircraft download: passed;
-- real-physics A6M `full` GameTest: in progress at this checkpoint.
+- exact runtime aircraft preparation: passed;
+- real-physics A6M `full` Forge GameTest: passed;
+- scenario verification: passed, Gradle status 0;
+- crash reports: none;
+- validation summary: 1/1 passed;
+- telemetry frames: 5,360;
+- route guidance start: tick 771, `CRUISE_OUTBOUND`;
+- waypoint progression: ticks 946, 1085, 1244, 1347 with remaining `3,2,1,0`;
+- route/terrain precedence: tick 771 route proposal logged before predictive terrain override in the same tick;
+- route completion: tick 1347, still `CRUISE_OUTBOUND`;
+- ordinary mission release: tick 1587, `CRUISE_OUTBOUND -> TURN_LEFT`;
+- final state: tick 5366, `PARKED`;
+- session cleanup completed normally.
 
-Do not merge PR #53 until the terminal run and artifact evidence are inspected. If the run fails, analyze this run before changing code or issuing another request.
+The earlier run `30105432787` failed only because the verifier treated a phase transition logged earlier in the same tick as occurring after route ownership began. Commit `c2bfd2a4c90827bdf1ceaed0e90351ff0ae5c6d7` corrected the test-only boundary to use JSONL event ordering; production flight behavior was unchanged.
 
 ## Prior validated guidance stack
 
-### PR #48 — pure waypoint planner
-
-Merged as `db81a6e5beaea61c8c768302fa1aeb26881c6edf`.
-
-Windows self-hosted run `30099518522` passed build, deterministic simulation, all required GameTests, and A6M `full` through `PARKED`.
-
-### PR #50 — pure control conversion
-
-Merged as `172c47dadfbda218a47b5f88b18b99e47d860261`.
-
-Windows self-hosted run `30100564075` passed build, deterministic simulation, all required GameTests, and A6M `full` through `PARKED`.
-
-### PR #51 — owned mission-route proposal
-
-Merged as `b4b8bb30fe701be8f9f19683b2e8226a70a6cc43`.
-
-Windows self-hosted run `30101541976` passed build, deterministic simulation, all required GameTests, and A6M `full` through `PARKED`.
+- PR #48 pure waypoint planner: merged as `db81a6e5beaea61c8c768302fa1aeb26881c6edf`; run `30099518522` passed.
+- PR #50 pure control conversion: merged as `172c47dadfbda218a47b5f88b18b99e47d860261`; run `30100564075` passed.
+- PR #51 owned mission-route proposal: merged as `b4b8bb30fe701be8f9f19683b2e8226a70a6cc43`; run `30101541976` passed.
 
 ## Validation routing lesson
 
@@ -101,9 +96,6 @@ Never weaken these to make a validation pass:
 - non-fighters do not inherit fighter targeting or fixed-gun authority;
 - a route or mission without explicit attack authority does not enable weapons.
 
-## Next exact action
+## Next exact action after PR #53 merge
 
-1. Read terminal state and jobs for run `30105432787`.
-2. On failure, fetch its logs/artifacts and report the exact failed evidence condition before editing.
-3. On success, inspect the route telemetry artifact, mark PR #53 ready, squash-merge it, update this handoff on `main`, and checkpoint Issue #7.
-4. After merge, generalize common route execution across measured profiles before beginning role-specific strike policies.
+Generalize the validated live route execution across measured aircraft profiles with a small matrix of representative fighter, bomber, attacker, and torpedo-bomber profiles. Keep the same noncombat route authority and safety precedence before beginning role-specific strike policies.
