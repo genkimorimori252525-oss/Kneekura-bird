@@ -8,10 +8,10 @@ Follow `/AGENTS.md` before changing code. Live GitHub state, merged commits, ope
 
 ## Current production baseline
 
-- Current `main` before PR #53 behavior merge: validation request/status commits after `85b0b7b4496a60d8a41633016487c1364409436f`.
 - Reciprocal A6M/P-47N combat qualification and `ControlAuthorityArbiter` are complete. Do not reimplement them.
 - Measured-profile common noncombat flight is enabled for fighters, level bombers, attackers, and G4M without granting non-fighters fighter weapon authority.
 - Immutable mission orders, mission persistence, immutable waypoint routes, route ownership, strict route NBT, route persistence, startup reconciliation, pure waypoint planning, pure control conversion, and owned-route proposal are merged.
+- PR #53 has passed its exact real-physics validation and is ready to merge.
 - Strike, dive-bomb, ground-attack, torpedo, fuel, damage, ammunition, and multi-formation mission execution remain unfinished.
 
 ## PR #53 — live owned-route integration
@@ -19,6 +19,8 @@ Follow `/AGENTS.md` before changing code. Live GitHub state, merged commits, ope
 Branch: `agent/live-owned-route-guidance`
 
 Validated exact behavior head: `c2bfd2a4c90827bdf1ceaed0e90351ff0ae5c6d7`
+
+Current PR head differs only by this handoff document.
 
 Windows self-hosted run: `30106085402`
 
