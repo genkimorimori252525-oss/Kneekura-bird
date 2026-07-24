@@ -1,5 +1,5 @@
-# Local flight validation request pr57-a6m-initial-sensor-horizon
-ref=7b6083416fbae80b9facc4f211e2c5bf3cb259fd
+# Local flight validation request pr57-a6m-proven-detour-corridor
+ref=2e3588e13ed6d8c3682964e8dfadc4aa95838611
 aircraft=warfare_wings:a6m
 scenario=full
 gametest=true
