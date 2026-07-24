@@ -9,27 +9,31 @@ namespace JollyRunnerHubLauncher
     internal static class Program
     {
         [STAThread]
-        private static void Main()
+        private static void Main(string[] args)
         {
+            bool smokeTest = Array.Exists(
+                args ?? new string[0],
+                arg => string.Equals(arg, "--smoke-test", StringComparison.OrdinalIgnoreCase));
+
+            string appRoot = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "JollyRunnerHub");
+            string errorLog = Path.Combine(appRoot, "startup-error.log");
+
             try
             {
-                string appRoot = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "JollyRunnerHub");
-                string sourceScript = Path.Combine(appRoot, "JollyRunnerHub.ps1");
+                string sourceOverride = Environment.GetEnvironmentVariable("JOLLY_RUNNER_HUB_SOURCE");
+                string sourceScript = string.IsNullOrWhiteSpace(sourceOverride)
+                    ? Path.Combine(appRoot, "JollyRunnerHub.ps1")
+                    : sourceOverride;
                 string runtimeScript = Path.Combine(appRoot, "JollyRunnerHub.runtime.ps1");
                 string bootstrapScript = Path.Combine(appRoot, "JollyRunnerHub.bootstrap.ps1");
-                string errorLog = Path.Combine(appRoot, "startup-error.log");
 
                 if (!File.Exists(sourceScript))
                 {
-                    MessageBox.Show(
-                        "アプリ本体が見つかりません。\n" + sourceScript +
-                        "\n\nGitHub Actions の Deploy Jolly Runner Hub を再実行してください。",
-                        "ジョリー Runner Hub",
-                        MessageBoxButtons.OK,
-                        MessageBoxIcon.Error);
-                    return;
+                    throw new FileNotFoundException(
+                        "アプリ本体が見つかりません。GitHub Actions の Deploy Jolly Runner Hub を再実行してください。",
+                        sourceScript);
                 }
 
                 Directory.CreateDirectory(appRoot);
@@ -53,6 +57,16 @@ namespace JollyRunnerHubLauncher
                 scriptText = scriptText
                     .Replace("foreach ($a in @($Snapshot.Aircraft))", "foreach ($a in $Snapshot.Aircraft)")
                     .Replace("foreach ($e in @($Snapshot.Events))", "foreach ($e in $Snapshot.Events)");
+
+                // New-Object treats unparenthesized arithmetic in constructor arguments as a single
+                // string argument. Parenthesize the status-label width calculations before execution.
+                scriptText = scriptText
+                    .Replace(
+                        "New-Object Drawing.Size($Width-20,14)",
+                        "New-Object Drawing.Size(($Width - 20),14)")
+                    .Replace(
+                        "New-Object Drawing.Size($Width-20,20)",
+                        "New-Object Drawing.Size(($Width - 20),20)");
 
                 // Setting SelectedIndex raises SelectedIndexChanged synchronously. The original
                 // script therefore entered Select-Profile while the ComboBox was only half rebuilt;
@@ -89,24 +103,52 @@ namespace JollyRunnerHubLauncher
                         "$profiles.add_SelectedIndexChanged({if(-not $script:ReloadingProfiles){Select-Profile}})")
                     .Replace("Reload-Profiles ''\r\nSelect-Profile", "Reload-Profiles ''");
 
+                if (smokeTest)
+                {
+                    const string showDialog = "[void]$form.ShowDialog()";
+                    if (!scriptText.Contains(showDialog))
+                    {
+                        throw new InvalidOperationException(
+                            "Startup smoke test could not find the final ShowDialog call.");
+                    }
+                    scriptText = scriptText.Replace(
+                        showDialog,
+                        "$form.Dispose()\r\nexit 0");
+                }
+
                 // A BOM keeps Japanese text reliable under Windows PowerShell 5.1.
                 File.WriteAllText(runtimeScript, scriptText, new UTF8Encoding(true));
 
                 string escapedRuntime = runtimeScript.Replace("'", "''");
                 string escapedLog = errorLog.Replace("'", "''");
-                string bootstrap =
-                    "$ErrorActionPreference='Stop'\r\n" +
-                    "try { & '" + escapedRuntime + "' }\r\n" +
-                    "catch {\r\n" +
-                    "  $detail = ($_ | Out-String)\r\n" +
-                    "  Set-Content -LiteralPath '" + escapedLog + "' -Value $detail -Encoding UTF8\r\n" +
-                    "  Add-Type -AssemblyName System.Windows.Forms\r\n" +
-                    "  [System.Windows.Forms.MessageBox]::Show(" +
-                    "'起動中にエラーが発生しました。`r`n`r`n' + $detail + " +
-                    "'`r`nログ: " + escapedLog + "', " +
-                    "'ジョリー Runner Hub', 'OK', 'Error') | Out-Null\r\n" +
-                    "  exit 1\r\n" +
-                    "}\r\n";
+                string bootstrap;
+                if (smokeTest)
+                {
+                    bootstrap =
+                        "$ErrorActionPreference='Stop'\r\n" +
+                        "try { & '" + escapedRuntime + "' }\r\n" +
+                        "catch {\r\n" +
+                        "  $detail = ($_ | Out-String)\r\n" +
+                        "  Set-Content -LiteralPath '" + escapedLog + "' -Value $detail -Encoding UTF8\r\n" +
+                        "  exit 1\r\n" +
+                        "}\r\n";
+                }
+                else
+                {
+                    bootstrap =
+                        "$ErrorActionPreference='Stop'\r\n" +
+                        "try { & '" + escapedRuntime + "' }\r\n" +
+                        "catch {\r\n" +
+                        "  $detail = ($_ | Out-String)\r\n" +
+                        "  Set-Content -LiteralPath '" + escapedLog + "' -Value $detail -Encoding UTF8\r\n" +
+                        "  Add-Type -AssemblyName System.Windows.Forms\r\n" +
+                        "  [System.Windows.Forms.MessageBox]::Show(" +
+                        "'起動中にエラーが発生しました。`r`n`r`n' + $detail + " +
+                        "'`r`nログ: " + escapedLog + "', " +
+                        "'ジョリー Runner Hub', 'OK', 'Error') | Out-Null\r\n" +
+                        "  exit 1\r\n" +
+                        "}\r\n";
+                }
                 File.WriteAllText(bootstrapScript, bootstrap, new UTF8Encoding(true));
 
                 if (File.Exists(errorLog))
@@ -118,11 +160,51 @@ namespace JollyRunnerHubLauncher
                 info.FileName = "powershell.exe";
                 info.Arguments = "-NoLogo -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"" + bootstrapScript + "\"";
                 info.WorkingDirectory = appRoot;
+
+                if (smokeTest)
+                {
+                    info.UseShellExecute = false;
+                    info.CreateNoWindow = true;
+                    using (Process process = Process.Start(info))
+                    {
+                        if (process == null)
+                        {
+                            throw new InvalidOperationException("PowerShell smoke test process did not start.");
+                        }
+                        if (!process.WaitForExit(60000))
+                        {
+                            try { process.Kill(); } catch { }
+                            throw new TimeoutException("Runner Hub startup smoke test timed out after 60 seconds.");
+                        }
+                        if (process.ExitCode != 0)
+                        {
+                            string detail = File.Exists(errorLog)
+                                ? File.ReadAllText(errorLog)
+                                : "No startup-error.log was produced.";
+                            throw new InvalidOperationException(
+                                "Runner Hub startup smoke test failed.\n" + detail);
+                        }
+                    }
+                    return;
+                }
+
                 info.UseShellExecute = true;
                 Process.Start(info);
             }
             catch (Exception ex)
             {
+                if (smokeTest)
+                {
+                    try
+                    {
+                        Directory.CreateDirectory(appRoot);
+                        File.WriteAllText(errorLog, ex.ToString(), new UTF8Encoding(true));
+                    }
+                    catch { }
+                    Environment.ExitCode = 1;
+                    return;
+                }
+
                 MessageBox.Show(
                     "起動に失敗しました。\n\n" + ex,
                     "ジョリー Runner Hub",
