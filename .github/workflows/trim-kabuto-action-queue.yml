@@ -19,22 +19,26 @@ jobs:
         shell: powershell
 
     steps:
-      - name: Cancel stale Kabuto push probe
+      - name: Cancel final redundant Kabuto bootstrap
         run: |
           $ErrorActionPreference = 'Stop'
           $repo = 'genkimorimori252525-oss/kabuto'
-          $staleId = 30107559827
+          $cancelId = 30121563199
+          $keepId = 30121749597
 
-          $stale = ((& gh api "repos/$repo/actions/runs/$staleId") -join [Environment]::NewLine) | ConvertFrom-Json
-          Write-Host "Stale run before cancellation: id=$($stale.id) name=$($stale.name) event=$($stale.event) status=$($stale.status) head=$($stale.head_sha)"
-          if ($stale.status -in @('queued','in_progress','pending','waiting')) {
-            & gh api -X POST "repos/$repo/actions/runs/$staleId/cancel" --silent
-            if ($LASTEXITCODE -ne 0) { throw "Could not cancel stale run $staleId" }
-            Write-Host "Cancellation requested for stale run $staleId"
+          $cancel = ((& gh api "repos/$repo/actions/runs/$cancelId") -join [Environment]::NewLine) | ConvertFrom-Json
+          Write-Host "Candidate before cancellation: id=$($cancel.id) name=$($cancel.name) event=$($cancel.event) status=$($cancel.status) head=$($cancel.head_sha)"
+          if ($cancel.name -ne 'Forge 1.20.1 Bootstrap Validation') {
+            throw "Run $cancelId is not the expected bootstrap validation."
+          }
+          if ($cancel.status -in @('queued','in_progress','pending','waiting')) {
+            & gh api -X POST "repos/$repo/actions/runs/$cancelId/cancel" --silent
+            if ($LASTEXITCODE -ne 0) { throw "Could not cancel run $cancelId" }
+            Write-Host "Cancellation requested for redundant bootstrap run $cancelId"
           }
 
-          foreach ($keepId in @(30107964067, 30107964533)) {
-            $keep = ((& gh api "repos/$repo/actions/runs/$keepId") -join [Environment]::NewLine) | ConvertFrom-Json
-            Write-Host "Kept current run: id=$($keep.id) name=$($keep.name) event=$($keep.event) status=$($keep.status) head=$($keep.head_sha)"
-            if ($keep.event -ne 'pull_request') { throw "Run $keepId is not a PR validation run." }
+          $keep = ((& gh api "repos/$repo/actions/runs/$keepId") -join [Environment]::NewLine) | ConvertFrom-Json
+          Write-Host "Kept probe: id=$($keep.id) name=$($keep.name) event=$($keep.event) status=$($keep.status) head=$($keep.head_sha)"
+          if ($keep.name -ne 'Forge 1.20.1 Port Compile Probe' -or $keep.event -ne 'pull_request') {
+            throw "Run $keepId is not the intended latest PR probe."
           }
