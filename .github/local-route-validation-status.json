@@ -1,12 +1,15 @@
 {
   "run_id": 30120064170,
-  "status": "in_progress",
-  "conclusion": null,
+  "status": "completed",
+  "conclusion": "success",
   "event": "push",
   "branch": "main",
   "event_sha": "570780c02bb682091094677a225b6ea0204bfc15",
   "requested_ref": "a91c610b970721e3508dca4c1460e75b262ec3d0",
+  "requested_sha": "a91c610b970721e3508dca4c1460e75b262ec3d0",
   "aircraft": "warfare_wings:spitfire",
   "scenario": "route",
-  "updated_at": "2026-07-24T19:15:44.443Z"
+  "build_outcome": "success",
+  "gametest_outcome": "success",
+  "updated_at": "2026-07-24T19:21:18.701Z"
 }
