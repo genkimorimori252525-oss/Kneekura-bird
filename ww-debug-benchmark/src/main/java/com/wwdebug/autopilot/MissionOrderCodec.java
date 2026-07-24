@@ -118,11 +118,28 @@ public final class MissionOrderCodec {
 
     @Nullable
     private static Vec3 readVec(CompoundTag root, String key) {
-        if (!root.contains(key, Tag.TAG_COMPOUND)) {
+        if (!root.contains(key)) {
             return null;
         }
+        if (!root.contains(key, Tag.TAG_COMPOUND)) {
+            throw new IllegalArgumentException("Invalid vector field: " + key);
+        }
         CompoundTag vector = root.getCompound(key);
-        return new Vec3(vector.getDouble("x"), vector.getDouble("y"), vector.getDouble("z"));
+        double x = requiredFiniteComponent(vector, key, "x");
+        double y = requiredFiniteComponent(vector, key, "y");
+        double z = requiredFiniteComponent(vector, key, "z");
+        return new Vec3(x, y, z);
+    }
+
+    private static double requiredFiniteComponent(CompoundTag vector, String field, String component) {
+        if (!vector.contains(component, Tag.TAG_ANY_NUMERIC)) {
+            throw new IllegalArgumentException("Missing numeric vector component: " + field + "." + component);
+        }
+        double value = vector.getDouble(component);
+        if (!Double.isFinite(value)) {
+            throw new IllegalArgumentException("Non-finite vector component: " + field + "." + component);
+        }
+        return value;
     }
 
     private static <E extends Enum<E>> E enumValue(Class<E> type, String value, String field) {
