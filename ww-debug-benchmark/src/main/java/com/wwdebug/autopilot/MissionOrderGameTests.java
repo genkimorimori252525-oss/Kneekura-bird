@@ -125,12 +125,15 @@ public final class MissionOrderGameTests {
         check(MissionOrderCodec.read(MissionOrderCodec.write(order)).equals(order),
                 "mission order codec must preserve every immutable field");
 
+        MissionOrder emptyAborts = MissionOrder.builder(MissionOrder.Type.HOLD_POSITION)
+                .targetPosition(new Vec3(1.0, 80.0, 1.0), 8.0)
+                .build();
+        check(MissionOrderCodec.read(MissionOrderCodec.write(emptyAborts)).equals(emptyAborts),
+                "an empty abort-condition list must remain valid");
+
         MissionOrderManager.restore(restoredData.snapshot());
         MissionOrderManager.Assignment next = MissionOrderManager.assign(
-                UUID.fromString("00000000-0000-0000-0000-000000000506"),
-                MissionOrder.builder(MissionOrder.Type.HOLD_POSITION)
-                        .targetPosition(new Vec3(1.0, 80.0, 1.0), 8.0)
-                        .build());
+                UUID.fromString("00000000-0000-0000-0000-000000000506"), emptyAborts);
         check(next.revision() > assignment.revision(),
                 "restored revisions must remain monotonic after restart");
 
@@ -141,7 +144,8 @@ public final class MissionOrderGameTests {
     @GameTest(template = "empty", timeoutTicks = 20, batch = "mission_order_contract")
     public static void malformedMissionOrderDoesNotDiscardValidAssignments(GameTestHelper helper) {
         UUID validAircraft = UUID.fromString("00000000-0000-0000-0000-000000000601");
-        UUID malformedAircraft = UUID.fromString("00000000-0000-0000-0000-000000000602");
+        UUID malformedVectorAircraft = UUID.fromString("00000000-0000-0000-0000-000000000602");
+        UUID malformedScalarAircraft = UUID.fromString("00000000-0000-0000-0000-000000000604");
         MissionOrder validOrder = MissionOrder.builder(MissionOrder.Type.HOLD_POSITION)
                 .orderId(UUID.fromString("00000000-0000-0000-0000-000000000603"))
                 .targetPosition(new Vec3(15.0, 90.0, -12.0), 10.0)
@@ -153,23 +157,87 @@ public final class MissionOrderGameTests {
         CompoundTag serialized = initial.save(new CompoundTag());
         ListTag entries = serialized.getList("assignments", Tag.TAG_COMPOUND);
 
-        CompoundTag malformedEntry = new CompoundTag();
-        malformedEntry.putUUID("aircraft_id", malformedAircraft);
-        malformedEntry.putLong("revision", 8L);
-        CompoundTag malformedOrder = MissionOrderCodec.write(validOrder);
-        malformedOrder.getCompound("target_position").remove("z");
-        malformedEntry.put("order", malformedOrder);
-        entries.add(malformedEntry);
+        CompoundTag malformedVectorOrder = MissionOrderCodec.write(validOrder);
+        malformedVectorOrder.getCompound("target_position").remove("z");
+        entries.add(assignmentEntry(malformedVectorAircraft, 8L, malformedVectorOrder));
 
-        expectInvalid(() -> MissionOrderCodec.read(malformedOrder),
+        CompoundTag malformedScalarOrder = MissionOrderCodec.write(validOrder);
+        malformedScalarOrder.putString("minimum_return_fuel_fraction", "not-a-number");
+        entries.add(assignmentEntry(malformedScalarAircraft, 9L, malformedScalarOrder));
+
+        expectInvalid(() -> MissionOrderCodec.read(malformedVectorOrder),
                 "missing vector components must be rejected");
+        expectInvalid(() -> MissionOrderCodec.read(malformedScalarOrder),
+                "incorrectly typed scalar fields must be rejected");
         MissionOrderSavedData restored = MissionOrderSavedData.load(serialized);
         check(validAssignment.equals(restored.snapshot().get(validAircraft)),
-                "a valid assignment must survive beside a malformed entry");
-        check(!restored.snapshot().containsKey(malformedAircraft),
-                "the malformed assignment must be isolated");
+                "a valid assignment must survive beside malformed entries");
+        check(!restored.snapshot().containsKey(malformedVectorAircraft),
+                "the malformed vector assignment must be isolated");
+        check(!restored.snapshot().containsKey(malformedScalarAircraft),
+                "the malformed scalar assignment must be isolated");
 
         helper.succeed();
+    }
+
+    @GameTest(template = "empty", timeoutTicks = 20, batch = "mission_order_contract")
+    public static void duplicateAndOverflowedRevisionsAreIsolated(GameTestHelper helper) {
+        UUID duplicateAircraft = UUID.fromString("00000000-0000-0000-0000-000000000701");
+        UUID conflictAircraft = UUID.fromString("00000000-0000-0000-0000-000000000702");
+        UUID validAircraft = UUID.fromString("00000000-0000-0000-0000-000000000703");
+        UUID overflowAircraft = UUID.fromString("00000000-0000-0000-0000-000000000704");
+        UUID nearOverflowAircraft = UUID.fromString("00000000-0000-0000-0000-000000000705");
+
+        MissionOrder older = MissionOrder.builder(MissionOrder.Type.HOLD_POSITION)
+                .targetPosition(new Vec3(10.0, 80.0, 10.0), 8.0)
+                .build();
+        MissionOrder newer = MissionOrder.builder(MissionOrder.Type.HOLD_POSITION)
+                .targetPosition(new Vec3(20.0, 85.0, 20.0), 12.0)
+                .build();
+        MissionOrder valid = MissionOrder.builder(MissionOrder.Type.RETURN_TO_BASE)
+                .home(new Vec3(0.0, 64.0, 0.0), new Vec3(0.0, 0.0, 1.0))
+                .build();
+
+        CompoundTag serialized = new CompoundTag();
+        ListTag entries = new ListTag();
+        entries.add(assignmentEntry(duplicateAircraft, 12L, MissionOrderCodec.write(newer)));
+        entries.add(assignmentEntry(duplicateAircraft, 11L, MissionOrderCodec.write(older)));
+        entries.add(assignmentEntry(conflictAircraft, 20L, MissionOrderCodec.write(older)));
+        entries.add(assignmentEntry(conflictAircraft, 20L, MissionOrderCodec.write(newer)));
+        entries.add(assignmentEntry(validAircraft, 30L, MissionOrderCodec.write(valid)));
+        entries.add(assignmentEntry(overflowAircraft, Long.MAX_VALUE, MissionOrderCodec.write(valid)));
+        entries.add(assignmentEntry(nearOverflowAircraft, Long.MAX_VALUE - 1L, MissionOrderCodec.write(valid)));
+        serialized.put("assignments", entries);
+
+        MissionOrderSavedData restored = MissionOrderSavedData.load(serialized);
+        MissionOrderManager.Assignment duplicate = restored.snapshot().get(duplicateAircraft);
+        check(duplicate != null && duplicate.revision() == 12L && duplicate.order().equals(newer),
+                "the greatest valid duplicate revision must win independent of list order");
+        check(!restored.snapshot().containsKey(conflictAircraft),
+                "equal revisions with different orders must isolate that aircraft");
+        check(restored.snapshot().containsKey(validAircraft),
+                "an unrelated valid assignment must survive duplicate and overflow corruption");
+        check(!restored.snapshot().containsKey(overflowAircraft),
+                "Long.MAX_VALUE must not enter the revision counter");
+        check(!restored.snapshot().containsKey(nearOverflowAircraft),
+                "a persisted revision without safe increment room must be rejected");
+
+        MissionOrderManager.restore(restored.snapshot());
+        MissionOrderManager.Assignment next = MissionOrderManager.assign(
+                UUID.fromString("00000000-0000-0000-0000-000000000706"), older);
+        check(next.revision() > 30L && next.revision() > 0L,
+                "the next revision must remain positive and exceed the restored valid maximum");
+
+        MissionOrderManager.clearAll();
+        helper.succeed();
+    }
+
+    private static CompoundTag assignmentEntry(UUID aircraftId, long revision, CompoundTag order) {
+        CompoundTag entry = new CompoundTag();
+        entry.putUUID("aircraft_id", aircraftId);
+        entry.putLong("revision", revision);
+        entry.put("order", order);
+        return entry;
     }
 
     private static void expectInvalid(Runnable action, String message) {
