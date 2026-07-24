@@ -31,12 +31,21 @@ $runtimeScriptText = $runtimeScriptText.Replace(
 $runtimeScriptText = $runtimeScriptText.Replace(
     '$historyRuns.SelectedIndex = [math]::Min($selected,$historyRuns.Items.Count-1)',
     '$historyRuns.SelectedIndex = [int]([math]::Min($selected,($historyRuns.Items.Count - 1)))')
+$runtimeScriptText = $runtimeScriptText.Replace(
+    'if ($Combo.Items.Count -gt 0) { $Combo.SelectedIndex = $index }',
+    'if ($Combo.Items.Count -gt 0) { $Combo.SelectedIndex = [int]$index }')
+$runtimeScriptText = $runtimeScriptText.Replace(
+    'if ($profiles.Items.Count -gt 0) { $profiles.SelectedIndex = $index }',
+    'if ($profiles.Items.Count -gt 0) { $profiles.SelectedIndex = [int]$index }')
 
 if ($runtimeScriptText -match '\$Width-\d') {
     throw 'JollyRunnerHub.ps1 still contains an ambiguous PowerShell variable subtraction expression.'
 }
 if ($runtimeScriptText -match 'SelectedIndex\s*=\s*\[math\]::Min') {
     throw 'JollyRunnerHub.ps1 still assigns a non-integral Math.Min result to SelectedIndex.'
+}
+if ($runtimeScriptText -match 'SelectedIndex\s*=\s*\$index') {
+    throw 'JollyRunnerHub.ps1 still assigns an untyped PowerShell value to SelectedIndex.'
 }
 
 if ($runtimeScriptText -notmatch 'param\(\[switch\]\$StartupSmokeTest\)') {
