@@ -1,0 +1,76 @@
+name: Inspect Kabuto Runner State
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/inspect-kabuto-runner-state.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    if: github.actor == 'genkimorimori252525-oss'
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell
+
+    steps:
+      - name: Read Kabuto runner and workflow state
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $repo = 'genkimorimori252525-oss/kabuto'
+          $root = 'C:\actions-runner-kabuto'
+
+          Write-Host '=== Repository runners ==='
+          $runnerPayload = ((& gh api "repos/$repo/actions/runners") -join [Environment]::NewLine) | ConvertFrom-Json
+          $runnerPayload.runners |
+            Select-Object id,name,status,busy,@{n='labels';e={($_.labels.name -join ',')}} |
+            Format-Table -AutoSize | Out-String -Width 240 | Write-Host
+
+          Write-Host '=== Recent workflow runs ==='
+          $runsPayload = ((& gh api "repos/$repo/actions/runs?per_page=30") -join [Environment]::NewLine) | ConvertFrom-Json
+          $runsPayload.workflow_runs |
+            Select-Object id,name,event,status,conclusion,head_branch,head_sha,run_number,created_at,updated_at |
+            Format-Table -AutoSize | Out-String -Width 300 | Write-Host
+
+          foreach ($run in @($runsPayload.workflow_runs | Where-Object { $_.status -in @('queued','in_progress','pending','waiting') } | Select-Object -First 15)) {
+            Write-Host "=== Jobs for run $($run.id): $($run.name) [$($run.event)] ==="
+            $jobsPayload = ((& gh api "repos/$repo/actions/runs/$($run.id)/jobs?per_page=100") -join [Environment]::NewLine) | ConvertFrom-Json
+            $jobsPayload.jobs |
+              Select-Object id,name,status,conclusion,runner_name,@{n='labels';e={($_.labels -join ',')}} |
+              Format-Table -AutoSize | Out-String -Width 260 | Write-Host
+          }
+
+          Write-Host '=== Scheduled task ==='
+          $task = Get-ScheduledTask -TaskName 'Jolly-Kabuto-Runner' -ErrorAction SilentlyContinue
+          if ($null -eq $task) {
+            Write-Host 'Scheduled task missing.'
+          } else {
+            $info = Get-ScheduledTaskInfo -TaskName 'Jolly-Kabuto-Runner'
+            Write-Host "TaskState=$($task.State) LastTaskResult=$($info.LastTaskResult) LastRunTime=$($info.LastRunTime)"
+          }
+
+          Write-Host '=== Listener processes ==='
+          $escaped = [regex]::Escape($root)
+          Get-CimInstance Win32_Process -Filter "Name='Runner.Listener.exe'" |
+            Where-Object {
+              ([string]$_.ExecutablePath -match "^$escaped") -or
+              ([string]$_.CommandLine -match $escaped)
+            } |
+            Select-Object ProcessId,ExecutablePath,CommandLine |
+            Format-List | Out-String -Width 260 | Write-Host
+
+          foreach ($file in @(
+            (Join-Path $root '_diag\jolly-kabuto-persistent.log'),
+            (Join-Path $root '_diag\jolly-kabuto-launch.log')
+          )) {
+            if (Test-Path $file) {
+              Write-Host "=== Tail: $file ==="
+              Get-Content $file -Tail 220 |
+                ForEach-Object { ([string]$_) -replace '(?i)(token|authorization|access_token)[=: ]+\S+', '$1=***' }
+            }
+          }
