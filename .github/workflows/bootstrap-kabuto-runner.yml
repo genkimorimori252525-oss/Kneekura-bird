@@ -32,6 +32,7 @@ jobs:
           $reportPath = Join-Path $env:GITHUB_WORKSPACE 'kabuto-runner-bootstrap.txt'
           $sourceRoot = 'C:\actions-runner'
           $targetRoot = 'C:\actions-runner-kabuto'
+          $runnerVersion = '2.336.0'
           $repo = 'genkimorimori252525-oss/kabuto'
           $repoUrl = "https://github.com/$repo"
 
@@ -47,6 +48,7 @@ jobs:
             Record "runner_name=$env:RUNNER_NAME"
             Record "source_runner_present=$(Test-Path (Join-Path $sourceRoot 'run.cmd'))"
             Record "target_runner_present=$(Test-Path (Join-Path $targetRoot 'run.cmd'))"
+            Record "target_runner_version=$runnerVersion"
 
             $gh = Get-Command gh -ErrorAction SilentlyContinue
             Record "gh_installed=$($null -ne $gh)"
@@ -74,37 +76,29 @@ jobs:
             }
             Record 'registration_token_acquired=true'
 
-            if (-not (Test-Path (Join-Path $targetRoot 'run.cmd'))) {
-              if (-not (Test-Path (Join-Path $sourceRoot 'run.cmd'))) {
-                throw "Source runner installation is missing: $sourceRoot"
-              }
-              New-Item -ItemType Directory -Force -Path $targetRoot | Out-Null
-              & robocopy $sourceRoot $targetRoot /E /XD _work _diag /XF .credentials .credentials_rsaparams .runner .service | Out-Null
-              if ($LASTEXITCODE -gt 7) {
-                throw "robocopy failed with exit code $LASTEXITCODE"
-              }
-              Record 'runner_binaries_copied=true'
-            }
-
             $runnerConfig = Join-Path $targetRoot '.runner'
             $runnerCredentials = Join-Path $targetRoot '.credentials'
-            $runnerRsa = Join-Path $targetRoot '.credentials_rsaparams'
-            $runnerService = Join-Path $targetRoot '.service'
-            Record "config_file_present=$(Test-Path $runnerConfig)"
-            Record "credentials_file_present=$(Test-Path $runnerCredentials)"
-            Record "rsa_file_present=$(Test-Path $runnerRsa)"
-            Record "service_file_present=$(Test-Path $runnerService)"
-            Record "env_file_present=$(Test-Path (Join-Path $targetRoot '.env'))"
-            Record "path_file_present=$(Test-Path (Join-Path $targetRoot '.path'))"
-
             $fullyConfigured = (Test-Path $runnerConfig) -and (Test-Path $runnerCredentials)
-            $partiallyConfigured = ((Test-Path $runnerConfig) -or (Test-Path $runnerCredentials)) -and (-not $fullyConfigured)
-            if ($partiallyConfigured) {
-              Remove-Item -Force $runnerConfig, $runnerCredentials, $runnerRsa, $runnerService -ErrorAction SilentlyContinue
-              Record 'partial_configuration_removed=true'
-            }
 
             if (-not $fullyConfigured) {
+              $escaped = [regex]::Escape($targetRoot)
+              foreach ($process in @(Get-CimInstance Win32_Process -Filter "Name='Runner.Listener.exe'" |
+                Where-Object {
+                  ([string]$_.ExecutablePath -match "^$escaped") -or
+                  ([string]$_.CommandLine -match $escaped)
+                })) {
+                Start-Process taskkill.exe -ArgumentList '/PID',[string]$process.ProcessId,'/T','/F' -Wait -WindowStyle Hidden | Out-Null
+              }
+
+              Remove-Item -Recurse -Force $targetRoot -ErrorAction SilentlyContinue
+              New-Item -ItemType Directory -Force -Path $targetRoot | Out-Null
+
+              $runnerZip = Join-Path $env:RUNNER_TEMP "actions-runner-win-x64-$runnerVersion.zip"
+              $runnerUrl = "https://github.com/actions/runner/releases/download/v$runnerVersion/actions-runner-win-x64-$runnerVersion.zip"
+              Invoke-WebRequest -UseBasicParsing -Uri $runnerUrl -OutFile $runnerZip
+              Expand-Archive -Path $runnerZip -DestinationPath $targetRoot -Force
+              Record 'runner_distribution_downloaded=true'
+
               $configLogRoot = Join-Path $targetRoot '_diag'
               New-Item -ItemType Directory -Force -Path $configLogRoot | Out-Null
               $configLog = Join-Path $configLogRoot 'kabuto-config.log'
@@ -145,7 +139,7 @@ jobs:
               $runCmd = Join-Path $targetRoot 'run.cmd'
               $command = '""{0}" >> "{1}" 2>&1"' -f $runCmd, $log
               Start-Process cmd.exe -ArgumentList '/d','/s','/c',$command -WorkingDirectory $targetRoot -WindowStyle Hidden | Out-Null
-              Start-Sleep -Seconds 3
+              Start-Sleep -Seconds 5
               Record 'runner_started=true'
             }
             else {
