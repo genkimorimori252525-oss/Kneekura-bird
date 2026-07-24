@@ -16,6 +16,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /** Test-only route assignment for the first real-physics live-guidance proof. */
 final class MissionRouteValidationSetup {
     private static final String SCENARIO_PROPERTY = "wwdebug.flightGameTestScenario";
+    private static final String AIRCRAFT_PROPERTY = "wwdebug.flightGameTestAircraft";
     private static final String VALIDATION_NAME_PREFIX = "AUTOPILOT TEST ";
     private static final String PROOF_AIRCRAFT = "warfare_wings:a6m";
     private static final Set<UUID> APPLIED = ConcurrentHashMap.newKeySet();
@@ -24,7 +25,8 @@ final class MissionRouteValidationSetup {
     }
 
     static boolean applyIfRequested(MinecraftServer server, Entity aircraft) {
-        if (!"full".equals(System.getProperty(SCENARIO_PROPERTY, "full").trim().toLowerCase())
+        if (!"full".equals(System.getProperty(SCENARIO_PROPERTY, "").trim().toLowerCase())
+                || !PROOF_AIRCRAFT.equals(System.getProperty(AIRCRAFT_PROPERTY, "").trim().toLowerCase())
                 || !aircraft.getName().getString().startsWith(VALIDATION_NAME_PREFIX)
                 || !PROOF_AIRCRAFT.equals(BuiltInRegistries.ENTITY_TYPE.getKey(aircraft.getType()).toString())
                 || MissionOrderManager.current(aircraft.getUUID()).isPresent()
@@ -50,10 +52,10 @@ final class MissionRouteValidationSetup {
                 .build();
         MissionOrderManager.Assignment mission = MissionOrderManager.assign(aircraft.getUUID(), order);
         WaypointRoute route = WaypointRoute.start(UUID.randomUUID(), List.of(
-                waypoint(home, forward, right, 600.0, 0.0, 90.0, 42.0),
-                waypoint(home, forward, right, 690.0, 80.0, 100.0, 40.0),
-                waypoint(home, forward, right, 780.0, -60.0, 95.0, 40.0),
-                waypoint(home, forward, right, 850.0, 0.0, 90.0, 45.0)));
+                waypoint(home, forward, right, 1100.0, 0.0, 100.0, 42.0),
+                waypoint(home, forward, right, 1280.0, 100.0, 105.0, 40.0),
+                waypoint(home, forward, right, 1440.0, -80.0, 100.0, 40.0),
+                waypoint(home, forward, right, 1580.0, 0.0, 95.0, 45.0)));
         if (MissionRouteManager.bind(aircraft.getUUID(), mission, route).isEmpty()) {
             MissionOrderManager.clear(aircraft.getUUID(), mission.revision());
             APPLIED.remove(aircraft.getUUID());
@@ -65,9 +67,13 @@ final class MissionRouteValidationSetup {
                 "order_id=" + order.orderId()
                         + ":route_id=" + route.routeId()
                         + ":waypoints=" + route.waypoints().size()
-                        + ":obstacle_longitudinal=500.0",
+                        + ":obstacle_longitudinal=970.0",
                 FlightPhase.STARTUP);
         return true;
+    }
+
+    static void forget(UUID aircraftId) {
+        APPLIED.remove(aircraftId);
     }
 
     private static WaypointRoute.Waypoint waypoint(Vec3 home, Vec3 forward, Vec3 right,
@@ -81,8 +87,8 @@ final class MissionRouteValidationSetup {
 
     private static void buildFloatingObstacle(ServerLevel level, Vec3 home,
                                               Vec3 forward, Vec3 right) {
-        Vec3 center = home.add(forward.scale(500.0)).add(0.0, 77.0, 0.0);
-        for (int lateral = -24; lateral <= 24; lateral++) {
+        Vec3 center = home.add(forward.scale(970.0)).add(0.0, 80.0, 0.0);
+        for (int lateral = -30; lateral <= 30; lateral++) {
             for (int depth = -2; depth <= 2; depth++) {
                 for (int vertical = -32; vertical <= 32; vertical++) {
                     Vec3 point = center
