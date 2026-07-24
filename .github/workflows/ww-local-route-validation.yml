@@ -214,7 +214,9 @@ jobs:
           python tools/verify_flight_scenario.py --root run-gametest --scenario full --gradle-status $gradleStatus --output run-gametest/scenario-verification-route.json
 
       - name: Upload route diagnostics
+        id: upload
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: ww-local-route-${{ github.run_id }}
@@ -231,6 +233,7 @@ jobs:
 
       - name: Persist route validation finish
         if: always()
+        continue-on-error: true
         uses: actions/github-script@v7
         env:
           REQUEST_REF: ${{ steps.request.outputs.ref }}
@@ -238,6 +241,7 @@ jobs:
           REQUEST_AIRCRAFT: ${{ steps.request.outputs.aircraft }}
           BUILD_OUTCOME: ${{ steps.build.outcome }}
           GAMETEST_OUTCOME: ${{ steps.gametest.outcome }}
+          UPLOAD_OUTCOME: ${{ steps.upload.outcome }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -258,23 +262,38 @@ jobs:
               scenario: 'route',
               build_outcome: process.env.BUILD_OUTCOME || null,
               gametest_outcome: process.env.GAMETEST_OUTCOME || null,
+              artifact_outcome: process.env.UPLOAD_OUTCOME || null,
               updated_at: new Date().toISOString(),
             };
-            let sha;
-            try {
-              const existing = await github.rest.repos.getContent({
-                owner: context.repo.owner, repo: context.repo.repo, path, ref: branch,
-              });
-              if (!Array.isArray(existing.data)) sha = existing.data.sha;
-            } catch (error) {
-              if (error.status !== 404) throw error;
+            const content = Buffer.from(`${JSON.stringify(payload, null, 2)}\n`).toString('base64');
+            let lastError;
+            for (let attempt = 1; attempt <= 4; attempt++) {
+              let sha;
+              try {
+                const existing = await github.rest.repos.getContent({
+                  owner: context.repo.owner, repo: context.repo.repo, path, ref: branch,
+                });
+                if (!Array.isArray(existing.data)) sha = existing.data.sha;
+              } catch (error) {
+                if (error.status !== 404) throw error;
+              }
+              try {
+                await github.rest.repos.createOrUpdateFileContents({
+                  owner: context.repo.owner, repo: context.repo.repo, path, branch,
+                  message: `Record route validation finish ${context.runId}`,
+                  content,
+                  ...(sha ? { sha } : {}),
+                });
+                lastError = null;
+                break;
+              } catch (error) {
+                lastError = error;
+                if (![409, 422].includes(error.status) || attempt === 4) throw error;
+                core.warning(`Route status update conflicted on attempt ${attempt}; retrying`);
+                await new Promise(resolve => setTimeout(resolve, attempt * 1500));
+              }
             }
-            await github.rest.repos.createOrUpdateFileContents({
-              owner: context.repo.owner, repo: context.repo.repo, path, branch,
-              message: `Record route validation finish ${context.runId}`,
-              content: Buffer.from(`${JSON.stringify(payload, null, 2)}\n`).toString('base64'),
-              ...(sha ? { sha } : {}),
-            });
+            if (lastError) throw lastError;
 
       - name: Fail after preserving route diagnostics
         if: steps.build.outcome == 'failure' || steps.gametest.outcome == 'failure'
