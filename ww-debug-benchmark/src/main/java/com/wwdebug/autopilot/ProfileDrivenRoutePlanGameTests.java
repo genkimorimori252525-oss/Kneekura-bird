@@ -48,8 +48,8 @@ public final class ProfileDrivenRoutePlanGameTests {
                         profile("fighter", 40.0)),
                 "vertical-only headings must be rejected");
         expectInvalid(() -> ProfileDrivenRoutePlan.build(
-                        UUID.randomUUID(), new Vec3(Double.NaN, 0.0, 0.0), Vec3.SOUTH,
-                        profile("fighter", 40.0)),
+                        UUID.randomUUID(), new Vec3(Double.NaN, 0.0, 0.0),
+                        new Vec3(0.0, 0.0, 1.0), profile("fighter", 40.0)),
                 "non-finite origins must be rejected");
         helper.succeed();
     }
