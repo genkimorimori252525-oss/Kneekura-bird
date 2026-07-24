@@ -4,62 +4,75 @@ Last updated: 2026-07-24 (Asia/Tokyo)
 
 ## Read first
 
-Follow `/AGENTS.md` before changing code. Hard limits are 60 minutes, 8 remote CI attempts, 10 changed files, and 800 added/changed lines, with a mandatory checkpoint at 30 minutes or 4 CI attempts.
-
-Current GitHub state, merged commits, open PRs, and terminal workflow results override older notes in this file.
+Follow `/AGENTS.md` before changing code. Current GitHub state, merged commits, open PRs, and terminal workflow results override older notes in this file.
 
 ## Current production baseline
 
-- Current `main`: `e90b4b43d52e19be55d4ad40bfcdddfe62d9ead1`.
+- Current `main`: `07bca5c7cd8eeec6d93b0fb49de6e63999fbc788`.
 - PR #21 enabled measured-profile noncombat autonomous flight for level bombers.
 - PR #25 enabled the same common noncombat flight path for measured attacker profiles.
 - PR #27 merged the immutable `MissionOrder` model, all 11 roadmap order types, and the UUID/revision-guarded `MissionOrderManager`.
 - PR #30 merged mission-order persistence across server save/load.
+- PR #33 merged immutable ordered `WaypointRoute` state and deterministic progression contracts.
+- PR #35 merged mission-owned route assignment guarded by aircraft UUID, mission revision, and immutable order ID.
+- PR #37 merged the strict `WaypointRouteCodec` NBT boundary.
+- PR #40 merged persisted mission-owned route progress with startup reconciliation against the restored `MissionOrderManager` state.
 - `ControlAuthorityArbiter` is already integrated. Do not create a second authority dispatcher.
 - Reciprocal A6M/P-47N combat qualification is complete. Do not retune it unless a later change produces a measured regression.
 - Fighter targeting, defensive manoeuvre, re-engagement, and weapon authority remain fighter-only.
 - Bombers, attackers, and G4M currently have common noncombat flight authority only. Strike, ground-attack, dive-bomb, and torpedo execution are not implemented.
 
-## Validated milestones
+## Validated route milestones
 
-- Reciprocal A6M/P-47N regression passed in run `30050199123`; both aircraft fired, minimum separation remained above 8 blocks, no ground contact or collision occurred, and the primary aircraft returned to `PARKED`.
-- Level-bomber common flight passed for B-17, B-29, G10N1, G10N2, and He 111.
-- Attacker common flight passed for D4Y, Ju 87, SBD, and IL-2.
-- G4M common noncombat flight passed in run `30050488243`; torpedo targeting and release remain unimplemented.
-- PR #27 passed build, deterministic simulation, MissionOrder GameTest, A6M real-physics `full`, diagnostics, and crash-report checks in Windows self-hosted run `30054141737`.
-- PR #30 source content passed Windows self-hosted run `30083391316`:
-  - exact validated source head `0cfda884f20ab8e93754ad1286185f5f7a0af57d`;
+- PR #33 source head `7b143461340b09ea5d7bb70435b4d8af91d812be` passed Windows self-hosted run `30084768763`:
   - normal build passed;
   - deterministic autonomous-flight simulation passed 12/12;
-  - all MissionOrder persistence GameTests passed;
-  - A6M real-physics `full` passed in 4,326 ticks;
-  - final phase `PARKED`;
+  - WaypointRoute and existing MissionOrder GameTests passed;
+  - A6M real-physics `full` reached `PARKED` in 4,326 ticks;
   - scenario verifier passed 1/1;
   - crash reports none.
+- PR #35 source head `ace291215d46a78883bb0b919897c7100fd130c3` passed run `30086917681`:
+  - build and deterministic simulation passed;
+  - all 9 required GameTests passed;
+  - A6M real-physics `full` reached `PARKED` in 4,326 ticks;
+  - crash reports none.
+- PR #37 source head `56d162c534ae6d3a3e07413f9941d3a8b5828961` passed run `30087664398`:
+  - build and deterministic simulation passed;
+  - all 11 required GameTests passed;
+  - A6M real-physics `full` reached `PARKED` in 4,326 ticks;
+  - crash reports none.
+- PR #40 source head `04bbdebfbc0f02562c90db84cf94fbc10f5fbd75` passed run `30088761510`:
+  - build passed;
+  - deterministic simulation passed 12/12, all final `PARKED`;
+  - all 13 required GameTests passed, including persistence and reconciliation contracts;
+  - A6M real-physics `full` reached `PARKED` in 4,326 ticks;
+  - final mission summary passed 1/1;
+  - crash reports none.
 
-## Mission-order persistence now on main
+## Current open work
 
-PR #30 adds:
+Draft PR #41, `Plan pure waypoint guidance from route intent`:
 
-- stable NBT encoding for every immutable mission-order field;
-- overworld `SavedData` keyed by aircraft UUID;
-- server bind/unbind, dirty marking, and revision restoration;
-- strict vector and scalar NBT validation;
-- malformed-entry isolation;
-- valid empty and non-empty abort-condition lists;
-- greatest-valid-revision selection for duplicate aircraft UUIDs;
-- equal-revision/different-order conflict isolation;
-- rejection of revisions without safe increment room;
-- overflow-safe manager revision allocation.
+- head: `c6e84e53263924129d3a3c52fdaad00ad749bfab`;
+- clean diff: two new files, 211 lines;
+- pure calculation only;
+- advances at most one reached waypoint per call;
+- returns normalized horizontal bearing, waypoint altitude, caller-supplied measured-profile target speed, horizontal distance, and vertical error;
+- preserves current horizontal heading for vertically aligned waypoints;
+- completed routes expose no active target;
+- no connection to `AutonomousFlightManager`, `AutopilotSession`, `ControlAuthorityArbiter`, weapons, terrain avoidance, collision avoidance, or live flight input.
 
-This layer owns stored intent only. It remains disconnected from live aircraft controls, role policy, combat logic, weapon authority, and `ControlAuthorityArbiter`.
+GitHub-hosted runs `30089744004` and `30089744009` ended as zero-step failures. Treat them as hosted-capacity failures, not source failures.
 
-## Validation capacity and runner state
+The current files on `main` do not show a Windows self-hosted validation request or result for PR #41. The request/status files currently contain older data. Do not issue duplicate or speculative GameTest requests while runner availability is unconfirmed. When the runner is confirmed online, validate exact head `c6e84e53263924129d3a3c52fdaad00ad749bfab` once with normal build, deterministic simulation, all expected mission/route/guidance GameTests, and one A6M real-physics `full` regression.
+
+## Validation capacity and runner handling
 
 - GitHub-hosted Actions minutes are exhausted. Zero-step hosted failures are capacity failures, not code failures.
-- Windows self-hosted runner `ジョリー` is online again and completed run `30083391316` successfully.
-- Do not create duplicate self-hosted requests for the same source head.
-- Poll in-progress runs only a bounded number of times and record the exact run/head before pausing.
+- Do not infer Windows runner availability from stale request/status files.
+- While the Windows runner is offline or unconfirmed, do not create or repeat self-hosted GameTest requests.
+- Prefer static inspection, deterministic contracts, documentation, and disconnected data/planning foundations during runner downtime.
+- Record a pending validation head and exact restart action once in the PR or Issue; do not repeat the same checkpoint every run.
 
 ## Preserved safety invariants
 
@@ -76,25 +89,24 @@ Never weaken these to make a validation pass:
 
 ## Next exact workflow
 
-Implement the next common-navigation slice as a separate Draft PR:
-
-1. Add an immutable `WaypointRoute` data model only.
-2. Represent an ordered, non-empty list of finite positions plus a bounded arrival radius per waypoint.
-3. Define deterministic progression semantics without writing aircraft controls.
-4. Add UUID-keyed route assignment/replacement/clear operations with optimistic revisions, or reuse the existing mission revision boundary where doing so avoids duplicate ownership.
-5. Add deterministic contract tests for invalid vectors, empty routes, progression, stale revisions, and completion.
-6. Do not connect the route to `AutonomousFlightManager`, `ControlAuthorityArbiter`, weapons, role policy, or live flight input in this slice.
-7. Validate static contracts and normal build first. Run one A6M `full` self-hosted regression only after the focused tests pass.
-8. Keep the change under 10 files and 800 added/changed lines.
-
-After the route data boundary is validated and merged, the following slice may adapt one noncombat order (`HOLD_POSITION` or `RETURN_TO_BASE`) into guidance. Do not enable strike or weapon behavior at the same time.
+1. Confirm Windows self-hosted runner availability without creating a new request.
+2. If a PR #41 run already exists, inspect that run and artifacts rather than rerunning it.
+3. Otherwise, when the runner is confirmed online, request exactly one validation for head `c6e84e53263924129d3a3c52fdaad00ad749bfab`.
+4. If validation succeeds, update PR #41 with the exact run, mark Ready, and squash merge.
+5. After PR #41 merges, create a separate small PR for the first live integration adapter.
+6. The first adapter must be limited to one noncombat order and must route through existing control authority and terrain/collision safety layers.
+7. Prefer `RETURN_TO_BASE` or `HOLD_POSITION`; do not enable weapons or strike behaviour in the same PR.
+8. Add explicit telemetry proving route ownership, guidance selection, authority grant, safety override precedence, release, and return to the ordinary landing/parking tail.
 
 ## Useful references
 
 - parent roadmap: Issue #7;
 - merged mission-order foundation: PR #27;
 - merged mission-order persistence: PR #30;
-- persistence validation: run `30083391316`;
-- mission-order foundation validation: run `30054141737`;
+- merged route model: PR #33;
+- merged route ownership: PR #35;
+- merged route codec: PR #37;
+- merged route persistence: PR #40;
+- current guidance Draft: PR #41;
 - passing fighter regression: run `30050199123`;
 - passing G4M common-flight validation: run `30050488243`.
