@@ -4,6 +4,7 @@ import com.mojang.logging.LogUtils;
 import com.wwdebug.autopilot.AutonomousFlightManager;
 import com.wwdebug.autopilot.AutopilotCommands;
 import com.wwdebug.autopilot.MissionOrderManager;
+import com.wwdebug.autopilot.MissionRouteManager;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.TickEvent;
@@ -31,6 +32,7 @@ public final class WWDebugBenchmarkMod {
     @SubscribeEvent
     public void serverStarted(ServerStartedEvent event) {
         MissionOrderManager.bind(event.getServer());
+        MissionRouteManager.bind(event.getServer());
     }
 
     @SubscribeEvent
@@ -45,6 +47,7 @@ public final class WWDebugBenchmarkMod {
     public void serverStopping(ServerStoppingEvent event) {
         BenchmarkManager.stopSilently(event.getServer());
         AutonomousFlightManager.stopAll(event.getServer());
+        MissionRouteManager.unbind();
         MissionOrderManager.unbind();
     }
 }
