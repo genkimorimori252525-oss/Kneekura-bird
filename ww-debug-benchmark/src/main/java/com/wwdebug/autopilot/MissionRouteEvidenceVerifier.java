@@ -50,11 +50,13 @@ public final class MissionRouteEvidenceVerifier {
         require(count(rows, "route_guidance_completed") == 1,
                 "expected one route_guidance_completed event");
 
-        JsonObject start = first(rows, "route_guidance_start");
-        JsonObject completed = first(rows, "route_guidance_completed");
+        int startIndex = firstIndex(rows, "route_guidance_start");
+        int completedIndex = firstIndex(rows, "route_guidance_completed");
+        JsonObject start = rows.get(startIndex);
+        JsonObject completed = rows.get(completedIndex);
         long startTick = number(start, "server_tick");
         long completedTick = number(completed, "server_tick");
-        require(completedTick > startTick,
+        require(completedIndex > startIndex && completedTick > startTick,
                 "route completion did not occur after route activation");
         require("CRUISE_OUTBOUND".equals(text(start, "phase")),
                 "route did not activate in CRUISE_OUTBOUND");
@@ -79,7 +81,8 @@ public final class MissionRouteEvidenceVerifier {
             JsonObject row = rows.get(index);
             long tick = optionalNumber(row, "server_tick", -1L);
             String event = text(row, "event");
-            if (tick >= startTick && tick <= completedTick) {
+            boolean withinOwnedRoute = index >= startIndex && index <= completedIndex;
+            if (withinOwnedRoute) {
                 if ("control_adapter".equals(event)
                         && "follow_owned_waypoint_route".equals(text(row, "applied_action_reason"))) {
                     routeControlApplied = true;
@@ -89,14 +92,16 @@ public final class MissionRouteEvidenceVerifier {
                         && TERRAIN_OVERRIDES.contains(text(row, "applied_safety_override"))) {
                     adapters.computeIfAbsent(tick, ignored -> new AdapterOrder()).terrainIndex = index;
                 }
-                if ("phase_transition".equals(event)) {
+                if (index > startIndex && index < completedIndex
+                        && "phase_transition".equals(event)) {
                     phaseTransitionDuringRoute = true;
                 }
                 if ("frame".equals(event) && Boolean.TRUE.equals(booleanValue(row, "on_ground"))) {
                     routeGroundContact = true;
                 }
             }
-            if (tick > completedTick
+            if (index > completedIndex
+                    && tick >= completedTick
                     && "phase_transition".equals(event)
                     && text(row, "reason").startsWith(
                     "CRUISE_OUTBOUND->TURN_LEFT:outbound_cruise_sample_complete")) {
@@ -171,9 +176,13 @@ public final class MissionRouteEvidenceVerifier {
         return (int) rows.stream().filter(row -> event.equals(text(row, "event"))).count();
     }
 
-    private static JsonObject first(List<JsonObject> rows, String event) {
-        return rows.stream().filter(row -> event.equals(text(row, "event"))).findFirst()
-                .orElseThrow(() -> new IllegalStateException("Missing event " + event));
+    private static int firstIndex(List<JsonObject> rows, String event) {
+        for (int index = 0; index < rows.size(); index++) {
+            if (event.equals(text(rows.get(index), "event"))) {
+                return index;
+            }
+        }
+        throw new IllegalStateException("Missing event " + event);
     }
 
     private static int remainingFrom(String reason) {
