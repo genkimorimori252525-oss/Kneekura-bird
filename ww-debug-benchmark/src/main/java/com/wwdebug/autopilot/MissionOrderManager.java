@@ -26,7 +26,7 @@ public final class MissionOrderManager {
     public static Assignment assign(UUID aircraftId, MissionOrder order) {
         Objects.requireNonNull(aircraftId, "aircraftId");
         Objects.requireNonNull(order, "order");
-        Assignment assignment = new Assignment(REVISIONS.incrementAndGet(), order);
+        Assignment assignment = new Assignment(nextRevision(), order);
         ASSIGNMENTS.put(aircraftId, assignment);
         persist();
         return assignment;
@@ -45,7 +45,7 @@ public final class MissionOrderManager {
             if (existing.revision() != expectedRevision) {
                 return existing;
             }
-            Assignment next = new Assignment(REVISIONS.incrementAndGet(), replacement);
+            Assignment next = new Assignment(nextRevision(), replacement);
             updated[0] = next;
             return next;
         });
@@ -106,6 +106,15 @@ public final class MissionOrderManager {
         REVISIONS.set(highestRevision);
     }
 
+    private static long nextRevision() {
+        return REVISIONS.updateAndGet(current -> {
+            if (current >= Long.MAX_VALUE - 1L) {
+                throw new IllegalStateException("mission revision space exhausted");
+            }
+            return current + 1L;
+        });
+    }
+
     private static void persist() {
         MissionOrderSavedData data = persistentData;
         if (data != null) {
@@ -115,8 +124,8 @@ public final class MissionOrderManager {
 
     public record Assignment(long revision, MissionOrder order) {
         public Assignment {
-            if (revision <= 0) {
-                throw new IllegalArgumentException("revision must be positive");
+            if (revision <= 0 || revision == Long.MAX_VALUE) {
+                throw new IllegalArgumentException("revision must be positive and incrementable");
             }
             order = Objects.requireNonNull(order, "order");
         }
