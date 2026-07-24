@@ -18,7 +18,7 @@ on:
         type: string
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ww-local-self-hosted-validation
@@ -83,6 +83,44 @@ jobs:
           Write-Host "Route validation ref: $ref"
           Write-Host "Aircraft: $aircraft"
 
+      - name: Persist route validation start
+        uses: actions/github-script@v7
+        env:
+          REQUEST_REF: ${{ steps.request.outputs.ref }}
+          REQUEST_AIRCRAFT: ${{ steps.request.outputs.aircraft }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const path = '.github/local-route-validation-status.json';
+            const branch = context.ref.replace('refs/heads/', '');
+            const payload = {
+              run_id: context.runId,
+              status: 'in_progress',
+              conclusion: null,
+              event: context.eventName,
+              branch,
+              event_sha: context.sha,
+              requested_ref: process.env.REQUEST_REF,
+              aircraft: process.env.REQUEST_AIRCRAFT,
+              scenario: 'route',
+              updated_at: new Date().toISOString(),
+            };
+            let sha;
+            try {
+              const existing = await github.rest.repos.getContent({
+                owner: context.repo.owner, repo: context.repo.repo, path, ref: branch,
+              });
+              if (!Array.isArray(existing.data)) sha = existing.data.sha;
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+            await github.rest.repos.createOrUpdateFileContents({
+              owner: context.repo.owner, repo: context.repo.repo, path, branch,
+              message: `Record route validation start ${context.runId}`,
+              content: Buffer.from(`${JSON.stringify(payload, null, 2)}\n`).toString('base64'),
+              ...(sha ? { sha } : {}),
+            });
+
       - name: Checkout requested behavior revision
         uses: actions/checkout@v4
         with:
@@ -92,9 +130,11 @@ jobs:
           persist-credentials: false
 
       - name: Resolve checked-out commit
+        id: checked_out
         run: |
           $sha = (git rev-parse HEAD).Trim()
           if ($sha -notmatch '^[0-9a-f]{40}$') { throw "Invalid checked-out SHA: $sha" }
+          "sha=$sha" >> $env:GITHUB_OUTPUT
           Write-Host "Checked-out behavior commit: $sha"
 
       - name: Set up Java 17
@@ -123,11 +163,8 @@ jobs:
           if (Test-Path build.log) { Get-Content build.log -Tail 240 }
           exit $status
 
-      - name: Stop after build failure
-        if: steps.build.outcome == 'failure'
-        run: exit 1
-
       - name: Download exact runtime aircraft mods
+        if: steps.build.outcome == 'success'
         working-directory: ww-debug-benchmark
         run: |
           New-Item -ItemType Directory -Force flight-test-mods | Out-Null
@@ -167,6 +204,7 @@ jobs:
 
       - name: Run and verify exact-physics route scenario
         id: gametest
+        if: steps.build.outcome == 'success'
         continue-on-error: true
         working-directory: ww-debug-benchmark
         run: |
@@ -191,6 +229,53 @@ jobs:
             ww-debug-benchmark/run-gametest/config/warfare_wings/flight_profiles.json
             ww-debug-benchmark/run-gametest/scenario-verification-route.json
 
+      - name: Persist route validation finish
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          REQUEST_REF: ${{ steps.request.outputs.ref }}
+          REQUEST_SHA: ${{ steps.checked_out.outputs.sha }}
+          REQUEST_AIRCRAFT: ${{ steps.request.outputs.aircraft }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          GAMETEST_OUTCOME: ${{ steps.gametest.outcome }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const path = '.github/local-route-validation-status.json';
+            const branch = context.ref.replace('refs/heads/', '');
+            const success = process.env.BUILD_OUTCOME === 'success'
+              && process.env.GAMETEST_OUTCOME === 'success';
+            const payload = {
+              run_id: context.runId,
+              status: 'completed',
+              conclusion: success ? 'success' : 'failure',
+              event: context.eventName,
+              branch,
+              event_sha: context.sha,
+              requested_ref: process.env.REQUEST_REF || null,
+              requested_sha: process.env.REQUEST_SHA || null,
+              aircraft: process.env.REQUEST_AIRCRAFT || null,
+              scenario: 'route',
+              build_outcome: process.env.BUILD_OUTCOME || null,
+              gametest_outcome: process.env.GAMETEST_OUTCOME || null,
+              updated_at: new Date().toISOString(),
+            };
+            let sha;
+            try {
+              const existing = await github.rest.repos.getContent({
+                owner: context.repo.owner, repo: context.repo.repo, path, ref: branch,
+              });
+              if (!Array.isArray(existing.data)) sha = existing.data.sha;
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+            await github.rest.repos.createOrUpdateFileContents({
+              owner: context.repo.owner, repo: context.repo.repo, path, branch,
+              message: `Record route validation finish ${context.runId}`,
+              content: Buffer.from(`${JSON.stringify(payload, null, 2)}\n`).toString('base64'),
+              ...(sha ? { sha } : {}),
+            });
+
       - name: Fail after preserving route diagnostics
-        if: steps.gametest.outcome == 'failure'
+        if: steps.build.outcome == 'failure' || steps.gametest.outcome == 'failure'
         run: exit 1
