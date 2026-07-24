@@ -116,12 +116,15 @@ final class MissionRouteValidationSetup {
         double radius = heavy ? 78.0 : profile.isAttacker() ? 62.0 : 54.0;
         double altitudeGain = heavy ? 36.0 : profile.isAttacker() ? 30.0 : 26.0;
         int obstacleHalfWidth = heavy ? 52 : 42;
+        // Keep the barrier inside the first predictive-terrain sensor horizon for every role.
+        // This proves route-before-terrain precedence without measuring reaction to a late-spawned wall.
+        double obstacleLongitudinal = clamp(profile.cruiseSpeedBps() * 3.5, 55.0, 120.0);
         return new RouteGeometry(
                 leg,
                 lateral,
                 radius,
                 altitudeGain,
-                leg * 0.58,
+                obstacleLongitudinal,
                 obstacleHalfWidth,
                 32);
     }
