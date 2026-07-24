@@ -21,6 +21,7 @@ final class MissionRouteValidationSetup {
     private static final String VALIDATION_NAME_PREFIX = "AUTOPILOT TEST ";
     private static final String A6M = "warfare_wings:a6m";
     private static final String G4M = "warfare_wings:g4m";
+    private static final String IL2 = "warfare_wings:il2";
     private static final Set<UUID> APPLIED = ConcurrentHashMap.newKeySet();
 
     private MissionRouteValidationSetup() {
@@ -31,7 +32,7 @@ final class MissionRouteValidationSetup {
         String requested = requestedAircraft();
         String actual = BuiltInRegistries.ENTITY_TYPE.getKey(aircraft.getType()).toString();
         if (!"full".equals(System.getProperty(SCENARIO_PROPERTY, "").trim().toLowerCase(Locale.ROOT))
-                || (!A6M.equals(requested) && !G4M.equals(requested))
+                || (!A6M.equals(requested) && !G4M.equals(requested) && !IL2.equals(requested))
                 || !requested.equals(actual)
                 || !aircraft.getName().getString().startsWith(VALIDATION_NAME_PREFIX)
                 || MissionOrderManager.current(aircraft.getUUID()).isPresent()
@@ -47,8 +48,10 @@ final class MissionRouteValidationSetup {
 
         if (A6M.equals(requested)) {
             assignA6mProof(server, level, aircraft);
-        } else {
+        } else if (G4M.equals(requested)) {
             assignCompactG4mProof(server, aircraft, phase, profile);
+        } else {
+            assignCompactIl2Proof(server, aircraft, phase, profile);
         }
         return true;
     }
@@ -61,9 +64,10 @@ final class MissionRouteValidationSetup {
         if (A6M.equals(requested)) {
             return true;
         }
-        return phase == FlightPhase.CRUISE_OUTBOUND
-                && profile.isTorpedoBomber()
-                && profile.supportsAutonomousFlight();
+        if (phase != FlightPhase.CRUISE_OUTBOUND || !profile.supportsAutonomousFlight()) {
+            return false;
+        }
+        return G4M.equals(requested) ? profile.isTorpedoBomber() : profile.isAttacker();
     }
 
     private static void assignA6mProof(MinecraftServer server, ServerLevel level, Entity aircraft) {
@@ -105,6 +109,29 @@ final class MissionRouteValidationSetup {
         bind(aircraft, mission, route, "G4M");
         AutopilotLogManager.writeEvent(server, aircraft, "route_validation_assigned",
                 "aircraft=" + G4M + ":profile=" + profile.profileId() + ":role=" + profile.role()
+                        + ":order_id=" + order.orderId() + ":route_id=" + route.routeId()
+                        + ":waypoints=4:compact=true:leg=" + leg + ":terrain_proof=false",
+                phase);
+    }
+
+    private static void assignCompactIl2Proof(MinecraftServer server, Entity aircraft,
+                                              FlightPhase phase, FlightProfile profile) {
+        Vec3 origin = aircraft.position();
+        Vec3 forward = forward(aircraft);
+        Vec3 right = new Vec3(-forward.z, 0.0, forward.x).normalize();
+        MissionOrder order = MissionOrder.builder(MissionOrder.Type.HOLD_POSITION)
+                .orderId(UUID.randomUUID())
+                .build();
+        MissionOrderManager.Assignment mission = MissionOrderManager.assign(aircraft.getUUID(), order);
+        double leg = 150.0;
+        WaypointRoute route = WaypointRoute.start(UUID.randomUUID(), List.of(
+                waypoint(origin, forward, right, leg, 0.0, 18.0, 58.0),
+                waypoint(origin, forward, right, leg * 1.45, 45.0, 24.0, 62.0),
+                waypoint(origin, forward, right, leg * 1.90, -38.0, 20.0, 62.0),
+                waypoint(origin, forward, right, leg * 2.35, 0.0, 16.0, 68.0)));
+        bind(aircraft, mission, route, "IL-2");
+        AutopilotLogManager.writeEvent(server, aircraft, "route_validation_assigned",
+                "aircraft=" + IL2 + ":profile=" + profile.profileId() + ":role=" + profile.role()
                         + ":order_id=" + order.orderId() + ":route_id=" + route.routeId()
                         + ":waypoints=4:compact=true:leg=" + leg + ":terrain_proof=false",
                 phase);
