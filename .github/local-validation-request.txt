@@ -1,4 +1,4 @@
-# Local validation request pr48-waypoint-guidance-contract-fix
-ref=b1725bb7a3ae32ec33c27f81f33065a1715906d7
+# Local validation request main-dogfight-control-after-pr48
+ref=6ea41ff5fd3461a3cea40141b5afe76c2adbe899
 aircraft=warfare_wings:a6m
 gametest=true
