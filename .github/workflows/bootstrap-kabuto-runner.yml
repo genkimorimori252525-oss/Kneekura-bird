@@ -46,89 +46,103 @@ jobs:
             Write-Host $Text
           }
 
-          Record "timestamp=$([DateTime]::UtcNow.ToString('o'))"
-          Record "runner_name=$env:RUNNER_NAME"
-          Record "source_runner_present=$(Test-Path (Join-Path $sourceRoot 'run.cmd'))"
-          Record "target_runner_present=$(Test-Path (Join-Path $targetRoot 'run.cmd'))"
+          $failure = $null
+          try {
+            Record "timestamp=$([DateTime]::UtcNow.ToString('o'))"
+            Record "runner_name=$env:RUNNER_NAME"
+            Record "source_runner_present=$(Test-Path (Join-Path $sourceRoot 'run.cmd'))"
+            Record "target_runner_present=$(Test-Path (Join-Path $targetRoot 'run.cmd'))"
 
-          $gh = Get-Command gh -ErrorAction SilentlyContinue
-          Record "gh_installed=$($null -ne $gh)"
-          if ($null -eq $gh) {
-            throw 'GitHub CLI is not installed on the self-hosted runner.'
-          }
-
-          & gh auth status *> $null
-          $authenticated = $LASTEXITCODE -eq 0
-          Record "gh_authenticated=$authenticated"
-          if (-not $authenticated) {
-            throw 'GitHub CLI exists but has no authenticated user session.'
-          }
-
-          & gh api "repos/$repo" --silent
-          $repoAccess = $LASTEXITCODE -eq 0
-          Record "kabuto_repo_access=$repoAccess"
-          if (-not $repoAccess) {
-            throw 'The host GitHub CLI session cannot access the Kabuto repository.'
-          }
-
-          $token = (& gh api -X POST "repos/$repo/actions/runners/registration-token" --jq '.token').Trim()
-          if (-not $token) {
-            throw 'GitHub did not return a Kabuto runner registration token.'
-          }
-          Record 'registration_token_acquired=true'
-
-          if (-not (Test-Path (Join-Path $targetRoot 'run.cmd'))) {
-            if (-not (Test-Path (Join-Path $sourceRoot 'run.cmd'))) {
-              throw "Source runner installation is missing: $sourceRoot"
+            $gh = Get-Command gh -ErrorAction SilentlyContinue
+            Record "gh_installed=$($null -ne $gh)"
+            if ($null -eq $gh) {
+              throw 'GitHub CLI is not installed on the self-hosted runner.'
             }
-            New-Item -ItemType Directory -Force -Path $targetRoot | Out-Null
-            & robocopy $sourceRoot $targetRoot /E /XD _work _diag /XF .credentials .credentials_rsaparams .runner .service | Out-Null
-            if ($LASTEXITCODE -gt 7) {
-              throw "robocopy failed with exit code $LASTEXITCODE"
-            }
-            Record 'runner_binaries_copied=true'
-          }
 
-          $runnerConfig = Join-Path $targetRoot '.runner'
-          if (-not (Test-Path $runnerConfig)) {
-            Push-Location $targetRoot
-            try {
-              & .\config.cmd --unattended --url $repoUrl --token $token --name 'Jolly-Kabuto' --work '_work' --labels 'kabuto,forge-1.20.1' --replace
-              if ($LASTEXITCODE -ne 0) {
-                throw "config.cmd failed with exit code $LASTEXITCODE"
+            & gh auth status *> $null
+            $authenticated = $LASTEXITCODE -eq 0
+            Record "gh_authenticated=$authenticated"
+            if (-not $authenticated) {
+              throw 'GitHub CLI exists but has no authenticated user session.'
+            }
+
+            & gh api "repos/$repo" --silent
+            $repoAccess = $LASTEXITCODE -eq 0
+            Record "kabuto_repo_access=$repoAccess"
+            if (-not $repoAccess) {
+              throw 'The host GitHub CLI session cannot access the Kabuto repository.'
+            }
+
+            $token = (& gh api -X POST "repos/$repo/actions/runners/registration-token" --jq '.token').Trim()
+            if (-not $token) {
+              throw 'GitHub did not return a Kabuto runner registration token.'
+            }
+            Record 'registration_token_acquired=true'
+
+            if (-not (Test-Path (Join-Path $targetRoot 'run.cmd'))) {
+              if (-not (Test-Path (Join-Path $sourceRoot 'run.cmd'))) {
+                throw "Source runner installation is missing: $sourceRoot"
               }
+              New-Item -ItemType Directory -Force -Path $targetRoot | Out-Null
+              & robocopy $sourceRoot $targetRoot /E /XD _work _diag /XF .credentials .credentials_rsaparams .runner .service | Out-Null
+              if ($LASTEXITCODE -gt 7) {
+                throw "robocopy failed with exit code $LASTEXITCODE"
+              }
+              Record 'runner_binaries_copied=true'
             }
-            finally {
-              Pop-Location
+
+            $runnerConfig = Join-Path $targetRoot '.runner'
+            if (-not (Test-Path $runnerConfig)) {
+              Push-Location $targetRoot
+              try {
+                & .\config.cmd --unattended --url $repoUrl --token $token --name 'Jolly-Kabuto' --work '_work' --labels 'kabuto,forge-1.20.1' --replace
+                if ($LASTEXITCODE -ne 0) {
+                  throw "config.cmd failed with exit code $LASTEXITCODE"
+                }
+              }
+              finally {
+                Pop-Location
+              }
+              Record 'runner_registered=true'
             }
-            Record 'runner_registered=true'
+            else {
+              Record 'runner_registered=already'
+            }
+
+            $escaped = [regex]::Escape($targetRoot)
+            $running = @(Get-CimInstance Win32_Process -Filter "Name='Runner.Listener.exe'" |
+              Where-Object {
+                ([string]$_.ExecutablePath -match "^$escaped") -or
+                ([string]$_.CommandLine -match $escaped)
+              }).Count -gt 0
+
+            if (-not $running) {
+              $logRoot = Join-Path $targetRoot '_diag'
+              New-Item -ItemType Directory -Force -Path $logRoot | Out-Null
+              $log = Join-Path $logRoot 'jolly-kabuto-launch.log'
+              $runCmd = Join-Path $targetRoot 'run.cmd'
+              $command = '""{0}" >> "{1}" 2>&1"' -f $runCmd, $log
+              Start-Process cmd.exe -ArgumentList '/d','/s','/c',$command -WorkingDirectory $targetRoot -WindowStyle Hidden | Out-Null
+              Start-Sleep -Seconds 3
+              Record 'runner_started=true'
+            }
+            else {
+              Record 'runner_started=already'
+            }
           }
-          else {
-            Record 'runner_registered=already'
+          catch {
+            $failure = $_
+            $message = ([string]$_.Exception.Message) -replace '[\r\n]+', ' '
+            Record "error_type=$($_.Exception.GetType().FullName)"
+            Record "error_message=$message"
+          }
+          finally {
+            $lines | Set-Content -Encoding UTF8 $reportPath
           }
 
-          $escaped = [regex]::Escape($targetRoot)
-          $running = @(Get-CimInstance Win32_Process -Filter "Name='Runner.Listener.exe'" |
-            Where-Object {
-              ([string]$_.ExecutablePath -match "^$escaped") -or
-              ([string]$_.CommandLine -match $escaped)
-            }).Count -gt 0
-
-          if (-not $running) {
-            $logRoot = Join-Path $targetRoot '_diag'
-            New-Item -ItemType Directory -Force -Path $logRoot | Out-Null
-            $log = Join-Path $logRoot 'jolly-kabuto-launch.log'
-            $runCmd = Join-Path $targetRoot 'run.cmd'
-            $command = '""{0}" >> "{1}" 2>&1"' -f $runCmd, $log
-            Start-Process cmd.exe -ArgumentList '/d','/s','/c',$command -WorkingDirectory $targetRoot -WindowStyle Hidden | Out-Null
-            Start-Sleep -Seconds 3
-            Record 'runner_started=true'
+          if ($null -ne $failure) {
+            throw $failure
           }
-          else {
-            Record 'runner_started=already'
-          }
-
-          $lines | Set-Content -Encoding UTF8 $reportPath
 
       - name: Persist bootstrap report
         if: always()
