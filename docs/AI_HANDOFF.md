@@ -6,7 +6,7 @@ Follow `/AGENTS.md` before changing code. Live GitHub state overrides older note
 
 ## Current production baseline
 
-Production owned-route guidance remains below player-control, emergency, terrain, collision, and combat authority. No weapon, timeout, waypoint-radius, or minimum-separation rule was relaxed.
+Production owned-route guidance remains below player-control, emergency, terrain, collision, and combat authority. No weapon, timeout, waypoint-radius, landing-geometry, or minimum-separation rule has been relaxed.
 
 Merged route milestones:
 
@@ -22,7 +22,7 @@ The generic route plan derives four waypoints from measured `FlightProfile` role
 
 ## Exact-physics qualification evidence
 
-Fully qualified with artifacts and terminal `PARKED`:
+Fully qualified with terminal `PARKED`:
 
 - A6M terrain-precedence proof — Run `30106085402`;
 - G4M compact torpedo-bomber route — Run `30113770224`;
@@ -36,46 +36,51 @@ Each completed generic qualification required ordered waypoint progression `3,2,
 
 ## Ju 87 investigation
 
-### Post-processing incident
+### Established evidence
 
-Run `30121385930` checked out exact production behavior SHA `a91c610b970721e3508dca4c1460e75b262ec3d0`. Build, deterministic simulation, and strict route GameTest passed, but artifact upload and finish-status persistence failed. PR #65 fixed only that workflow post-processing path.
+Run `30122172937` used production route behavior and completed the ordered route, but ended `ABORTED:return_to_pattern_timeout`. RETURN_TO_PATTERN began about 1,567 blocks from downwind entry and ended about 275 blocks away under the unchanged 1,800-tick budget.
 
-### Artifact-backed production-behavior failure
+Ju 87 measured profile values relevant to the investigation:
 
-Retry Run `30122172937` used the same production behavior SHA and produced diagnostics. The route completed in ordered `3,2,1,0`, released to the ordinary mission, then ended `ABORTED:return_to_pattern_timeout`.
+- climb target: about 15.69 BPS;
+- turn-speed floor: about 18.75 BPS;
+- measured top speed: about 22.27 BPS.
 
-Telemetry proved direct guidance rather than steering failure:
+### Isolated hypotheses
 
-- RETURN_TO_PATTERN started about 1,567 blocks from downwind entry;
-- the aircraft continuously reduced that distance to about 275 blocks;
-- unchanged acceptance requires under 30 blocks within 1,800 ticks;
-- Ju 87 profile: climb target about 15.69 BPS, turn floor about 18.75 BPS, measured top speed about 22.27 BPS.
+PR #66 / Run `30123421732` proved that owned outbound route travel was not credited toward the ordinary 240-tick outbound sample. Its clock policy reduced rejoin start distance to about 1,371 blocks and ended about 78 blocks from downwind entry. It was insufficient alone and was closed without merge.
 
-### Insufficient clock-accounting hypothesis
+PR #67 / Run `30124721947` proved that RETURN_TO_PATTERN could command the measured turn-speed floor, raising the target from about 15.69 BPS to about 18.75 BPS. Because that branch did not include PR #66's clock correction, rejoin again began about 1,567 blocks away and ended about 152 blocks short. It was insufficient alone and was closed without merge.
 
-Draft PR #66 (`73f396048d14b3dc3612259169c9d0c8ad874d7b`) counted owned-route outbound travel toward the ordinary 240-tick cruise sample without increasing any timeout.
+### Current focused hypothesis — Draft PR #70
 
-Exact-head Run `30123421732` passed build and deterministic clock-policy tests. The route completed at tick 3971 and ordinary `CRUISE_OUTBOUND -> TURN_LEFT` occurred at tick 3973 instead of 240 ticks later. RETURN_TO_PATTERN therefore began about 236 ticks earlier and about 1,371 blocks from downwind entry, but still ended about 78 blocks away and failed the unchanged 30-block acceptance. PR #66 was closed as insufficient and not merged.
+Draft PR #70 combines only the two previously observed effects on a clean branch:
 
-### Current single hypothesis
+- `MissionRouteClockPolicy` credits owned `CRUISE_OUTBOUND` travel toward the fixed 240-tick sample while freezing the overall mission timeout;
+- `PatternRejoinSpeedPolicy` commands at least measured `turnSpeedFloorBps` only during RETURN_TO_PATTERN;
+- both mixin injection points use `require = 1`;
+- no timeout, route geometry, waypoint radius, landing-pattern geometry, terrain, collision, stall, combat, weapon, player-control, or separation threshold changes.
 
-Draft PR #67 (`7315a4062cc52a2667a370341e22f0b48f15aedb`) starts cleanly from current `main` and changes only landing-pattern rejoin target speed:
+Exact behavior head:
 
-- preserve the existing approach-speed margin and climb target;
-- require RETURN_TO_PATTERN target speed to be at least measured `turnSpeedFloorBps`;
-- apply through a require=1 mixin only to the long rejoin waypoint-control call;
-- leave downwind, base, final, flare, touchdown, braking, route geometry, timeouts, and safety authority unchanged;
-- add deterministic profile-policy GameTests.
+`bdce17573f0da5e1b90bf5566115013ec4d2734c`
 
-Exact-head Windows Run `30124721947` is active for Ju 87 `route`. Request resolution and checkout succeeded. At this checkpoint it remained in `Set up Gradle 8.8`; no build or targeted-scenario result was available yet. Do not trigger another run while it is active.
+The validation request is present on `main` in `.github/local-route-validation-request.txt`, committed as `62607f75c95685dc98ab69f16af041225ab12f14`:
+
+- aircraft: `warfare_wings:ju87`;
+- scenario: `route`;
+- exact ref: PR #70 behavior head above.
+
+At this checkpoint no new route-validation start commit, status update, check, or Run ID exists after the request. The previous status file still records completed failed Run `30124721947`. Treat the Windows self-hosted runner as unavailable or not assigned for this request. Do not edit the request file, retrigger, or create a no-op commit while this remains true.
 
 ## Repository state
 
-- Parent roadmap: Issue #7 remains open.
-- Draft behavior PR #67 is the only current Ju 87 hypothesis.
-- Draft PR #66 is closed and preserved as failed-hypothesis evidence.
-- Windows self-hosted runner `ジョリー` accepted Run `30124721947`.
-- Current `main` includes the PR #67 validation request/status metadata or later documentation metadata.
+- Parent roadmap: Issue #7 is the only open issue.
+- Draft PR #70 is the only open pull request.
+- Current request commit: `62607f75c95685dc98ab69f16af041225ab12f14`.
+- Current pending behavior head: `bdce17573f0da5e1b90bf5566115013ec4d2734c`.
+- Latest completed route status remains Run `30124721947`: build success, GameTest failure, artifact success.
+- No new Windows run has accepted the PR #70 request yet.
 
 ## Preserved invariants
 
@@ -88,8 +93,9 @@ Exact-head Windows Run `30124721947` is active for Ju 87 `route`. Request resolu
 
 ## Next exact action
 
-1. Read `.github/local-route-validation-status.json` and Run `30124721947` before any new request.
-2. If the run fails, fetch the artifact immediately and identify the first meaningful failure; do not retry or adjust thresholds without a materially different design.
-3. If the run succeeds, verify the applied RETURN_TO_PATTERN target speed, ordered route evidence, downwind/base/final transitions, final `PARKED`, summary 1/1, Gradle status 0, and no crash report.
-4. Rebuild the exact validated PR #67 blobs from the latest `main` if metadata drift makes the branch stale, then mark ready and squash merge.
-5. After Ju 87 is fully qualified, continue the 24-aircraft route matrix with an unqualified aircraft selected to broaden physics coverage.
+1. Read `.github/local-route-validation-status.json` and recent commits before touching the request.
+2. If a new Run ID appears for exact head `bdce17573f0da5e1b90bf5566115013ec4d2734c`, inspect that run once and do not duplicate it.
+3. If no Run ID exists and the runner remains unavailable, perform only GitHub-side review, deterministic-test inspection, or documentation work; do not retrigger.
+4. If the run succeeds, verify both deterministic policy batches, route `3,2,1,0`, immediate ordinary mission release, RETURN_TO_PATTERN target near 18.7537 BPS, downwind/base/final transitions, landing, final `PARKED`, summary 1/1, Gradle status 0, and no crash report.
+5. If the run fails, fetch logs and artifact once, identify the first meaningful acceptance failure, and record one materially different next hypothesis without changing thresholds blindly.
+6. Only after exact-head success, rebuild the validated blobs from the latest `main` if metadata drift makes PR #70 stale, then mark ready and squash merge.
