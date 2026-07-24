@@ -1,8 +1,8 @@
 {
   "run_id": 30101541976,
   "run_attempt": 1,
-  "status": "in_progress",
-  "conclusion": null,
+  "status": "completed",
+  "conclusion": "success",
   "event": "push",
   "head_branch": "main",
   "head_sha": "b8c54565693d9f9f7bb5f1e8faea84585a0fecae",
@@ -12,5 +12,5 @@
   "scenario": "full",
   "gametest": "true",
   "url": "https://github.com/genkimorimori252525-oss/warfare_wings-1.1.4-1.20.1-forge/actions/runs/30101541976",
-  "updated_at": "2026-07-24T14:34:37.311Z"
+  "updated_at": "2026-07-24T14:39:32.249Z"
 }
