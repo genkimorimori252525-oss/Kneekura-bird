@@ -20,6 +20,7 @@ public final class MissionRouteManagerGameTests {
 
     @GameTest(template = "empty", timeoutTicks = 20, batch = "mission_route_manager_contract")
     public static void missionRouteOwnershipPreventsStaleRewind(GameTestHelper helper) {
+        MissionOrderManager.clearAll();
         MissionRouteManager.clearAll();
         UUID aircraft = UUID.fromString("00000000-0000-0000-0000-000000000901");
         UUID firstOrder = UUID.fromString("00000000-0000-0000-0000-000000000902");
@@ -27,12 +28,20 @@ public final class MissionRouteManagerGameTests {
         UUID firstRouteId = UUID.fromString("00000000-0000-0000-0000-000000000904");
         UUID secondRouteId = UUID.fromString("00000000-0000-0000-0000-000000000905");
 
+        MissionOrderManager.Assignment firstMission = new MissionOrderManager.Assignment(
+                10L,
+                MissionOrder.builder(MissionOrder.Type.HOLD_POSITION)
+                        .orderId(firstOrder)
+                        .targetPosition(new Vec3(40.0, 90.0, 0.0), 12.0)
+                        .build());
+        MissionOrderManager.restore(Map.of(aircraft, firstMission));
+
         WaypointRoute firstRoute = WaypointRoute.start(firstRouteId, List.of(
                 new WaypointRoute.Waypoint(new Vec3(10.0, 80.0, 10.0), 4.0),
                 new WaypointRoute.Waypoint(new Vec3(12.0, 80.0, 10.0), 4.0),
                 new WaypointRoute.Waypoint(new Vec3(40.0, 90.0, 0.0), 3.0)));
         MissionRouteManager.Assignment initial = MissionRouteManager
-                .bind(aircraft, 10L, firstOrder, firstRoute).orElseThrow();
+                .bind(aircraft, firstMission, firstRoute).orElseThrow();
         check(initial.route().nextIndex() == 0, "a new mission route must start at index zero");
 
         MissionRouteManager.Assignment outside = MissionRouteManager
@@ -45,7 +54,7 @@ public final class MissionRouteManagerGameTests {
                 "one matching call must advance at most one overlapping waypoint");
 
         MissionRouteManager.Assignment idempotentRebind = MissionRouteManager
-                .bind(aircraft, 10L, firstOrder, firstRoute).orElseThrow();
+                .bind(aircraft, firstMission, firstRoute).orElseThrow();
         check(idempotentRebind.route().nextIndex() == 1,
                 "rebinding the same mission and route must not rewind progress");
 
@@ -56,17 +65,24 @@ public final class MissionRouteManagerGameTests {
 
         WaypointRoute staleRoute = WaypointRoute.start(secondRouteId, List.of(
                 new WaypointRoute.Waypoint(Vec3.ZERO, 8.0)));
-        check(MissionRouteManager.bind(aircraft, 9L, secondOrder, staleRoute).isEmpty(),
+        check(MissionRouteManager.bindOwned(aircraft, 9L, secondOrder, staleRoute).isEmpty(),
                 "an older mission revision must not replace current route progress");
-        check(MissionRouteManager.bind(aircraft, 10L, secondOrder, staleRoute).isEmpty(),
+        check(MissionRouteManager.bindOwned(aircraft, 10L, secondOrder, staleRoute).isEmpty(),
                 "an equal-revision order conflict must be rejected");
         check(MissionRouteManager.current(aircraft).orElseThrow().route().nextIndex() == 2,
                 "rejected binds must leave current route progress unchanged");
 
+        MissionOrderManager.Assignment secondMission = new MissionOrderManager.Assignment(
+                11L,
+                MissionOrder.builder(MissionOrder.Type.HOLD_POSITION)
+                        .orderId(secondOrder)
+                        .targetPosition(Vec3.ZERO, 8.0)
+                        .build());
+        MissionOrderManager.restore(Map.of(aircraft, secondMission));
         MissionRouteManager.Assignment replacement = MissionRouteManager
-                .bind(aircraft, 11L, secondOrder, staleRoute).orElseThrow();
+                .bind(aircraft, secondMission, staleRoute).orElseThrow();
         check(replacement.missionRevision() == 11L && replacement.route().nextIndex() == 0,
-                "a newer mission revision must replace the prior route");
+                "a newer current mission must replace the prior route");
         check(MissionRouteManager.advance(aircraft, 10L, firstOrder, Vec3.ZERO).isEmpty(),
                 "a stale mission must not advance the replacement route");
         check(MissionRouteManager.current(aircraft).orElseThrow().equals(replacement),
@@ -80,21 +96,35 @@ public final class MissionRouteManagerGameTests {
                 "a cleared route must no longer be visible");
 
         MissionRouteManager.clearAll();
+        MissionOrderManager.clearAll();
         helper.succeed();
     }
 
     @GameTest(template = "empty", timeoutTicks = 20, batch = "mission_route_manager_contract")
-    public static void missionRouteManagerRejectsInvalidRevisionAndCopiesSnapshot(GameTestHelper helper) {
+    public static void missionRouteManagerRequiresCurrentMissionAndCopiesSnapshot(GameTestHelper helper) {
+        MissionOrderManager.clearAll();
         MissionRouteManager.clearAll();
         UUID aircraft = UUID.fromString("00000000-0000-0000-0000-000000000911");
-        UUID order = UUID.fromString("00000000-0000-0000-0000-000000000912");
+        UUID orderId = UUID.fromString("00000000-0000-0000-0000-000000000912");
+        MissionOrder order = MissionOrder.builder(MissionOrder.Type.HOLD_POSITION)
+                .orderId(orderId)
+                .targetPosition(Vec3.ZERO, 8.0)
+                .build();
+        MissionOrderManager.Assignment mission = new MissionOrderManager.Assignment(1L, order);
         WaypointRoute route = WaypointRoute.start(
                 UUID.fromString("00000000-0000-0000-0000-000000000913"),
                 List.of(new WaypointRoute.Waypoint(Vec3.ZERO, 8.0)));
 
-        expectInvalid(() -> MissionRouteManager.bind(aircraft, 0L, order, route),
+        expectInvalid(() -> MissionRouteManager.bindOwned(aircraft, 0L, orderId, route),
                 "a non-positive mission revision must be rejected");
-        MissionRouteManager.bind(aircraft, 1L, order, route).orElseThrow();
+        check(MissionRouteManager.bind(aircraft, mission, route).isEmpty(),
+                "a route must not bind before its mission becomes current");
+        MissionOrderManager.restore(Map.of(aircraft, mission));
+        MissionRouteManager.bind(aircraft, mission, route).orElseThrow();
+        MissionOrderManager.Assignment forgedNewer = new MissionOrderManager.Assignment(2L, order);
+        check(MissionRouteManager.bind(aircraft, forgedNewer, route).isEmpty(),
+                "a supplied assignment that is not current must be rejected");
+
         Map<UUID, MissionRouteManager.Assignment> snapshot = MissionRouteManager.snapshot();
         MissionRouteManager.clearAll();
         check(snapshot.containsKey(aircraft),
@@ -102,6 +132,7 @@ public final class MissionRouteManagerGameTests {
         expectUnsupported(() -> snapshot.clear(),
                 "the exposed snapshot must be immutable");
 
+        MissionOrderManager.clearAll();
         helper.succeed();
     }
 
