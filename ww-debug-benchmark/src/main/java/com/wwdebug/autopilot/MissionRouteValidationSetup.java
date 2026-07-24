@@ -93,7 +93,8 @@ final class MissionRouteValidationSetup {
                         + ":leg=" + geometry.leg()
                         + ":radius=" + geometry.radius()
                         + ":obstacle_longitudinal=" + geometry.obstacleLongitudinal()
-                        + ":obstacle_top_relative=12.0",
+                        + ":obstacle_half_width=" + geometry.obstacleHalfWidth()
+                        + ":obstacle_top_relative=38.0",
                 phase);
         return true;
     }
@@ -115,9 +116,10 @@ final class MissionRouteValidationSetup {
         double lateral = heavy ? 135.0 : profile.isAttacker() ? 105.0 : 95.0;
         double radius = heavy ? 78.0 : profile.isAttacker() ? 62.0 : 54.0;
         double altitudeGain = heavy ? 36.0 : profile.isAttacker() ? 30.0 : 26.0;
-        int obstacleHalfWidth = heavy ? 52 : 42;
+        // Block the live multi-ray corridor while preserving the planner's established hard-detour
+        // candidate. Large aircraft need a wider direct barrier, not a wall wider than their bypass.
+        int obstacleHalfWidth = heavy ? 28 : profile.isAttacker() ? 32 : 30;
         // Keep the barrier inside the first predictive-terrain sensor horizon for every role.
-        // This proves route-before-terrain precedence without measuring reaction to a late-spawned wall.
         double obstacleLongitudinal = clamp(profile.cruiseSpeedBps() * 3.5, 55.0, 120.0);
         return new RouteGeometry(
                 leg,
@@ -143,11 +145,10 @@ final class MissionRouteValidationSetup {
                                                Vec3 forward,
                                                Vec3 right,
                                                RouteGeometry geometry) {
-        // Match the proven PR #53 vertical relationship: the barrier intersects the current
-        // flight path, but its top is only 12 blocks above live cruise altitude. Terrain safety
-        // must still override route guidance without demanding an artificial 40-block zoom climb.
+        // Reproduce PR #53's proven vertical corridor: the direct rising probe intersects the wall
+        // early, while lateral safety candidates can clear it without an emergency zoom climb.
         Vec3 center = origin.add(forward.scale(geometry.obstacleLongitudinal()))
-                .add(0.0, -20.0, 0.0);
+                .add(0.0, 6.0, 0.0);
         for (int lateral = -geometry.obstacleHalfWidth();
              lateral <= geometry.obstacleHalfWidth(); lateral++) {
             for (int depth = -2; depth <= 2; depth++) {
