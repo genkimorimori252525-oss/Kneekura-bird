@@ -13,15 +13,17 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Stream;
 
-/** Strict evidence contract for the first exact-physics owned-route integration proof. */
+/** Strict evidence contract for exact-physics owned-route integration proofs. */
 public final class MissionRouteEvidenceVerifier {
     private static final String SCENARIO_PROPERTY = "wwdebug.flightGameTestScenario";
     private static final String AIRCRAFT_PROPERTY = "wwdebug.flightGameTestAircraft";
-    private static final String PROOF_AIRCRAFT = "warfare_wings:a6m";
+    private static final String A6M = "warfare_wings:a6m";
+    private static final String G4M = "warfare_wings:g4m";
     private static final Set<String> TERRAIN_OVERRIDES = Set.of(
             "predictive_terrain_avoidance",
             "terrain_emergency_climb");
@@ -30,11 +32,12 @@ public final class MissionRouteEvidenceVerifier {
     }
 
     public static void verify(MinecraftServer server, JsonArray results) {
-        if (!proofRequested()) {
+        String requested = requestedAircraft();
+        if (!proofRequested(requested)) {
             return;
         }
 
-        JsonObject result = proofResult(results);
+        JsonObject result = proofResult(results, requested);
         String uuid = text(result, "aircraft_uuid");
         String directoryText = AutopilotLogManager.currentDirectory(server);
         if ("not-opened".equals(directoryText)) {
@@ -44,20 +47,31 @@ public final class MissionRouteEvidenceVerifier {
         Path log = findAircraftLog(Path.of(directoryText).resolve("aircraft"), uuid);
         List<JsonObject> rows = readRows(log);
         require(count(rows, "route_validation_assigned") == 1,
-                "expected one route_validation_assigned event");
+                requested + " expected one route_validation_assigned event");
         require(count(rows, "route_guidance_start") == 1,
-                "expected one route_guidance_start event");
+                requested + " expected one route_guidance_start event");
         require(count(rows, "route_guidance_completed") == 1,
-                "expected one route_guidance_completed event");
+                requested + " expected one route_guidance_completed event");
 
+        int assignedIndex = firstIndex(rows, "route_validation_assigned");
         int startIndex = firstIndex(rows, "route_guidance_start");
         int completedIndex = firstIndex(rows, "route_guidance_completed");
+        JsonObject assigned = rows.get(assignedIndex);
         JsonObject start = rows.get(startIndex);
         JsonObject completed = rows.get(completedIndex);
         long startTick = number(start, "server_tick");
         long completedTick = number(completed, "server_tick");
-        require(completedIndex > startIndex && completedTick > startTick,
-                "route completion did not occur after route activation");
+        String assignedReason = text(assigned, "reason");
+        require(assignedReason.contains("aircraft=" + requested),
+                "assignment evidence did not identify the requested aircraft");
+        if (G4M.equals(requested)) {
+            require(assignedReason.contains("role=torpedo_bomber"),
+                    "G4M profile did not preserve torpedo_bomber role");
+            require(assignedReason.contains("compact=true"),
+                    "G4M did not use the compact representative route");
+        }
+        require(assignedIndex <= startIndex && completedIndex > startIndex && completedTick > startTick,
+                "route completion did not occur after assignment and activation");
         require("CRUISE_OUTBOUND".equals(text(start, "phase")),
                 "route did not activate in CRUISE_OUTBOUND");
         require("CRUISE_OUTBOUND".equals(text(completed, "phase")),
@@ -116,30 +130,35 @@ public final class MissionRouteEvidenceVerifier {
         require(releaseToOrdinaryMission,
                 "route completion did not release the aircraft back to the ordinary mission");
 
-        boolean terrainOverrodeRoute = adapters.values().stream().anyMatch(order ->
-                order.routeIndex >= 0 && order.terrainIndex > order.routeIndex);
-        require(terrainOverrodeRoute,
-                "terrain avoidance never overrode an owned-route proposal in the same tick");
+        if (A6M.equals(requested)) {
+            boolean terrainOverrodeRoute = adapters.values().stream().anyMatch(order ->
+                    order.routeIndex >= 0 && order.terrainIndex > order.routeIndex);
+            require(terrainOverrodeRoute,
+                    "terrain avoidance never overrode an A6M route proposal in the same tick");
+        }
     }
 
-    private static boolean proofRequested() {
-        return "full".equals(System.getProperty(SCENARIO_PROPERTY, "").trim().toLowerCase())
-                && PROOF_AIRCRAFT.equals(
-                System.getProperty(AIRCRAFT_PROPERTY, "").trim().toLowerCase());
+    private static boolean proofRequested(String requested) {
+        return "full".equals(System.getProperty(SCENARIO_PROPERTY, "").trim().toLowerCase(Locale.ROOT))
+                && (A6M.equals(requested) || G4M.equals(requested));
     }
 
-    private static JsonObject proofResult(JsonArray results) {
+    private static String requestedAircraft() {
+        return System.getProperty(AIRCRAFT_PROPERTY, "").trim().toLowerCase(Locale.ROOT);
+    }
+
+    private static JsonObject proofResult(JsonArray results, String requested) {
         for (JsonElement element : results) {
             if (!element.isJsonObject()) {
                 continue;
             }
             JsonObject row = element.getAsJsonObject();
-            if (PROOF_AIRCRAFT.equals(text(row, "entity_id"))
+            if (requested.equals(text(row, "entity_id"))
                     && Boolean.TRUE.equals(booleanValue(row, "passed"))) {
                 return row;
             }
         }
-        throw new IllegalStateException("Passed A6M result was unavailable for route evidence");
+        throw new IllegalStateException("Passed representative result was unavailable for " + requested);
     }
 
     private static Path findAircraftLog(Path directory, String uuid) {

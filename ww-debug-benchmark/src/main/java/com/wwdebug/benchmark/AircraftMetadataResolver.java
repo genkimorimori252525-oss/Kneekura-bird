@@ -36,10 +36,8 @@ public final class AircraftMetadataResolver {
             category = inferCategory(entityId.getPath());
         }
 
-        // Released aircraft data may predate the optional ai block. The JSON still contains the
-        // authoritative physical properties, so keep it, but fill only the missing classification
-        // from the stable registry id. This avoids replacing the aircraft data with a test-only
-        // resource pack and keeps old releases compatible with measured-profile AI validation.
+        // Released aircraft data may predate the optional ai block. Keep its physical properties,
+        // but fill only missing classification from the stable registry id.
         String resolvedRole = parsed.role();
         if (isUnknown(resolvedRole) && category != BenchmarkCategory.OTHER) {
             resolvedRole = category.id();
@@ -106,14 +104,16 @@ public final class AircraftMetadataResolver {
 
     private static BenchmarkCategory inferCategory(String path) {
         String value = path.toLowerCase(Locale.ROOT);
-        if (containsAny(value, "b17", "b29", "g4m", "g10n", "he111", "bomber")) {
+        // G4M is the base torpedo-bomber representative. Public 1.1.4 data may predate the optional
+        // ai block, so preserve the repository-authoritative role before generic bomber fallback.
+        if (containsAny(value, "g4m", "torpedo")) {
+            return BenchmarkCategory.TORPEDO_BOMBER;
+        }
+        if (containsAny(value, "b17", "b29", "g10n", "he111", "bomber")) {
             return BenchmarkCategory.BOMBER;
         }
         if (containsAny(value, "ju87", "sbd", "d4y", "il2", "attacker", "attack")) {
             return BenchmarkCategory.ATTACKER;
-        }
-        if (containsAny(value, "torpedo")) {
-            return BenchmarkCategory.TORPEDO_BOMBER;
         }
         if (containsAny(value, "p40", "p51", "p47", "f4u", "f6f", "a6m", "ki61", "ki84",
                 "fw190", "bf109", "yak3", "mig3", "mc202", "spitfire", "fighter")) {
@@ -137,8 +137,7 @@ public final class AircraftMetadataResolver {
 
     private static String string(JsonObject object, String key, String fallback) {
         return object.has(key) && object.get(key).isJsonPrimitive()
-                ? object.get(key).getAsString()
-                : fallback;
+                ? object.get(key).getAsString() : fallback;
     }
 
     private record ParsedMetadata(
