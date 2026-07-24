@@ -1,5 +1,5 @@
-# Local flight validation request pr57-a6m-bounded-route
-ref=a40f051483c2ba73075157af9757bbeabff3ddbb
+# Local flight validation request pr57-a6m-initial-sensor-horizon
+ref=7b6083416fbae80b9facc4f211e2c5bf3cb259fd
 aircraft=warfare_wings:a6m
 scenario=full
 gametest=true
