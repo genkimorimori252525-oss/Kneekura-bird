@@ -1,0 +1,44 @@
+name: Trim Kabuto Action Queue
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/trim-kabuto-action-queue.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trim:
+    if: github.actor == 'genkimorimori252525-oss'
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell
+
+    steps:
+      - name: Cancel redundant Kabuto runs
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $repo = 'genkimorimori252525-oss/kabuto'
+          $cancel = @(
+            30105886338, # duplicate push Forge build; PR Forge build succeeded
+            30105889994  # PR recovery cannot commit generated source; keep push recovery
+          )
+
+          foreach ($runId in $cancel) {
+            $run = ((& gh api "repos/$repo/actions/runs/$runId") -join [Environment]::NewLine) | ConvertFrom-Json
+            Write-Host "Run $runId before cancellation: name=$($run.name) event=$($run.event) status=$($run.status) conclusion=$($run.conclusion)"
+            if ($run.status -in @('queued','in_progress','pending','waiting')) {
+              & gh api -X POST "repos/$repo/actions/runs/$runId/cancel" --silent
+              if ($LASTEXITCODE -ne 0) {
+                throw "Could not cancel run $runId"
+              }
+              Write-Host "Cancellation requested for $runId"
+            }
+          }
+
+          $keep = ((& gh api "repos/$repo/actions/runs/30105886332") -join [Environment]::NewLine) | ConvertFrom-Json
+          Write-Host "Kept recovery run: id=$($keep.id) event=$($keep.event) status=$($keep.status) head=$($keep.head_sha)"
