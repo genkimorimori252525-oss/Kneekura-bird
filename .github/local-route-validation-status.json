@@ -1,12 +1,18 @@
 {
   "run_id": 30121385930,
-  "status": "in_progress",
-  "conclusion": null,
+  "status": "completed",
+  "conclusion": "infrastructure_failure",
   "event": "push",
   "branch": "main",
   "event_sha": "f4b457ba25852ac11bcb10ab4d31f3f355b61caa",
   "requested_ref": "a91c610b970721e3508dca4c1460e75b262ec3d0",
+  "requested_sha": "a91c610b970721e3508dca4c1460e75b262ec3d0",
   "aircraft": "warfare_wings:ju87",
   "scenario": "route",
-  "updated_at": "2026-07-24T19:42:35.411Z"
+  "build_outcome": "success",
+  "gametest_outcome": "success",
+  "diagnostics_outcome": "failure",
+  "status_persist_outcome": "failure",
+  "note": "Exact-physics route scenario passed; only artifact upload and automatic finish-status persistence failed. Do not retune aircraft behavior from this run.",
+  "updated_at": "2026-07-25T04:55:00+09:00"
 }
