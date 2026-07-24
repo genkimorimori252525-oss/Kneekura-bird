@@ -1,5 +1,5 @@
-# Local flight validation request pr57-b17-heavy-detour-room
+# Local flight validation request pr57-g4m-torpedo-role-route
 ref=3f898dea6b2b1ba772985c8996dc0b968594788f
-aircraft=warfare_wings:b17
+aircraft=warfare_wings:g4m
 scenario=full
 gametest=true
