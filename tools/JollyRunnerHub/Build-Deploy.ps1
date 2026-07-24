@@ -15,6 +15,7 @@ $manifestPath = Join-Path $root 'app.manifest'
 $launcherPath = Join-Path $root 'Launcher.cs'
 $defaultConfig = Join-Path $root 'profiles.default.json'
 $scriptPath = Join-Path $root 'JollyRunnerHub.ps1'
+$runtimeSourcePath = Join-Path $buildDir 'JollyRunnerHub.source.ps1'
 
 $scriptText = Get-Content -LiteralPath $scriptPath -Raw -Encoding UTF8
 $tokens = $null
@@ -39,6 +40,44 @@ $null = Get-Content -LiteralPath $defaultConfig -Raw -Encoding UTF8 | ConvertFro
 
 New-Item -ItemType Directory -Force -Path $buildDir | Out-Null
 New-Item -ItemType Directory -Force -Path $appData | Out-Null
+
+$dashboardTabTarget = '$dashboardTab.BackColor = $ColorWindow'
+$dashboardTabReplacement = @'
+$dashboardTab.BackColor = $ColorWindow
+$dashboardTab.AutoScroll = $true
+$dashboardTab.AutoScrollMargin = New-Object Drawing.Size(0,16)
+'@
+if (-not $scriptText.Contains($dashboardTabTarget)) {
+    throw 'Runner Hub scroll patch target was not found: dashboard tab.'
+}
+$runtimeScriptText = $scriptText.Replace($dashboardTabTarget,$dashboardTabReplacement.TrimEnd())
+
+$dashboardLayoutTarget = '$dashboardTab.Controls.Add($dashboardLayout)'
+$dashboardLayoutReplacement = @'
+$dashboardLayout.Dock = 'Top'
+$dashboardLayout.Height = 1040
+$dashboardLayout.MinimumSize = New-Object Drawing.Size(0,1040)
+$dashboardTab.AutoScrollMinSize = New-Object Drawing.Size(0,1060)
+[void]$dashboardTab.Controls.Add($dashboardLayout)
+'@
+if (-not $runtimeScriptText.Contains($dashboardLayoutTarget)) {
+    throw 'Runner Hub scroll patch target was not found: dashboard layout.'
+}
+$runtimeScriptText = $runtimeScriptText.Replace(
+    $dashboardLayoutTarget,
+    $dashboardLayoutReplacement.TrimEnd())
+Set-Content -LiteralPath $runtimeSourcePath -Value $runtimeScriptText -Encoding UTF8
+
+$runtimeTokens = $null
+$runtimeParseErrors = $null
+[System.Management.Automation.Language.Parser]::ParseInput(
+    $runtimeScriptText, [ref]$runtimeTokens, [ref]$runtimeParseErrors) | Out-Null
+if (@($runtimeParseErrors).Count -gt 0) {
+    $details = @($runtimeParseErrors | ForEach-Object {
+        '{0}:{1} {2}' -f $_.Extent.StartLineNumber,$_.Extent.StartColumnNumber,$_.Message
+    }) -join [Environment]::NewLine
+    throw "Scrollable Runner Hub runtime syntax validation failed:`n$details"
+}
 
 $iconParts = @(Get-ChildItem -LiteralPath $root -Filter 'JollyRunnerHub.ico.b64.part*' -File |
     Sort-Object Name)
@@ -76,7 +115,7 @@ if (-not (Test-Path -LiteralPath $smokeProfile)) {
 }
 
 $previousSmokeSource = [Environment]::GetEnvironmentVariable('JOLLY_RUNNER_HUB_SOURCE','Process')
-[Environment]::SetEnvironmentVariable('JOLLY_RUNNER_HUB_SOURCE',$scriptPath,'Process')
+[Environment]::SetEnvironmentVariable('JOLLY_RUNNER_HUB_SOURCE',$runtimeSourcePath,'Process')
 try {
     $smoke = Start-Process -FilePath $exePath -ArgumentList '--smoke-test' `
         -PassThru -Wait -WindowStyle Hidden
@@ -120,7 +159,7 @@ function Copy-Or-StageUpdate {
 
 if ($Install) {
     $installedScriptPath = Join-Path $appData 'JollyRunnerHub.ps1'
-    Set-Content -LiteralPath $installedScriptPath -Value $scriptText -Encoding UTF8
+    Set-Content -LiteralPath $installedScriptPath -Value $runtimeScriptText -Encoding UTF8
     Copy-Item -LiteralPath $defaultConfig -Destination $smokeDefaultConfig -Force
 
     $profilePath = $smokeProfile
@@ -181,8 +220,9 @@ for ($attempt = 0; $attempt -lt 21600; $attempt++) {
         config = $profilePath
         icon_sha256 = (Get-FileHash -LiteralPath $iconPath -Algorithm SHA256).Hash.ToLowerInvariant()
         pending_restart = $pendingRestart
-        dashboard_version = 2
+        dashboard_version = 3
         startup_smoke_test = 'passed'
+        dashboard_scroll = 'vertical'
     }
     $installInfo | ConvertTo-Json |
         Set-Content -LiteralPath (Join-Path $appData 'install-status.json') -Encoding UTF8
