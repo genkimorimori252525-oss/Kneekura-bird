@@ -19,32 +19,22 @@ jobs:
         shell: powershell
 
     steps:
-      - name: Cancel redundant Kabuto runs
+      - name: Cancel stale Kabuto push probe
         run: |
           $ErrorActionPreference = 'Stop'
           $repo = 'genkimorimori252525-oss/kabuto'
-          $cancel = @(
-            30105886338, # duplicate Forge push; matching PR build succeeded
-            30106638733, # redundant Forge PR build on current head
-            30106604431, # stale PR recovery from previous head
-            30105889994  # completed failed PR recovery; harmless no-op
-          )
+          $staleId = 30107559827
 
-          foreach ($runId in $cancel) {
-            $run = ((& gh api "repos/$repo/actions/runs/$runId") -join [Environment]::NewLine) | ConvertFrom-Json
-            Write-Host "Run $runId before cancellation: name=$($run.name) event=$($run.event) status=$($run.status) conclusion=$($run.conclusion)"
-            if ($run.status -in @('queued','in_progress','pending','waiting')) {
-              & gh api -X POST "repos/$repo/actions/runs/$runId/cancel" --silent
-              if ($LASTEXITCODE -ne 0) {
-                throw "Could not cancel run $runId"
-              }
-              Write-Host "Cancellation requested for $runId"
-            }
+          $stale = ((& gh api "repos/$repo/actions/runs/$staleId") -join [Environment]::NewLine) | ConvertFrom-Json
+          Write-Host "Stale run before cancellation: id=$($stale.id) name=$($stale.name) event=$($stale.event) status=$($stale.status) head=$($stale.head_sha)"
+          if ($stale.status -in @('queued','in_progress','pending','waiting')) {
+            & gh api -X POST "repos/$repo/actions/runs/$staleId/cancel" --silent
+            if ($LASTEXITCODE -ne 0) { throw "Could not cancel stale run $staleId" }
+            Write-Host "Cancellation requested for stale run $staleId"
           }
 
-          $keepId = 30106633730
-          $keep = ((& gh api "repos/$repo/actions/runs/$keepId") -join [Environment]::NewLine) | ConvertFrom-Json
-          Write-Host "Kept recovery run: id=$($keep.id) event=$($keep.event) status=$($keep.status) head=$($keep.head_sha)"
-          if ($keep.name -ne 'Recover original NeoForge sources' -or $keep.event -ne 'push') {
-            throw "Run $keepId is not the intended push recovery run."
+          foreach ($keepId in @(30107964067, 30107964533)) {
+            $keep = ((& gh api "repos/$repo/actions/runs/$keepId") -join [Environment]::NewLine) | ConvertFrom-Json
+            Write-Host "Kept current run: id=$($keep.id) name=$($keep.name) event=$($keep.event) status=$($keep.status) head=$($keep.head_sha)"
+            if ($keep.event -ne 'pull_request') { throw "Run $keepId is not a PR validation run." }
           }
