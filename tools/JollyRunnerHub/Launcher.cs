@@ -56,7 +56,10 @@ namespace JollyRunnerHubLauncher
                 // subexpression operator wraps a generic List<object>. Enumerate those lists directly.
                 scriptText = scriptText
                     .Replace("foreach ($a in @($Snapshot.Aircraft))", "foreach ($a in $Snapshot.Aircraft)")
-                    .Replace("foreach ($e in @($Snapshot.Events))", "foreach ($e in $Snapshot.Events)");
+                    .Replace("foreach ($e in @($Snapshot.Events))", "foreach ($e in $Snapshot.Events)")
+                    .Replace("foreach ($aircraft in @($Snapshot.Aircraft))", "foreach ($aircraft in $Snapshot.Aircraft)")
+                    .Replace("foreach ($event in @($Snapshot.Events))", "foreach ($event in $Snapshot.Events)")
+                    .Replace("$grouped = @($Records) | Group-Object aircraft", "$grouped = $Records | Group-Object aircraft");
 
                 // New-Object treats unparenthesized arithmetic in constructor arguments as a single
                 // string argument. Parenthesize the status-label width calculations before execution.
