@@ -9,26 +9,38 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-/** Test-only route assignment for the first real-physics live-guidance proof. */
+/** Test-only route assignment for the representative real-physics live-guidance matrix. */
 final class MissionRouteValidationSetup {
     private static final String SCENARIO_PROPERTY = "wwdebug.flightGameTestScenario";
     private static final String AIRCRAFT_PROPERTY = "wwdebug.flightGameTestAircraft";
     private static final String VALIDATION_NAME_PREFIX = "AUTOPILOT TEST ";
-    private static final String PROOF_AIRCRAFT = "warfare_wings:a6m";
+    private static final Set<String> PROOF_AIRCRAFT = Set.of(
+            "warfare_wings:a6m",
+            "warfare_wings:b17",
+            "warfare_wings:il2",
+            "warfare_wings:g4m");
     private static final Set<UUID> APPLIED = ConcurrentHashMap.newKeySet();
 
     private MissionRouteValidationSetup() {
     }
 
-    static boolean applyIfRequested(MinecraftServer server, Entity aircraft) {
-        if (!"full".equals(System.getProperty(SCENARIO_PROPERTY, "").trim().toLowerCase())
-                || !PROOF_AIRCRAFT.equals(System.getProperty(AIRCRAFT_PROPERTY, "").trim().toLowerCase())
+    static boolean applyIfRequested(MinecraftServer server,
+                                    Entity aircraft,
+                                    FlightPhase phase,
+                                    FlightProfile profile) {
+        String requested = requestedAircraft();
+        String actual = BuiltInRegistries.ENTITY_TYPE.getKey(aircraft.getType()).toString();
+        if (!"full".equals(System.getProperty(SCENARIO_PROPERTY, "").trim().toLowerCase(Locale.ROOT))
+                || !PROOF_AIRCRAFT.contains(requested)
+                || !requested.equals(actual)
+                || phase != FlightPhase.CRUISE_OUTBOUND
+                || !profile.supportsAutonomousFlight()
                 || !aircraft.getName().getString().startsWith(VALIDATION_NAME_PREFIX)
-                || !PROOF_AIRCRAFT.equals(BuiltInRegistries.ENTITY_TYPE.getKey(aircraft.getType()).toString())
                 || MissionOrderManager.current(aircraft.getUUID()).isPresent()
                 || MissionRouteManager.current(aircraft.getUUID()).isPresent()
                 || !APPLIED.add(aircraft.getUUID())) {
@@ -39,7 +51,7 @@ final class MissionRouteValidationSetup {
             return false;
         }
 
-        Vec3 home = aircraft.position();
+        Vec3 origin = aircraft.position();
         Vec3 forward = horizontal(aircraft.getLookAngle());
         if (forward.lengthSqr() < 1.0e-8) {
             forward = horizontal(Vec3.directionFromRotation(0.0f, aircraft.getYRot()));
@@ -47,28 +59,41 @@ final class MissionRouteValidationSetup {
         forward = forward.normalize();
         Vec3 right = new Vec3(-forward.z, 0.0, forward.x).normalize();
 
+        RouteGeometry geometry = geometry(profile);
         MissionOrder order = MissionOrder.builder(MissionOrder.Type.HOLD_POSITION)
                 .orderId(UUID.randomUUID())
                 .build();
         MissionOrderManager.Assignment mission = MissionOrderManager.assign(aircraft.getUUID(), order);
         WaypointRoute route = WaypointRoute.start(UUID.randomUUID(), List.of(
-                waypoint(home, forward, right, 1100.0, 0.0, 100.0, 42.0),
-                waypoint(home, forward, right, 1280.0, 100.0, 105.0, 40.0),
-                waypoint(home, forward, right, 1440.0, -80.0, 100.0, 40.0),
-                waypoint(home, forward, right, 1580.0, 0.0, 95.0, 45.0)));
+                waypoint(origin, forward, right,
+                        geometry.leg(), 0.0, geometry.altitudeGain(), geometry.radius()),
+                waypoint(origin, forward, right,
+                        geometry.leg() * 1.55, geometry.lateral(),
+                        geometry.altitudeGain() + 8.0, geometry.radius() + 4.0),
+                waypoint(origin, forward, right,
+                        geometry.leg() * 2.10, -geometry.lateral() * 0.85,
+                        geometry.altitudeGain() + 3.0, geometry.radius() + 4.0),
+                waypoint(origin, forward, right,
+                        geometry.leg() * 2.65, 0.0,
+                        geometry.altitudeGain() - 5.0, geometry.radius() + 8.0)));
         if (MissionRouteManager.bind(aircraft.getUUID(), mission, route).isEmpty()) {
             MissionOrderManager.clear(aircraft.getUUID(), mission.revision());
             APPLIED.remove(aircraft.getUUID());
-            throw new IllegalStateException("Could not bind validation route to current A6M mission");
+            throw new IllegalStateException("Could not bind representative validation route for " + actual);
         }
 
-        buildFloatingObstacle(level, home, forward, right);
+        buildFloatingObstacle(level, origin, forward, right, geometry);
         AutopilotLogManager.writeEvent(server, aircraft, "route_validation_assigned",
-                "order_id=" + order.orderId()
+                "aircraft=" + actual
+                        + ":profile=" + profile.profileId()
+                        + ":role=" + profile.role()
+                        + ":order_id=" + order.orderId()
                         + ":route_id=" + route.routeId()
                         + ":waypoints=" + route.waypoints().size()
-                        + ":obstacle_longitudinal=970.0",
-                FlightPhase.STARTUP);
+                        + ":leg=" + geometry.leg()
+                        + ":radius=" + geometry.radius()
+                        + ":obstacle_longitudinal=" + geometry.obstacleLongitudinal(),
+                phase);
         return true;
     }
 
@@ -76,21 +101,47 @@ final class MissionRouteValidationSetup {
         APPLIED.remove(aircraftId);
     }
 
-    private static WaypointRoute.Waypoint waypoint(Vec3 home, Vec3 forward, Vec3 right,
-                                                    double longitudinal, double lateral,
-                                                    double relativeAltitude, double radius) {
-        Vec3 position = home.add(forward.scale(longitudinal))
+    private static String requestedAircraft() {
+        return System.getProperty(AIRCRAFT_PROPERTY, "").trim().toLowerCase(Locale.ROOT);
+    }
+
+    private static RouteGeometry geometry(FlightProfile profile) {
+        double leg = clamp(profile.cruiseSpeedBps() * 14.0, 300.0, 520.0);
+        boolean heavy = profile.isLevelBomber() || profile.isTorpedoBomber();
+        double lateral = heavy ? 135.0 : profile.isAttacker() ? 105.0 : 95.0;
+        double radius = heavy ? 78.0 : profile.isAttacker() ? 62.0 : 54.0;
+        double altitudeGain = heavy ? 36.0 : profile.isAttacker() ? 30.0 : 26.0;
+        int obstacleHalfWidth = heavy ? 52 : 42;
+        return new RouteGeometry(
+                leg,
+                lateral,
+                radius,
+                altitudeGain,
+                leg * 0.58,
+                obstacleHalfWidth,
+                40);
+    }
+
+    private static WaypointRoute.Waypoint waypoint(Vec3 origin, Vec3 forward, Vec3 right,
+                                                     double longitudinal, double lateral,
+                                                     double relativeAltitude, double radius) {
+        Vec3 position = origin.add(forward.scale(longitudinal))
                 .add(right.scale(lateral))
                 .add(0.0, relativeAltitude, 0.0);
         return new WaypointRoute.Waypoint(position, radius);
     }
 
-    private static void buildFloatingObstacle(ServerLevel level, Vec3 home,
-                                              Vec3 forward, Vec3 right) {
-        Vec3 center = home.add(forward.scale(970.0)).add(0.0, 80.0, 0.0);
-        for (int lateral = -30; lateral <= 30; lateral++) {
+    private static void buildFloatingObstacle(ServerLevel level,
+                                               Vec3 origin,
+                                               Vec3 forward,
+                                               Vec3 right,
+                                               RouteGeometry geometry) {
+        Vec3 center = origin.add(forward.scale(geometry.obstacleLongitudinal()));
+        for (int lateral = -geometry.obstacleHalfWidth();
+             lateral <= geometry.obstacleHalfWidth(); lateral++) {
             for (int depth = -2; depth <= 2; depth++) {
-                for (int vertical = -32; vertical <= 32; vertical++) {
+                for (int vertical = -geometry.obstacleHalfHeight();
+                     vertical <= geometry.obstacleHalfHeight(); vertical++) {
                     Vec3 point = center
                             .add(right.scale(lateral))
                             .add(forward.scale(depth))
@@ -101,7 +152,20 @@ final class MissionRouteValidationSetup {
         }
     }
 
+    private static double clamp(double value, double minimum, double maximum) {
+        return Math.max(minimum, Math.min(maximum, value));
+    }
+
     private static Vec3 horizontal(Vec3 value) {
         return new Vec3(value.x, 0.0, value.z);
+    }
+
+    private record RouteGeometry(double leg,
+                                 double lateral,
+                                 double radius,
+                                 double altitudeGain,
+                                 double obstacleLongitudinal,
+                                 int obstacleHalfWidth,
+                                 int obstacleHalfHeight) {
     }
 }
