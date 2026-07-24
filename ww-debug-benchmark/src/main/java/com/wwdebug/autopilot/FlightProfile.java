@@ -3,6 +3,7 @@ package com.wwdebug.autopilot;
 import net.minecraft.resources.ResourceLocation;
 
 import javax.annotation.Nullable;
+import java.util.Locale;
 
 public record FlightProfile(
         ResourceLocation profileId,
@@ -25,7 +26,7 @@ public record FlightProfile(
         turnSpeedFloorBps = positive(turnSpeedFloorBps, "turnSpeedFloorBps");
         measuredTopSpeedBps = positive(measuredTopSpeedBps, "measuredTopSpeedBps");
 
-        if ("bomber".equalsIgnoreCase(role)) {
+        if (isHeavyBomberRole(role)) {
             // A full-throttle sustained-turn sample is not a safe minimum-speed requirement.
             // Keep heavy bombers above stall margin without making their normal measured cruise
             // speed immediately trigger the turn-speed recovery limiter.
@@ -35,19 +36,23 @@ public record FlightProfile(
     }
 
     public boolean isFighter() {
-        return "fighter".equalsIgnoreCase(role);
+        return "fighter".equals(normalizedRole());
     }
 
     public boolean isLevelBomber() {
-        return "bomber".equalsIgnoreCase(role);
+        return "bomber".equals(normalizedRole());
     }
 
     public boolean isAttacker() {
-        return "attacker".equalsIgnoreCase(role);
+        return "attacker".equals(normalizedRole());
+    }
+
+    public boolean isTorpedoBomber() {
+        return "torpedo_bomber".equals(normalizedRole());
     }
 
     public boolean supportsAutonomousFlight() {
-        return isFighter() || isLevelBomber() || isAttacker();
+        return isFighter() || isLevelBomber() || isAttacker() || isTorpedoBomber();
     }
 
     public double rotateSpeedBps() {
@@ -61,6 +66,20 @@ public record FlightProfile(
     public double approachSpeedBps() {
         return Math.min(cruiseSpeedBps * 0.82,
                 Math.max(stallGuardSpeedBps * 1.25, turnSpeedFloorBps));
+    }
+
+    private String normalizedRole() {
+        return normalizeRole(role);
+    }
+
+    private static boolean isHeavyBomberRole(String role) {
+        String normalized = normalizeRole(role);
+        return "bomber".equals(normalized) || "torpedo_bomber".equals(normalized);
+    }
+
+    private static String normalizeRole(String value) {
+        return value == null ? "unknown"
+                : value.trim().toLowerCase(Locale.ROOT).replace('-', '_').replace(' ', '_');
     }
 
     private static double positive(double value, String field) {
