@@ -1,5 +1,5 @@
-# Local flight validation request pr53-live-owned-route-guidance
+# Local flight validation request pr53-live-owned-route-guidance-normalized
 ref=a410402dea2f042f192daa614eb7b35c955800b4
- aircraft=warfare_wings:a6m
+aircraft=warfare_wings:a6m
 scenario=full
 gametest=true
