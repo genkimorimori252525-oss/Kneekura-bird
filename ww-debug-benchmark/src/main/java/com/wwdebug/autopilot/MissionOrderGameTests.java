@@ -4,6 +4,8 @@ import com.wwdebug.benchmark.WWDebugBenchmarkMod;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
@@ -133,6 +135,40 @@ public final class MissionOrderGameTests {
                 "restored revisions must remain monotonic after restart");
 
         MissionOrderManager.clearAll();
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty", timeoutTicks = 20, batch = "mission_order_contract")
+    public static void malformedMissionOrderDoesNotDiscardValidAssignments(GameTestHelper helper) {
+        UUID validAircraft = UUID.fromString("00000000-0000-0000-0000-000000000601");
+        UUID malformedAircraft = UUID.fromString("00000000-0000-0000-0000-000000000602");
+        MissionOrder validOrder = MissionOrder.builder(MissionOrder.Type.HOLD_POSITION)
+                .orderId(UUID.fromString("00000000-0000-0000-0000-000000000603"))
+                .targetPosition(new Vec3(15.0, 90.0, -12.0), 10.0)
+                .build();
+        MissionOrderManager.Assignment validAssignment = new MissionOrderManager.Assignment(7L, validOrder);
+
+        MissionOrderSavedData initial = new MissionOrderSavedData();
+        initial.replace(Map.of(validAircraft, validAssignment));
+        CompoundTag serialized = initial.save(new CompoundTag());
+        ListTag entries = serialized.getList("assignments", Tag.TAG_COMPOUND);
+
+        CompoundTag malformedEntry = new CompoundTag();
+        malformedEntry.putUUID("aircraft_id", malformedAircraft);
+        malformedEntry.putLong("revision", 8L);
+        CompoundTag malformedOrder = MissionOrderCodec.write(validOrder);
+        malformedOrder.getCompound("target_position").remove("z");
+        malformedEntry.put("order", malformedOrder);
+        entries.add(malformedEntry);
+
+        expectInvalid(() -> MissionOrderCodec.read(malformedOrder),
+                "missing vector components must be rejected");
+        MissionOrderSavedData restored = MissionOrderSavedData.load(serialized);
+        check(validAssignment.equals(restored.snapshot().get(validAircraft)),
+                "a valid assignment must survive beside a malformed entry");
+        check(!restored.snapshot().containsKey(malformedAircraft),
+                "the malformed assignment must be isolated");
+
         helper.succeed();
     }
 
