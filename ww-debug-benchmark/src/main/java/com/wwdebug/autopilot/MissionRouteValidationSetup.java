@@ -23,6 +23,7 @@ final class MissionRouteValidationSetup {
     private static final String B17 = "warfare_wings:b17";
     private static final String G4M = "warfare_wings:g4m";
     private static final String IL2 = "warfare_wings:il2";
+    private static final Set<String> FULL_PROOFS = Set.of(A6M, B17, G4M, IL2);
     private static final Set<UUID> APPLIED = ConcurrentHashMap.newKeySet();
 
     private MissionRouteValidationSetup() {
@@ -30,16 +31,17 @@ final class MissionRouteValidationSetup {
 
     static boolean applyIfRequested(MinecraftServer server, Entity aircraft,
                                     FlightPhase phase, FlightProfile profile) {
+        String scenario = scenario();
         String requested = requestedAircraft();
         String actual = BuiltInRegistries.ENTITY_TYPE.getKey(aircraft.getType()).toString();
-        if (!"full".equals(System.getProperty(SCENARIO_PROPERTY, "").trim().toLowerCase(Locale.ROOT))
-                || (!A6M.equals(requested) && !B17.equals(requested)
-                && !G4M.equals(requested) && !IL2.equals(requested))
+        boolean genericRoute = "route".equals(scenario);
+        boolean representativeFull = "full".equals(scenario) && FULL_PROOFS.contains(requested);
+        if ((!genericRoute && !representativeFull)
                 || !requested.equals(actual)
                 || !aircraft.getName().getString().startsWith(VALIDATION_NAME_PREFIX)
                 || MissionOrderManager.current(aircraft.getUUID()).isPresent()
                 || MissionRouteManager.current(aircraft.getUUID()).isPresent()
-                || !eligibleStart(requested, phase, profile)
+                || !eligibleStart(scenario, requested, phase, profile)
                 || !APPLIED.add(aircraft.getUUID())) {
             return false;
         }
@@ -48,14 +50,19 @@ final class MissionRouteValidationSetup {
             return false;
         }
 
-        if (A6M.equals(requested)) {
+        if (genericRoute) {
+            assignProfileDrivenProof(server, aircraft, phase, profile, requested);
+        } else if (A6M.equals(requested)) {
             assignA6mProof(server, level, aircraft);
         } else if (B17.equals(requested)) {
-            assignCompactB17Proof(server, aircraft, phase, profile);
+            assignRepresentativeCompactProof(server, aircraft, phase, profile, requested,
+                    geometryForRole("bomber"), "B-17");
         } else if (G4M.equals(requested)) {
-            assignCompactG4mProof(server, aircraft, phase, profile);
+            assignRepresentativeCompactProof(server, aircraft, phase, profile, requested,
+                    geometryForRole("torpedo_bomber"), "G4M");
         } else {
-            assignCompactIl2Proof(server, aircraft, phase, profile);
+            assignRepresentativeCompactProof(server, aircraft, phase, profile, requested,
+                    geometryForRole("attacker"), "IL-2");
         }
         return true;
     }
@@ -64,12 +71,16 @@ final class MissionRouteValidationSetup {
         APPLIED.remove(aircraftId);
     }
 
-    private static boolean eligibleStart(String requested, FlightPhase phase, FlightProfile profile) {
-        if (A6M.equals(requested)) {
+    private static boolean eligibleStart(String scenario, String requested,
+                                         FlightPhase phase, FlightProfile profile) {
+        if ("full".equals(scenario) && A6M.equals(requested)) {
             return true;
         }
         if (phase != FlightPhase.CRUISE_OUTBOUND || !profile.supportsAutonomousFlight()) {
             return false;
+        }
+        if ("route".equals(scenario)) {
+            return true;
         }
         if (B17.equals(requested)) {
             return profile.isLevelBomber();
@@ -78,6 +89,25 @@ final class MissionRouteValidationSetup {
             return profile.isTorpedoBomber();
         }
         return profile.isAttacker();
+    }
+
+    private static void assignProfileDrivenProof(MinecraftServer server, Entity aircraft,
+                                                 FlightPhase phase, FlightProfile profile,
+                                                 String requested) {
+        ProfileDrivenRoutePlan.Plan plan = ProfileDrivenRoutePlan.plan(profile);
+        MissionOrder order = MissionOrder.builder(MissionOrder.Type.HOLD_POSITION)
+                .orderId(UUID.randomUUID())
+                .build();
+        MissionOrderManager.Assignment mission = MissionOrderManager.assign(aircraft.getUUID(), order);
+        WaypointRoute route = ProfileDrivenRoutePlan.build(
+                UUID.randomUUID(), aircraft.position(), forward(aircraft), profile);
+        bind(aircraft, mission, route, requested);
+        AutopilotLogManager.writeEvent(server, aircraft, "route_validation_assigned",
+                "scenario=route:aircraft=" + requested + ":profile=" + profile.profileId()
+                        + ":role=" + plan.role() + ":order_id=" + order.orderId()
+                        + ":route_id=" + route.routeId() + ":waypoints=4:compact=true"
+                        + ":leg=" + plan.legBlocks() + ":terrain_proof=false",
+                phase);
     }
 
     private static void assignA6mProof(MinecraftServer server, ServerLevel level, Entity aircraft) {
@@ -96,13 +126,15 @@ final class MissionRouteValidationSetup {
         bind(aircraft, mission, route, "A6M");
         buildA6mObstacle(level, home, forward, right);
         AutopilotLogManager.writeEvent(server, aircraft, "route_validation_assigned",
-                "aircraft=" + A6M + ":order_id=" + order.orderId()
+                "scenario=full:aircraft=" + A6M + ":order_id=" + order.orderId()
                         + ":route_id=" + route.routeId() + ":waypoints=4:terrain_proof=true",
                 FlightPhase.STARTUP);
     }
 
-    private static void assignCompactB17Proof(MinecraftServer server, Entity aircraft,
-                                              FlightPhase phase, FlightProfile profile) {
+    private static void assignRepresentativeCompactProof(MinecraftServer server, Entity aircraft,
+                                                          FlightPhase phase, FlightProfile profile,
+                                                          String requested, RouteGeometry geometry,
+                                                          String label) {
         Vec3 origin = aircraft.position();
         Vec3 forward = forward(aircraft);
         Vec3 right = new Vec3(-forward.z, 0.0, forward.x).normalize();
@@ -110,64 +142,34 @@ final class MissionRouteValidationSetup {
                 .orderId(UUID.randomUUID())
                 .build();
         MissionOrderManager.Assignment mission = MissionOrderManager.assign(aircraft.getUUID(), order);
-        double leg = 125.0;
         WaypointRoute route = WaypointRoute.start(UUID.randomUUID(), List.of(
-                waypoint(origin, forward, right, leg, 0.0, 16.0, 78.0),
-                waypoint(origin, forward, right, leg * 1.45, 20.0, 20.0, 82.0),
-                waypoint(origin, forward, right, leg * 1.90, -16.0, 18.0, 82.0),
-                waypoint(origin, forward, right, leg * 2.35, 0.0, 14.0, 88.0)));
-        bind(aircraft, mission, route, "B-17");
+                waypoint(origin, forward, right, geometry.leg(), 0.0,
+                        geometry.altitude1(), geometry.radius1()),
+                waypoint(origin, forward, right, geometry.leg() * 1.45, geometry.lateral2(),
+                        geometry.altitude2(), geometry.radius2()),
+                waypoint(origin, forward, right, geometry.leg() * 1.90, geometry.lateral3(),
+                        geometry.altitude3(), geometry.radius3()),
+                waypoint(origin, forward, right, geometry.leg() * 2.35, 0.0,
+                        geometry.altitude4(), geometry.radius4())));
+        bind(aircraft, mission, route, label);
         AutopilotLogManager.writeEvent(server, aircraft, "route_validation_assigned",
-                "aircraft=" + B17 + ":profile=" + profile.profileId() + ":role=" + profile.role()
-                        + ":order_id=" + order.orderId() + ":route_id=" + route.routeId()
-                        + ":waypoints=4:compact=true:leg=" + leg + ":terrain_proof=false",
+                "scenario=full:aircraft=" + requested + ":profile=" + profile.profileId()
+                        + ":role=" + geometry.role() + ":order_id=" + order.orderId()
+                        + ":route_id=" + route.routeId() + ":waypoints=4:compact=true"
+                        + ":leg=" + geometry.leg() + ":terrain_proof=false",
                 phase);
     }
 
-    private static void assignCompactG4mProof(MinecraftServer server, Entity aircraft,
-                                              FlightPhase phase, FlightProfile profile) {
-        Vec3 origin = aircraft.position();
-        Vec3 forward = forward(aircraft);
-        Vec3 right = new Vec3(-forward.z, 0.0, forward.x).normalize();
-        MissionOrder order = MissionOrder.builder(MissionOrder.Type.HOLD_POSITION)
-                .orderId(UUID.randomUUID())
-                .build();
-        MissionOrderManager.Assignment mission = MissionOrderManager.assign(aircraft.getUUID(), order);
-        double leg = 145.0;
-        WaypointRoute route = WaypointRoute.start(UUID.randomUUID(), List.of(
-                waypoint(origin, forward, right, leg, 0.0, 24.0, 72.0),
-                waypoint(origin, forward, right, leg * 1.45, 55.0, 30.0, 76.0),
-                waypoint(origin, forward, right, leg * 1.90, -48.0, 26.0, 76.0),
-                waypoint(origin, forward, right, leg * 2.35, 0.0, 20.0, 82.0)));
-        bind(aircraft, mission, route, "G4M");
-        AutopilotLogManager.writeEvent(server, aircraft, "route_validation_assigned",
-                "aircraft=" + G4M + ":profile=" + profile.profileId() + ":role=" + profile.role()
-                        + ":order_id=" + order.orderId() + ":route_id=" + route.routeId()
-                        + ":waypoints=4:compact=true:leg=" + leg + ":terrain_proof=false",
-                phase);
-    }
-
-    private static void assignCompactIl2Proof(MinecraftServer server, Entity aircraft,
-                                              FlightPhase phase, FlightProfile profile) {
-        Vec3 origin = aircraft.position();
-        Vec3 forward = forward(aircraft);
-        Vec3 right = new Vec3(-forward.z, 0.0, forward.x).normalize();
-        MissionOrder order = MissionOrder.builder(MissionOrder.Type.HOLD_POSITION)
-                .orderId(UUID.randomUUID())
-                .build();
-        MissionOrderManager.Assignment mission = MissionOrderManager.assign(aircraft.getUUID(), order);
-        double leg = 150.0;
-        WaypointRoute route = WaypointRoute.start(UUID.randomUUID(), List.of(
-                waypoint(origin, forward, right, leg, 0.0, 18.0, 58.0),
-                waypoint(origin, forward, right, leg * 1.45, 45.0, 24.0, 62.0),
-                waypoint(origin, forward, right, leg * 1.90, -38.0, 20.0, 62.0),
-                waypoint(origin, forward, right, leg * 2.35, 0.0, 16.0, 68.0)));
-        bind(aircraft, mission, route, "IL-2");
-        AutopilotLogManager.writeEvent(server, aircraft, "route_validation_assigned",
-                "aircraft=" + IL2 + ":profile=" + profile.profileId() + ":role=" + profile.role()
-                        + ":order_id=" + order.orderId() + ":route_id=" + route.routeId()
-                        + ":waypoints=4:compact=true:leg=" + leg + ":terrain_proof=false",
-                phase);
+    private static RouteGeometry geometryForRole(String role) {
+        return switch (role) {
+            case "attacker" -> new RouteGeometry(role, 150.0, 45.0, -38.0,
+                    18.0, 24.0, 20.0, 16.0, 58.0, 62.0, 62.0, 68.0);
+            case "torpedo_bomber" -> new RouteGeometry(role, 145.0, 55.0, -48.0,
+                    24.0, 30.0, 26.0, 20.0, 72.0, 76.0, 76.0, 82.0);
+            case "bomber" -> new RouteGeometry(role, 125.0, 20.0, -16.0,
+                    16.0, 20.0, 18.0, 14.0, 78.0, 82.0, 82.0, 88.0);
+            default -> throw new IllegalArgumentException("Unsupported representative role " + role);
+        };
     }
 
     private static void bind(Entity aircraft, MissionOrderManager.Assignment mission,
@@ -209,11 +211,21 @@ final class MissionRouteValidationSetup {
         }
     }
 
+    private static String scenario() {
+        return System.getProperty(SCENARIO_PROPERTY, "").trim().toLowerCase(Locale.ROOT);
+    }
+
     private static String requestedAircraft() {
         return System.getProperty(AIRCRAFT_PROPERTY, "").trim().toLowerCase(Locale.ROOT);
     }
 
     private static Vec3 horizontal(Vec3 value) {
         return new Vec3(value.x, 0.0, value.z);
+    }
+
+    private record RouteGeometry(String role, double leg, double lateral2, double lateral3,
+                                 double altitude1, double altitude2, double altitude3,
+                                 double altitude4, double radius1, double radius2,
+                                 double radius3, double radius4) {
     }
 }

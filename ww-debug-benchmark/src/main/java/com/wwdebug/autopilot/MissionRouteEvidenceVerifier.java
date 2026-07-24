@@ -26,6 +26,9 @@ public final class MissionRouteEvidenceVerifier {
     private static final String B17 = "warfare_wings:b17";
     private static final String G4M = "warfare_wings:g4m";
     private static final String IL2 = "warfare_wings:il2";
+    private static final Set<String> FULL_PROOFS = Set.of(A6M, B17, G4M, IL2);
+    private static final Set<String> SUPPORTED_ROLES = Set.of(
+            "fighter", "bomber", "attacker", "torpedo_bomber");
     private static final Set<String> TERRAIN_OVERRIDES = Set.of(
             "predictive_terrain_avoidance",
             "terrain_emergency_climb");
@@ -34,8 +37,9 @@ public final class MissionRouteEvidenceVerifier {
     }
 
     public static void verify(MinecraftServer server, JsonArray results) {
+        String scenario = scenario();
         String requested = requestedAircraft();
-        if (!proofRequested(requested)) {
+        if (!proofRequested(scenario, requested)) {
             return;
         }
 
@@ -64,25 +68,18 @@ public final class MissionRouteEvidenceVerifier {
         long startTick = number(start, "server_tick");
         long completedTick = number(completed, "server_tick");
         String assignedReason = text(assigned, "reason");
+        require(assignedReason.contains("scenario=" + scenario),
+                "assignment evidence did not identify scenario " + scenario);
         require(assignedReason.contains("aircraft=" + requested),
                 "assignment evidence did not identify the requested aircraft");
-        if (B17.equals(requested)) {
-            require(assignedReason.contains("role=bomber"),
-                    "B-17 profile did not preserve bomber role");
+        if ("route".equals(scenario)) {
+            String role = reasonValue(assignedReason, "role");
+            require(SUPPORTED_ROLES.contains(role),
+                    "route scenario used unsupported role " + role);
             require(assignedReason.contains("compact=true"),
-                    "B-17 did not use the compact representative route");
-        }
-        if (G4M.equals(requested)) {
-            require(assignedReason.contains("role=torpedo_bomber"),
-                    "G4M profile did not preserve torpedo_bomber role");
-            require(assignedReason.contains("compact=true"),
-                    "G4M did not use the compact representative route");
-        }
-        if (IL2.equals(requested)) {
-            require(assignedReason.contains("role=attacker"),
-                    "IL-2 profile did not preserve attacker role");
-            require(assignedReason.contains("compact=true"),
-                    "IL-2 did not use the compact representative route");
+                    "route scenario did not use compact role geometry");
+        } else {
+            requireRepresentativeRole(requested, assignedReason);
         }
         require(assignedIndex <= startIndex && completedIndex > startIndex && completedTick > startTick,
                 "route completion did not occur after assignment and activation");
@@ -144,7 +141,7 @@ public final class MissionRouteEvidenceVerifier {
         require(releaseToOrdinaryMission,
                 "route completion did not release the aircraft back to the ordinary mission");
 
-        if (A6M.equals(requested)) {
+        if ("full".equals(scenario) && A6M.equals(requested)) {
             boolean terrainOverrodeRoute = adapters.values().stream().anyMatch(order ->
                     order.routeIndex >= 0 && order.terrainIndex > order.routeIndex);
             require(terrainOverrodeRoute,
@@ -152,10 +149,34 @@ public final class MissionRouteEvidenceVerifier {
         }
     }
 
-    private static boolean proofRequested(String requested) {
-        return "full".equals(System.getProperty(SCENARIO_PROPERTY, "").trim().toLowerCase(Locale.ROOT))
-                && (A6M.equals(requested) || B17.equals(requested)
-                || G4M.equals(requested) || IL2.equals(requested));
+    private static void requireRepresentativeRole(String requested, String assignedReason) {
+        if (B17.equals(requested)) {
+            require(assignedReason.contains("role=bomber"),
+                    "B-17 profile did not preserve bomber role");
+            require(assignedReason.contains("compact=true"),
+                    "B-17 did not use the compact representative route");
+        }
+        if (G4M.equals(requested)) {
+            require(assignedReason.contains("role=torpedo_bomber"),
+                    "G4M profile did not preserve torpedo_bomber role");
+            require(assignedReason.contains("compact=true"),
+                    "G4M did not use the compact representative route");
+        }
+        if (IL2.equals(requested)) {
+            require(assignedReason.contains("role=attacker"),
+                    "IL-2 profile did not preserve attacker role");
+            require(assignedReason.contains("compact=true"),
+                    "IL-2 did not use the compact representative route");
+        }
+    }
+
+    private static boolean proofRequested(String scenario, String requested) {
+        return "route".equals(scenario)
+                || ("full".equals(scenario) && FULL_PROOFS.contains(requested));
+    }
+
+    private static String scenario() {
+        return System.getProperty(SCENARIO_PROPERTY, "").trim().toLowerCase(Locale.ROOT);
     }
 
     private static String requestedAircraft() {
@@ -229,6 +250,16 @@ public final class MissionRouteEvidenceVerifier {
         } catch (NumberFormatException exception) {
             throw new IllegalStateException("Invalid waypoint remaining count: " + reason, exception);
         }
+    }
+
+    private static String reasonValue(String reason, String key) {
+        String prefix = key + "=";
+        for (String part : reason.split(":")) {
+            if (part.startsWith(prefix)) {
+                return part.substring(prefix.length());
+            }
+        }
+        return "";
     }
 
     private static String text(JsonObject object, String key) {
