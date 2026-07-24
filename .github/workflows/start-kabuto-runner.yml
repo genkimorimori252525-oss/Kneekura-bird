@@ -33,35 +33,43 @@ jobs:
             throw 'Jolly-Kabuto is not configured.'
           }
 
-          $escaped = [regex]::Escape($root)
-          $running = @(Get-CimInstance Win32_Process -Filter "Name='Runner.Listener.exe'" |
-            Where-Object {
-              ([string]$_.ExecutablePath -match "^$escaped") -or
-              ([string]$_.CommandLine -match $escaped)
-            }).Count -gt 0
+          function Test-KabutoListener {
+            param([string]$RunnerRoot)
+            $escaped = [regex]::Escape($RunnerRoot)
+            return @(Get-CimInstance Win32_Process -Filter "Name='Runner.Listener.exe'" |
+              Where-Object {
+                ([string]$_.ExecutablePath -match "^$escaped") -or
+                ([string]$_.CommandLine -match $escaped)
+              }).Count -gt 0
+          }
 
-          if (-not $running) {
+          if (-not (Test-KabutoListener -RunnerRoot $root)) {
             $log = Join-Path $root '_diag\jolly-kabuto-launch.log'
             $runCmd = Join-Path $root 'run.cmd'
             $command = '""{0}" >> "{1}" 2>&1"' -f $runCmd,$log
+
+            # GitHub Actions removes child processes carrying this tracking ID at job cleanup.
+            # Do not pass it to the long-lived second repository runner.
+            Remove-Item Env:RUNNER_TRACKING_ID -ErrorAction SilentlyContinue
             Start-Process cmd.exe -ArgumentList '/d','/s','/c',$command -WorkingDirectory $root -WindowStyle Hidden | Out-Null
           }
 
           Start-Sleep -Seconds 10
 
-          $running = @(Get-CimInstance Win32_Process -Filter "Name='Runner.Listener.exe'" |
-            Where-Object {
-              ([string]$_.ExecutablePath -match "^$escaped") -or
-              ([string]$_.CommandLine -match $escaped)
-            }).Count -gt 0
-          if (-not $running) {
+          if (-not (Test-KabutoListener -RunnerRoot $root)) {
             $launchLog = Join-Path $root '_diag\jolly-kabuto-launch.log'
             if (Test-Path $launchLog) { Get-Content $launchLog -Tail 100 }
             throw 'Jolly-Kabuto listener did not remain running.'
           }
 
-          $state = & gh api "repos/$repo/actions/runners" --jq '.runners[] | select(.name == "Jolly-Kabuto") | [.status, .busy] | @tsv'
-          Write-Host "Jolly-Kabuto state: $state"
-          if (-not $state) {
+          $response = (& gh api "repos/$repo/actions/runners") -join [Environment]::NewLine
+          $payload = $response | ConvertFrom-Json
+          $runner = @($payload.runners | Where-Object { $_.name -eq 'Jolly-Kabuto' }) | Select-Object -First 1
+          if ($null -eq $runner) {
             throw 'Jolly-Kabuto was not returned by the repository runners API.'
+          }
+
+          Write-Host "Jolly-Kabuto state: status=$($runner.status), busy=$($runner.busy)"
+          if ($runner.status -ne 'online') {
+            throw "Jolly-Kabuto registered but is not online: $($runner.status)"
           }
