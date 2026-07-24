@@ -10,6 +10,7 @@
     "LevelBomberMissionTimingMixin",
     "AutonomousFlightRouteGuidanceMixin",
     "AutopilotSessionRouteClockMixin",
+    "AutopilotSessionReturnPatternSpeedMixin",
     "AutonomousFlightRouteEvidenceMixin"
   ],
   "injectors": {
