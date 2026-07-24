@@ -49,16 +49,17 @@ public final class MissionOrderCodec {
         MissionOrder.Type type = enumValue(MissionOrder.Type.class, tag.getString("type"), "type");
         MissionOrder.Builder builder = MissionOrder.builder(type)
                 .orderId(requiredUuid(tag, "order_id"))
-                .minimumReturnFuelFraction(tag.getDouble("minimum_return_fuel_fraction"))
-                .weaponsFree(tag.getBoolean("weapons_free"))
-                .attackRuns(tag.getInt("remaining_attack_runs"));
+                .minimumReturnFuelFraction(requiredFiniteDouble(tag, "minimum_return_fuel_fraction"))
+                .weaponsFree(requiredBoolean(tag, "weapons_free"))
+                .attackRuns(requiredInt(tag, "remaining_attack_runs"));
 
         if (tag.hasUUID("target_entity")) {
             builder.targetEntity(tag.getUUID("target_entity"));
         }
         Vec3 targetPosition = readVec(tag, "target_position");
+        double targetRadius = requiredFiniteDouble(tag, "target_radius");
         if (targetPosition != null) {
-            builder.targetPosition(targetPosition, tag.getDouble("target_radius"));
+            builder.targetPosition(targetPosition, targetRadius);
         }
         Vec3 home = readVec(tag, "home_position");
         Vec3 runway = readVec(tag, "runway_direction");
@@ -74,15 +75,21 @@ public final class MissionOrderCodec {
             }
             builder.formation(tag.getUUID("formation_id"), tag.getUUID("leader_aircraft"));
         }
-        if (tag.contains("mission_altitude", Tag.TAG_DOUBLE)) {
-            builder.missionAltitude(tag.getDouble("mission_altitude"));
+        if (tag.contains("mission_altitude")) {
+            builder.missionAltitude(requiredFiniteDouble(tag, "mission_altitude"));
         }
         Vec3 ingress = readVec(tag, "ingress_direction");
         if (ingress != null) {
             builder.ingressDirection(ingress);
         }
 
+        if (!tag.contains("abort_conditions", Tag.TAG_LIST)) {
+            throw new IllegalArgumentException("Missing string-list field: abort_conditions");
+        }
         ListTag aborts = tag.getList("abort_conditions", Tag.TAG_STRING);
+        if (aborts.size() != tag.getList("abort_conditions", Tag.TAG_END).size()) {
+            throw new IllegalArgumentException("Invalid string-list field: abort_conditions");
+        }
         Set<MissionOrder.AbortCondition> conditions = EnumSet.noneOf(MissionOrder.AbortCondition.class);
         for (int index = 0; index < aborts.size(); index++) {
             conditions.add(enumValue(MissionOrder.AbortCondition.class, aborts.getString(index),
@@ -103,6 +110,31 @@ public final class MissionOrderCodec {
             throw new IllegalArgumentException("Missing UUID field: " + key);
         }
         return tag.getUUID(key);
+    }
+
+    private static double requiredFiniteDouble(CompoundTag tag, String key) {
+        if (!tag.contains(key, Tag.TAG_ANY_NUMERIC)) {
+            throw new IllegalArgumentException("Missing numeric field: " + key);
+        }
+        double value = tag.getDouble(key);
+        if (!Double.isFinite(value)) {
+            throw new IllegalArgumentException("Non-finite numeric field: " + key);
+        }
+        return value;
+    }
+
+    private static int requiredInt(CompoundTag tag, String key) {
+        if (!tag.contains(key, Tag.TAG_ANY_NUMERIC)) {
+            throw new IllegalArgumentException("Missing numeric field: " + key);
+        }
+        return tag.getInt(key);
+    }
+
+    private static boolean requiredBoolean(CompoundTag tag, String key) {
+        if (!tag.contains(key, Tag.TAG_BYTE)) {
+            throw new IllegalArgumentException("Missing boolean field: " + key);
+        }
+        return tag.getBoolean(key);
     }
 
     private static void putVec(CompoundTag root, String key, @Nullable Vec3 value) {
