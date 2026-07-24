@@ -1,5 +1,5 @@
-# Local flight validation request mission-order-persistence-full-3
-ref=bb12d55744b6ac8d8ae728b94c5ea73919c66061
+# Local flight validation request mission-order-persistence-full-4
+ref=2006fef256989b2eff8f1a7f90470218d9a42b07
 aircraft=warfare_wings:a6m
 scenario=full
 gametest=true
