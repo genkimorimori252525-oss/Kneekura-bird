@@ -23,6 +23,7 @@ public final class MissionRouteEvidenceVerifier {
     private static final String SCENARIO_PROPERTY = "wwdebug.flightGameTestScenario";
     private static final String AIRCRAFT_PROPERTY = "wwdebug.flightGameTestAircraft";
     private static final String A6M = "warfare_wings:a6m";
+    private static final String B17 = "warfare_wings:b17";
     private static final String G4M = "warfare_wings:g4m";
     private static final String IL2 = "warfare_wings:il2";
     private static final Set<String> TERRAIN_OVERRIDES = Set.of(
@@ -65,6 +66,12 @@ public final class MissionRouteEvidenceVerifier {
         String assignedReason = text(assigned, "reason");
         require(assignedReason.contains("aircraft=" + requested),
                 "assignment evidence did not identify the requested aircraft");
+        if (B17.equals(requested)) {
+            require(assignedReason.contains("role=bomber"),
+                    "B-17 profile did not preserve bomber role");
+            require(assignedReason.contains("compact=true"),
+                    "B-17 did not use the compact representative route");
+        }
         if (G4M.equals(requested)) {
             require(assignedReason.contains("role=torpedo_bomber"),
                     "G4M profile did not preserve torpedo_bomber role");
@@ -147,7 +154,8 @@ public final class MissionRouteEvidenceVerifier {
 
     private static boolean proofRequested(String requested) {
         return "full".equals(System.getProperty(SCENARIO_PROPERTY, "").trim().toLowerCase(Locale.ROOT))
-                && (A6M.equals(requested) || G4M.equals(requested) || IL2.equals(requested));
+                && (A6M.equals(requested) || B17.equals(requested)
+                || G4M.equals(requested) || IL2.equals(requested));
     }
 
     private static String requestedAircraft() {
