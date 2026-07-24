@@ -994,9 +994,6 @@ $historyBar.Controls.Add($historySummary)
 $historySplit = New-Object Windows.Forms.SplitContainer
 $historySplit.Dock = 'Fill'
 $historySplit.Orientation = 'Horizontal'
-$historySplit.SplitterDistance = 430
-$historySplit.Panel1MinSize = 220
-$historySplit.Panel2MinSize = 160
 $historyLayout.Controls.Add($historySplit,0,1)
 
 $historyChart = New-Chart
@@ -1290,6 +1287,11 @@ $timer.add_Tick({
 $timer.Start()
 
 $form.add_Shown({
+    if ($historySplit.Height -gt 420) {
+        $historySplit.Panel1MinSize = 180
+        $historySplit.Panel2MinSize = 140
+        $historySplit.SplitterDistance = [int]($historySplit.Height * 0.64)
+    }
     if ([bool]$script:Config.autoConnect) {
         try { Start-Runner $script:Profile } catch { Show-Error $_.Exception.Message }
     }
