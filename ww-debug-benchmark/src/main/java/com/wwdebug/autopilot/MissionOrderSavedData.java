@@ -29,7 +29,7 @@ public final class MissionOrderSavedData extends SavedData {
         for (int index = 0; index < entries.size(); index++) {
             CompoundTag entry = entries.getCompound(index);
             if (!entry.hasUUID("aircraft_id")
-                    || !entry.contains("revision", Tag.TAG_ANY_NUMERIC)
+                    || !entry.contains("revision", Tag.TAG_LONG)
                     || !entry.contains("order", Tag.TAG_COMPOUND)) {
                 continue;
             }
@@ -39,7 +39,7 @@ public final class MissionOrderSavedData extends SavedData {
                     continue;
                 }
                 long revision = entry.getLong("revision");
-                if (revision <= 0 || revision == Long.MAX_VALUE) {
+                if (revision <= 0 || revision >= Long.MAX_VALUE - 1L) {
                     continue;
                 }
                 MissionOrder order = MissionOrderCodec.read(entry.getCompound("order"));
