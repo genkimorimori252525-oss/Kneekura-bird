@@ -1,5 +1,5 @@
-# Local flight validation request pr50-waypoint-guidance-control-adapter
-ref=e0626f2575d79ae4499ef29d3e1dbe1b47ee5ed5
+# Local flight validation request pr51-owned-mission-route-guidance-proposal
+ref=1ded7e3729edf34f4619712c723e3e27a13540a3
 aircraft=warfare_wings:a6m
 scenario=full
 gametest=true
