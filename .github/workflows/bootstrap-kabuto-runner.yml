@@ -23,17 +23,12 @@ jobs:
         shell: powershell
 
     steps:
-      - name: Checkout diagnostics branch
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-          persist-credentials: false
-
       - name: Inspect host and bootstrap Kabuto runner when authorized
         id: bootstrap
         continue-on-error: true
         run: |
           $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path $env:GITHUB_WORKSPACE | Out-Null
           $reportPath = Join-Path $env:GITHUB_WORKSPACE 'kabuto-runner-bootstrap.txt'
           $sourceRoot = 'C:\actions-runner'
           $targetRoot = 'C:\actions-runner-kabuto'
