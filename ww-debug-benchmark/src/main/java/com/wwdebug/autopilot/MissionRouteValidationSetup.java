@@ -116,11 +116,13 @@ final class MissionRouteValidationSetup {
         double lateral = heavy ? 135.0 : profile.isAttacker() ? 105.0 : 95.0;
         double radius = heavy ? 78.0 : profile.isAttacker() ? 62.0 : 54.0;
         double altitudeGain = heavy ? 36.0 : profile.isAttacker() ? 30.0 : 26.0;
-        // Block the live multi-ray corridor while preserving the planner's established hard-detour
-        // candidate. Large aircraft need a wider direct barrier, not a wall wider than their bypass.
-        int obstacleHalfWidth = heavy ? 28 : profile.isAttacker() ? 32 : 30;
-        // Keep the barrier inside the first predictive-terrain sensor horizon for every role.
-        double obstacleLongitudinal = clamp(profile.cruiseSpeedBps() * 3.5, 55.0, 120.0);
+        // Slow heavy aircraft need enough distance to establish the selected detour. The obstacle
+        // still begins inside B-17's initial measured lookahead, while its narrower corridor leaves
+        // the existing hard-detour route open. Fighter geometry remains the exact A6M-proven shape.
+        int obstacleHalfWidth = heavy ? 20 : profile.isAttacker() ? 32 : 30;
+        double obstacleLongitudinal = heavy
+                ? 72.0
+                : clamp(profile.cruiseSpeedBps() * 3.5, 55.0, 120.0);
         return new RouteGeometry(
                 leg,
                 lateral,
