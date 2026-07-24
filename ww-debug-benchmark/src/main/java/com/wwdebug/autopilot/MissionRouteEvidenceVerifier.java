@@ -64,8 +64,13 @@ public final class MissionRouteEvidenceVerifier {
         JsonObject completed = rows.get(completedIndex);
         long startTick = number(start, "server_tick");
         long completedTick = number(completed, "server_tick");
-        require(text(assigned, "reason").contains("aircraft=" + requested),
+        String assignmentReason = text(assigned, "reason");
+        require(assignmentReason.contains("aircraft=" + requested),
                 "assignment evidence did not identify the requested aircraft");
+        if ("warfare_wings:g4m".equals(requested)) {
+            require(assignmentReason.contains("role=torpedo_bomber"),
+                    "G4M measured profile did not preserve torpedo_bomber role");
+        }
         require(assignedIndex <= startIndex && completedIndex > startIndex && completedTick > startTick,
                 "route completion did not occur after assignment and activation");
         require("CRUISE_OUTBOUND".equals(text(start, "phase")),
