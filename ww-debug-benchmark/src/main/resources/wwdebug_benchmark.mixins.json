@@ -9,7 +9,8 @@
     "BenchmarkCleanAccelerationStartMixin",
     "LevelBomberMissionTimingMixin",
     "AutonomousFlightRouteGuidanceMixin",
-    "AutopilotSessionRouteClockMixin"
+    "AutopilotSessionRouteClockMixin",
+    "AutonomousFlightRouteEvidenceMixin"
   ],
   "injectors": {
     "defaultRequire": 0
