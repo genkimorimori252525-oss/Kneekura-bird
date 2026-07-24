@@ -1,5 +1,5 @@
-# Local flight validation request waypoint-route-foundation
-ref=7b143461340b09ea5d7bb70435b4d8af91d812be
+# Local flight validation request mission-route-manager
+ref=ace291215d46a78883bb0b919897c7100fd130c3
 aircraft=warfare_wings:a6m
 scenario=full
 gametest=true
