@@ -51,18 +51,18 @@ final class MissionRouteValidationSetup {
         }
 
         if (genericRoute) {
-            assignGenericCompactProof(server, aircraft, phase, profile, requested);
+            assignProfileDrivenProof(server, aircraft, phase, profile, requested);
         } else if (A6M.equals(requested)) {
             assignA6mProof(server, level, aircraft);
         } else if (B17.equals(requested)) {
-            assignCompactProof(server, aircraft, phase, profile, requested,
-                    geometryForRole("bomber"), "B-17", "full");
+            assignRepresentativeCompactProof(server, aircraft, phase, profile, requested,
+                    geometryForRole("bomber"), "B-17");
         } else if (G4M.equals(requested)) {
-            assignCompactProof(server, aircraft, phase, profile, requested,
-                    geometryForRole("torpedo_bomber"), "G4M", "full");
+            assignRepresentativeCompactProof(server, aircraft, phase, profile, requested,
+                    geometryForRole("torpedo_bomber"), "G4M");
         } else {
-            assignCompactProof(server, aircraft, phase, profile, requested,
-                    geometryForRole("attacker"), "IL-2", "full");
+            assignRepresentativeCompactProof(server, aircraft, phase, profile, requested,
+                    geometryForRole("attacker"), "IL-2");
         }
         return true;
     }
@@ -80,7 +80,7 @@ final class MissionRouteValidationSetup {
             return false;
         }
         if ("route".equals(scenario)) {
-            return supportedRole(profile) != null;
+            return true;
         }
         if (B17.equals(requested)) {
             return profile.isLevelBomber();
@@ -91,16 +91,23 @@ final class MissionRouteValidationSetup {
         return profile.isAttacker();
     }
 
-    private static void assignGenericCompactProof(MinecraftServer server, Entity aircraft,
-                                                  FlightPhase phase, FlightProfile profile,
-                                                  String requested) {
-        String role = supportedRole(profile);
-        if (role == null) {
-            APPLIED.remove(aircraft.getUUID());
-            throw new IllegalStateException("Unsupported route-validation role " + profile.role());
-        }
-        assignCompactProof(server, aircraft, phase, profile, requested,
-                geometryForRole(role), requested, "route");
+    private static void assignProfileDrivenProof(MinecraftServer server, Entity aircraft,
+                                                 FlightPhase phase, FlightProfile profile,
+                                                 String requested) {
+        ProfileDrivenRoutePlan.Plan plan = ProfileDrivenRoutePlan.plan(profile);
+        MissionOrder order = MissionOrder.builder(MissionOrder.Type.HOLD_POSITION)
+                .orderId(UUID.randomUUID())
+                .build();
+        MissionOrderManager.Assignment mission = MissionOrderManager.assign(aircraft.getUUID(), order);
+        WaypointRoute route = ProfileDrivenRoutePlan.build(
+                UUID.randomUUID(), aircraft.position(), forward(aircraft), profile);
+        bind(aircraft, mission, route, requested);
+        AutopilotLogManager.writeEvent(server, aircraft, "route_validation_assigned",
+                "scenario=route:aircraft=" + requested + ":profile=" + profile.profileId()
+                        + ":role=" + plan.role() + ":order_id=" + order.orderId()
+                        + ":route_id=" + route.routeId() + ":waypoints=4:compact=true"
+                        + ":leg=" + plan.legBlocks() + ":terrain_proof=false",
+                phase);
     }
 
     private static void assignA6mProof(MinecraftServer server, ServerLevel level, Entity aircraft) {
@@ -124,10 +131,10 @@ final class MissionRouteValidationSetup {
                 FlightPhase.STARTUP);
     }
 
-    private static void assignCompactProof(MinecraftServer server, Entity aircraft,
-                                           FlightPhase phase, FlightProfile profile,
-                                           String requested, RouteGeometry geometry,
-                                           String label, String proofScenario) {
+    private static void assignRepresentativeCompactProof(MinecraftServer server, Entity aircraft,
+                                                          FlightPhase phase, FlightProfile profile,
+                                                          String requested, RouteGeometry geometry,
+                                                          String label) {
         Vec3 origin = aircraft.position();
         Vec3 forward = forward(aircraft);
         Vec3 right = new Vec3(-forward.z, 0.0, forward.x).normalize();
@@ -146,42 +153,23 @@ final class MissionRouteValidationSetup {
                         geometry.altitude4(), geometry.radius4())));
         bind(aircraft, mission, route, label);
         AutopilotLogManager.writeEvent(server, aircraft, "route_validation_assigned",
-                "scenario=" + proofScenario + ":aircraft=" + requested
-                        + ":profile=" + profile.profileId() + ":role=" + geometry.role()
-                        + ":order_id=" + order.orderId() + ":route_id=" + route.routeId()
-                        + ":waypoints=4:compact=true:leg=" + geometry.leg()
-                        + ":terrain_proof=false",
+                "scenario=full:aircraft=" + requested + ":profile=" + profile.profileId()
+                        + ":role=" + geometry.role() + ":order_id=" + order.orderId()
+                        + ":route_id=" + route.routeId() + ":waypoints=4:compact=true"
+                        + ":leg=" + geometry.leg() + ":terrain_proof=false",
                 phase);
     }
 
     private static RouteGeometry geometryForRole(String role) {
         return switch (role) {
-            case "fighter" -> new RouteGeometry(role, 165.0, 45.0, -38.0,
-                    18.0, 24.0, 20.0, 16.0, 58.0, 62.0, 62.0, 68.0);
             case "attacker" -> new RouteGeometry(role, 150.0, 45.0, -38.0,
                     18.0, 24.0, 20.0, 16.0, 58.0, 62.0, 62.0, 68.0);
             case "torpedo_bomber" -> new RouteGeometry(role, 145.0, 55.0, -48.0,
                     24.0, 30.0, 26.0, 20.0, 72.0, 76.0, 76.0, 82.0);
             case "bomber" -> new RouteGeometry(role, 125.0, 20.0, -16.0,
                     16.0, 20.0, 18.0, 14.0, 78.0, 82.0, 82.0, 88.0);
-            default -> throw new IllegalArgumentException("Unsupported route role " + role);
+            default -> throw new IllegalArgumentException("Unsupported representative role " + role);
         };
-    }
-
-    private static String supportedRole(FlightProfile profile) {
-        if (profile.isFighter()) {
-            return "fighter";
-        }
-        if (profile.isTorpedoBomber()) {
-            return "torpedo_bomber";
-        }
-        if (profile.isLevelBomber()) {
-            return "bomber";
-        }
-        if (profile.isAttacker()) {
-            return "attacker";
-        }
-        return null;
     }
 
     private static void bind(Entity aircraft, MissionOrderManager.Assignment mission,
