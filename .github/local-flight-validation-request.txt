@@ -1,5 +1,5 @@
-# Local flight validation request pr57-b17-representative-route
-ref=2e3588e13ed6d8c3682964e8dfadc4aa95838611
+# Local flight validation request pr57-b17-heavy-detour-room
+ref=3f898dea6b2b1ba772985c8996dc0b968594788f
 aircraft=warfare_wings:b17
 scenario=full
 gametest=true
