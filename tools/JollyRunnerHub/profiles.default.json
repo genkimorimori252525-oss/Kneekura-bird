@@ -1,1 +1,170 @@
-{"version":1,"autoConnect":true,"profiles":[{"id":"warfare-wings","name":"Warfare Wings","runnerRoot":"C:\\actions-runner","workspaceRoot":"C:\\actions-runner\\_work\\warfare_wings-1.1.4-1.20.1-forge\\warfare_wings-1.1.4-1.20.1-forge","telemetryRoot":"C:\\actions-runner\\_work\\warfare_wings-1.1.4-1.20.1-forge\\warfare_wings-1.1.4-1.20.1-forge\\ww-debug-benchmark\\run-gametest\\world\\wwdebug\\autopilot","filePattern":"*.jsonl","staleSeconds":12,"repoUrl":"https://github.com/genkimorimori252525-oss/warfare_wings-1.1.4-1.20.1-forge","expectedAircraft":["A6M","P-47N"],"metrics":[{"key":"tick","label":"Tick","source":"frame","path":"server_tick","format":"0","default":0},{"key":"phase","label":"Phase","source":"frame","path":"phase","default":"IDLE"},{"key":"stage","label":"Stage","source":"reason","path":"stage","default":"IDLE"},{"key":"speed","label":"Speed BPS","source":"frame","path":"speed_bps","format":"0.00","default":0},{"key":"agl","label":"AGL","source":"frame","path":"altitude_above_ground","format":"0.00","default":0},{"key":"pitch","label":"Pitch","source":"frame","path":"pitch_deg","format":"0.0","default":0},{"key":"yaw","label":"Yaw","source":"frame","path":"yaw_deg","format":"0.0","default":0},{"key":"roll","label":"Roll","source":"frame","path":"roll_deg","format":"0.0","default":0},{"key":"control_x","label":"Control X","source":"frame","path":"control_x_logical","format":"0.00","default":0},{"key":"control_z","label":"Control Z","source":"frame","path":"control_z","format":"0.00","default":0},{"key":"raw_angle","label":"Raw Angle","source":"reason","path":"raw_target_angle","format":"0.0","default":0},{"key":"lead_angle","label":"Lead Angle","source":"reason","path":"predicted_lead_angle","format":"0.0","default":0},{"key":"closure","label":"Closure","source":"reason","path":"closure","format":"0.0","default":0},{"key":"best_capture_error","label":"Best Capture Error","source":"reason","path":"best_capture_horizontal_error","format":"0.0","default":0},{"key":"separation","label":"Separation","source":"reason","path":"separation","format":"0.0","default":0},{"key":"stall","label":"Stall","source":"frame","path":"stall_risk","default":false},{"key":"terrain","label":"Terrain","source":"frame","path":"terrain_risk","default":false},{"key":"ground","label":"Ground","source":"frame","path":"on_ground","default":false},{"key":"event","label":"Latest Event","source":"event","path":"event","default":"none"}]}]}
+{
+  "version": 2,
+  "autoConnect": true,
+  "profiles": [
+    {
+      "id": "warfare-wings",
+      "name": "Warfare Wings",
+      "runnerRoot": "C:\\actions-runner",
+      "workspaceRoot": "C:\\actions-runner\\_work\\warfare_wings-1.1.4-1.20.1-forge\\warfare_wings-1.1.4-1.20.1-forge",
+      "telemetryRoot": "C:\\actions-runner\\_work\\warfare_wings-1.1.4-1.20.1-forge\\warfare_wings-1.1.4-1.20.1-forge\\ww-debug-benchmark\\run-gametest\\world\\wwdebug\\autopilot",
+      "filePattern": "*.jsonl",
+      "staleSeconds": 12,
+      "historyDays": 30,
+      "historyMaxRuns": 100,
+      "repoUrl": "https://github.com/genkimorimori252525-oss/warfare_wings-1.1.4-1.20.1-forge",
+      "expectedAircraft": [
+        "A6M",
+        "P-47N"
+      ],
+      "metrics": [
+        {
+          "key": "tick",
+          "label": "Tick",
+          "source": "frame",
+          "path": "server_tick",
+          "format": "0",
+          "default": 0
+        },
+        {
+          "key": "phase",
+          "label": "Phase",
+          "source": "frame",
+          "path": "phase",
+          "default": "IDLE"
+        },
+        {
+          "key": "stage",
+          "label": "Stage",
+          "source": "reason",
+          "path": "stage",
+          "default": "IDLE"
+        },
+        {
+          "key": "speed",
+          "label": "Speed BPS",
+          "source": "frame",
+          "path": "speed_bps",
+          "format": "0.00",
+          "default": 0
+        },
+        {
+          "key": "agl",
+          "label": "AGL",
+          "source": "frame",
+          "path": "altitude_above_ground",
+          "format": "0.00",
+          "default": 0
+        },
+        {
+          "key": "pitch",
+          "label": "Pitch",
+          "source": "frame",
+          "path": "pitch_deg",
+          "format": "0.0",
+          "default": 0
+        },
+        {
+          "key": "yaw",
+          "label": "Yaw",
+          "source": "frame",
+          "path": "yaw_deg",
+          "format": "0.0",
+          "default": 0
+        },
+        {
+          "key": "roll",
+          "label": "Roll",
+          "source": "frame",
+          "path": "roll_deg",
+          "format": "0.0",
+          "default": 0
+        },
+        {
+          "key": "control_x",
+          "label": "Control X",
+          "source": "frame",
+          "path": "control_x_logical",
+          "format": "0.00",
+          "default": 0
+        },
+        {
+          "key": "control_z",
+          "label": "Control Z",
+          "source": "frame",
+          "path": "control_z",
+          "format": "0.00",
+          "default": 0
+        },
+        {
+          "key": "raw_angle",
+          "label": "Raw Angle",
+          "source": "reason",
+          "path": "raw_target_angle",
+          "format": "0.0",
+          "default": 0
+        },
+        {
+          "key": "lead_angle",
+          "label": "Lead Angle",
+          "source": "reason",
+          "path": "predicted_lead_angle",
+          "format": "0.0",
+          "default": 0
+        },
+        {
+          "key": "closure",
+          "label": "Closure",
+          "source": "reason",
+          "path": "closure",
+          "format": "0.0",
+          "default": 0
+        },
+        {
+          "key": "best_capture_error",
+          "label": "Best Capture Error",
+          "source": "reason",
+          "path": "best_capture_horizontal_error",
+          "format": "0.0",
+          "default": 0
+        },
+        {
+          "key": "separation",
+          "label": "Separation",
+          "source": "reason",
+          "path": "separation",
+          "format": "0.0",
+          "default": 0
+        },
+        {
+          "key": "stall",
+          "label": "Stall",
+          "source": "frame",
+          "path": "stall_risk",
+          "default": false
+        },
+        {
+          "key": "terrain",
+          "label": "Terrain",
+          "source": "frame",
+          "path": "terrain_risk",
+          "default": false
+        },
+        {
+          "key": "ground",
+          "label": "Ground",
+          "source": "frame",
+          "path": "on_ground",
+          "default": false
+        },
+        {
+          "key": "event",
+          "label": "Latest Event",
+          "source": "event",
+          "path": "event",
+          "default": "none"
+        }
+      ]
+    }
+  ]
+}
