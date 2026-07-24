@@ -6,8 +6,10 @@ import net.minecraft.nbt.Tag;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.level.saveddata.SavedData;
 
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /** Persistent world storage for mission assignments. */
@@ -22,20 +24,34 @@ public final class MissionOrderSavedData extends SavedData {
 
     public static MissionOrderSavedData load(CompoundTag root) {
         MissionOrderSavedData data = new MissionOrderSavedData();
+        Set<UUID> conflictedAircraft = new HashSet<>();
         ListTag entries = root.getList("assignments", Tag.TAG_COMPOUND);
         for (int index = 0; index < entries.size(); index++) {
             CompoundTag entry = entries.getCompound(index);
-            if (!entry.hasUUID("aircraft_id") || !entry.contains("order", Tag.TAG_COMPOUND)) {
-                continue;
-            }
-            long revision = entry.getLong("revision");
-            if (revision <= 0) {
+            if (!entry.hasUUID("aircraft_id")
+                    || !entry.contains("revision", Tag.TAG_ANY_NUMERIC)
+                    || !entry.contains("order", Tag.TAG_COMPOUND)) {
                 continue;
             }
             try {
                 UUID aircraftId = entry.getUUID("aircraft_id");
+                if (conflictedAircraft.contains(aircraftId)) {
+                    continue;
+                }
+                long revision = entry.getLong("revision");
+                if (revision <= 0 || revision == Long.MAX_VALUE) {
+                    continue;
+                }
                 MissionOrder order = MissionOrderCodec.read(entry.getCompound("order"));
-                data.assignments.put(aircraftId, new MissionOrderManager.Assignment(revision, order));
+                MissionOrderManager.Assignment candidate = new MissionOrderManager.Assignment(revision, order);
+                MissionOrderManager.Assignment existing = data.assignments.get(aircraftId);
+                if (existing == null || candidate.revision() > existing.revision()) {
+                    data.assignments.put(aircraftId, candidate);
+                } else if (candidate.revision() == existing.revision()
+                        && !candidate.order().equals(existing.order())) {
+                    data.assignments.remove(aircraftId);
+                    conflictedAircraft.add(aircraftId);
+                }
             } catch (IllegalArgumentException ignored) {
                 // Invalid entries are isolated so one corrupt assignment cannot discard all others.
             }
