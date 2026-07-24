@@ -28,9 +28,15 @@ $runtimeScriptText = $runtimeScriptText.Replace(
 $runtimeScriptText = $runtimeScriptText.Replace(
     '$valueLabel.Size = New-Object Drawing.Size($Width-20,20)',
     '$valueLabel.Size = New-Object Drawing.Size(($Width - 20),20)')
+$runtimeScriptText = $runtimeScriptText.Replace(
+    '$historyRuns.SelectedIndex = [math]::Min($selected,$historyRuns.Items.Count-1)',
+    '$historyRuns.SelectedIndex = [int][math]::Min($selected,($historyRuns.Items.Count - 1))')
 
 if ($runtimeScriptText -match '\$Width-\d') {
     throw 'JollyRunnerHub.ps1 still contains an ambiguous PowerShell variable subtraction expression.'
+}
+if ($runtimeScriptText -match 'SelectedIndex\s*=\s*\[math\]::Min') {
+    throw 'JollyRunnerHub.ps1 still assigns a non-integral Math.Min result to SelectedIndex.'
 }
 
 if ($runtimeScriptText -notmatch 'param\(\[switch\]\$StartupSmokeTest\)') {
