@@ -8,7 +8,8 @@
     "VehicleEntityBenchmarkMixin",
     "BenchmarkCleanAccelerationStartMixin",
     "LevelBomberMissionTimingMixin",
-    "AutonomousFlightRouteGuidanceMixin"
+    "AutonomousFlightRouteGuidanceMixin",
+    "AutopilotSessionRouteClockMixin"
   ],
   "injectors": {
     "defaultRequire": 0
