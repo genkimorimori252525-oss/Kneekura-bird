@@ -1,5 +1,5 @@
-# Local flight validation request pr60-b17-compact-owned-route
-ref=01321afb971d14d961df2509bb756e05cb96b15c
-aircraft=warfare_wings:b17
+# Local flight validation request pr61-profile-driven-route-plan
+ref=0123fbeec55b15bf4d78cca46d1d675882dc1ea5
+aircraft=warfare_wings:a6m
 scenario=full
 gametest=true
