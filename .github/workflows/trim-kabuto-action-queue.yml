@@ -24,8 +24,10 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $repo = 'genkimorimori252525-oss/kabuto'
           $cancel = @(
-            30105886338, # duplicate push Forge build; PR Forge build succeeded
-            30105889994  # PR recovery cannot commit generated source; keep push recovery
+            30105886338, # duplicate Forge push; matching PR build succeeded
+            30106638733, # redundant Forge PR build on current head
+            30106604431, # stale PR recovery from previous head
+            30105889994  # completed failed PR recovery; harmless no-op
           )
 
           foreach ($runId in $cancel) {
@@ -40,5 +42,9 @@ jobs:
             }
           }
 
-          $keep = ((& gh api "repos/$repo/actions/runs/30105886332") -join [Environment]::NewLine) | ConvertFrom-Json
+          $keepId = 30106633730
+          $keep = ((& gh api "repos/$repo/actions/runs/$keepId") -join [Environment]::NewLine) | ConvertFrom-Json
           Write-Host "Kept recovery run: id=$($keep.id) event=$($keep.event) status=$($keep.status) head=$($keep.head_sha)"
+          if ($keep.name -ne 'Recover original NeoForge sources' -or $keep.event -ne 'push') {
+            throw "Run $keepId is not the intended push recovery run."
+          }
