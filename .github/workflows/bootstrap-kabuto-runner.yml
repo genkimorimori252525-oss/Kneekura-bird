@@ -21,157 +21,164 @@ jobs:
     defaults:
       run:
         shell: powershell
+    env:
+      KABUTO_RUNNER_ROOT: C:\actions-runner-kabuto
+      KABUTO_REPOSITORY: genkimorimori252525-oss/kabuto
+      KABUTO_RUNNER_VERSION: 2.336.0
 
     steps:
-      - name: Inspect host and bootstrap Kabuto runner when authorized
-        id: bootstrap
+      - name: Initialize bootstrap report
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:GITHUB_WORKSPACE | Out-Null
+          @(
+            "timestamp=$([DateTime]::UtcNow.ToString('o'))",
+            "host_runner=$env:RUNNER_NAME",
+            "target_root=$env:KABUTO_RUNNER_ROOT",
+            "runner_version=$env:KABUTO_RUNNER_VERSION"
+          ) | Set-Content -Encoding UTF8 (Join-Path $env:GITHUB_WORKSPACE 'kabuto-runner-bootstrap.txt')
+
+      - name: Prepare clean runner distribution
+        id: prepare
         continue-on-error: true
         run: |
           $ErrorActionPreference = 'Stop'
-          New-Item -ItemType Directory -Force -Path $env:GITHUB_WORKSPACE | Out-Null
-          $reportPath = Join-Path $env:GITHUB_WORKSPACE 'kabuto-runner-bootstrap.txt'
-          $sourceRoot = 'C:\actions-runner'
-          $targetRoot = 'C:\actions-runner-kabuto'
-          $runnerVersion = '2.336.0'
-          $repo = 'genkimorimori252525-oss/kabuto'
-          $repoUrl = "https://github.com/$repo"
+          $report = Join-Path $env:GITHUB_WORKSPACE 'kabuto-runner-bootstrap.txt'
+          function Record([string]$line) { $line | Tee-Object -FilePath $report -Append }
 
-          $lines = New-Object System.Collections.Generic.List[string]
-          function Record([string]$Text) {
-            $lines.Add($Text)
-            Write-Host $Text
+          $root = $env:KABUTO_RUNNER_ROOT
+          $configured = (Test-Path (Join-Path $root '.runner')) -and (Test-Path (Join-Path $root '.credentials'))
+          Record "already_configured=$configured"
+          if ($configured) { exit 0 }
+
+          $escaped = [regex]::Escape($root)
+          foreach ($process in @(Get-CimInstance Win32_Process -Filter "Name='Runner.Listener.exe'" |
+            Where-Object {
+              ([string]$_.ExecutablePath -match "^$escaped") -or
+              ([string]$_.CommandLine -match $escaped)
+            })) {
+            Start-Process taskkill.exe -ArgumentList '/PID',[string]$process.ProcessId,'/T','/F' -Wait -WindowStyle Hidden | Out-Null
           }
 
-          $failure = $null
-          try {
-            Record "timestamp=$([DateTime]::UtcNow.ToString('o'))"
-            Record "runner_name=$env:RUNNER_NAME"
-            Record "source_runner_present=$(Test-Path (Join-Path $sourceRoot 'run.cmd'))"
-            Record "target_runner_present=$(Test-Path (Join-Path $targetRoot 'run.cmd'))"
-            Record "target_runner_version=$runnerVersion"
+          Remove-Item -Recurse -Force $root -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
 
-            $gh = Get-Command gh -ErrorAction SilentlyContinue
-            Record "gh_installed=$($null -ne $gh)"
-            if ($null -eq $gh) {
-              throw 'GitHub CLI is not installed on the self-hosted runner.'
-            }
+          $archive = Join-Path $env:RUNNER_TEMP "actions-runner-win-x64-$env:KABUTO_RUNNER_VERSION.zip"
+          $url = "https://github.com/actions/runner/releases/download/v$env:KABUTO_RUNNER_VERSION/actions-runner-win-x64-$env:KABUTO_RUNNER_VERSION.zip"
+          Record 'download_started=true'
+          & curl.exe --location --fail --silent --show-error --max-time 300 --output $archive $url
+          if ($LASTEXITCODE -ne 0) { throw "curl failed with exit code $LASTEXITCODE" }
+          $size = (Get-Item $archive).Length
+          Record "download_bytes=$size"
+          if ($size -lt 1000000) { throw "Runner archive is unexpectedly small: $size bytes" }
 
-            & gh auth status *> $null
-            $authenticated = $LASTEXITCODE -eq 0
-            Record "gh_authenticated=$authenticated"
-            if (-not $authenticated) {
-              throw 'GitHub CLI exists but has no authenticated user session.'
-            }
+          Expand-Archive -Path $archive -DestinationPath $root -Force
+          if (-not (Test-Path (Join-Path $root 'config.cmd'))) { throw 'config.cmd is missing after extraction.' }
+          Record 'distribution_ready=true'
 
-            & gh api "repos/$repo" --silent
-            $repoAccess = $LASTEXITCODE -eq 0
-            Record "kabuto_repo_access=$repoAccess"
-            if (-not $repoAccess) {
-              throw 'The host GitHub CLI session cannot access the Kabuto repository.'
-            }
+      - name: Stop after distribution failure
+        if: steps.prepare.outcome == 'failure'
+        run: exit 1
 
-            $token = (& gh api -X POST "repos/$repo/actions/runners/registration-token" --jq '.token').Trim()
-            if (-not $token) {
-              throw 'GitHub did not return a Kabuto runner registration token.'
-            }
-            Record 'registration_token_acquired=true'
-
-            $runnerConfig = Join-Path $targetRoot '.runner'
-            $runnerCredentials = Join-Path $targetRoot '.credentials'
-            $fullyConfigured = (Test-Path $runnerConfig) -and (Test-Path $runnerCredentials)
-
-            if (-not $fullyConfigured) {
-              $escaped = [regex]::Escape($targetRoot)
-              foreach ($process in @(Get-CimInstance Win32_Process -Filter "Name='Runner.Listener.exe'" |
-                Where-Object {
-                  ([string]$_.ExecutablePath -match "^$escaped") -or
-                  ([string]$_.CommandLine -match $escaped)
-                })) {
-                Start-Process taskkill.exe -ArgumentList '/PID',[string]$process.ProcessId,'/T','/F' -Wait -WindowStyle Hidden | Out-Null
-              }
-
-              Remove-Item -Recurse -Force $targetRoot -ErrorAction SilentlyContinue
-              New-Item -ItemType Directory -Force -Path $targetRoot | Out-Null
-
-              $runnerZip = Join-Path $env:RUNNER_TEMP "actions-runner-win-x64-$runnerVersion.zip"
-              $runnerUrl = "https://github.com/actions/runner/releases/download/v$runnerVersion/actions-runner-win-x64-$runnerVersion.zip"
-              Invoke-WebRequest -UseBasicParsing -Uri $runnerUrl -OutFile $runnerZip
-              Expand-Archive -Path $runnerZip -DestinationPath $targetRoot -Force
-              Record 'runner_distribution_downloaded=true'
-
-              $configLogRoot = Join-Path $targetRoot '_diag'
-              New-Item -ItemType Directory -Force -Path $configLogRoot | Out-Null
-              $configLog = Join-Path $configLogRoot 'kabuto-config.log'
-              Push-Location $targetRoot
-              try {
-                $configOutput = @(& .\config.cmd --unattended --url $repoUrl --token $token --name 'Jolly-Kabuto' --work '_work' --labels 'kabuto,forge-1.20.1' --replace 2>&1)
-                $configStatus = $LASTEXITCODE
-                $configOutput | Set-Content -Encoding UTF8 $configLog
-                foreach ($entry in ($configOutput | Select-Object -Last 40)) {
-                  $safeEntry = ([string]$entry).Replace($token, '***') -replace '[\r\n]+', ' '
-                  Record "config_output=$safeEntry"
-                }
-                Record "config_exit_code=$configStatus"
-                if ($configStatus -ne 0) {
-                  throw "config.cmd failed with exit code $configStatus"
-                }
-              }
-              finally {
-                Pop-Location
-              }
-              Record 'runner_registered=true'
-            }
-            else {
-              Record 'runner_registered=already'
-            }
-
-            $escaped = [regex]::Escape($targetRoot)
-            $running = @(Get-CimInstance Win32_Process -Filter "Name='Runner.Listener.exe'" |
-              Where-Object {
-                ([string]$_.ExecutablePath -match "^$escaped") -or
-                ([string]$_.CommandLine -match $escaped)
-              }).Count -gt 0
-
-            if (-not $running) {
-              $logRoot = Join-Path $targetRoot '_diag'
-              New-Item -ItemType Directory -Force -Path $logRoot | Out-Null
-              $log = Join-Path $logRoot 'jolly-kabuto-launch.log'
-              $runCmd = Join-Path $targetRoot 'run.cmd'
-              $command = '""{0}" >> "{1}" 2>&1"' -f $runCmd, $log
-              Start-Process cmd.exe -ArgumentList '/d','/s','/c',$command -WorkingDirectory $targetRoot -WindowStyle Hidden | Out-Null
-              Start-Sleep -Seconds 5
-              Record 'runner_started=true'
-            }
-            else {
-              Record 'runner_started=already'
-            }
-          }
-          catch {
-            $failure = $_
-            $message = ([string]$_.Exception.Message) -replace '[\r\n]+', ' '
-            Record "error_type=$($_.Exception.GetType().FullName)"
-            Record "error_message=$message"
-          }
-          finally {
-            $lines | Set-Content -Encoding UTF8 $reportPath
-          }
-
-          if ($null -ne $failure) {
-            throw $failure
-          }
-
-      - name: Persist bootstrap report
-        if: always()
+      - name: Register Kabuto runner
+        id: register
+        continue-on-error: true
         run: |
-          $reportPath = Join-Path $env:GITHUB_WORKSPACE 'kabuto-runner-bootstrap.txt'
-          if (-not (Test-Path $reportPath)) {
-            @(
-              "timestamp=$([DateTime]::UtcNow.ToString('o'))",
-              'bootstrap_report_missing=true',
-              "step_outcome=${{ steps.bootstrap.outcome }}"
-            ) | Set-Content -Encoding UTF8 $reportPath
+          $ErrorActionPreference = 'Stop'
+          $report = Join-Path $env:GITHUB_WORKSPACE 'kabuto-runner-bootstrap.txt'
+          function Record([string]$line) { $line | Tee-Object -FilePath $report -Append }
+
+          $root = $env:KABUTO_RUNNER_ROOT
+          $configured = (Test-Path (Join-Path $root '.runner')) -and (Test-Path (Join-Path $root '.credentials'))
+          if ($configured) {
+            Record 'registration=already_configured'
+            exit 0
           }
-          Get-Content $reportPath
+
+          $gh = Get-Command gh -ErrorAction SilentlyContinue
+          Record "gh_installed=$($null -ne $gh)"
+          if ($null -eq $gh) { throw 'GitHub CLI is not installed.' }
+
+          & gh auth status *> $null
+          if ($LASTEXITCODE -ne 0) { throw 'GitHub CLI is not authenticated.' }
+          Record 'gh_authenticated=true'
+
+          & gh api "repos/$env:KABUTO_REPOSITORY" --silent
+          if ($LASTEXITCODE -ne 0) { throw 'GitHub CLI cannot access the Kabuto repository.' }
+          Record 'kabuto_repo_access=true'
+
+          $token = (& gh api -X POST "repos/$env:KABUTO_REPOSITORY/actions/runners/registration-token" --jq '.token').Trim()
+          if (-not $token) { throw 'No runner registration token was returned.' }
+          Record 'registration_token_acquired=true'
+
+          $configOut = Join-Path $root '_diag\kabuto-config.stdout.log'
+          $configErr = Join-Path $root '_diag\kabuto-config.stderr.log'
+          New-Item -ItemType Directory -Force -Path (Split-Path $configOut -Parent) | Out-Null
+
+          $savedRunnerName = $env:RUNNER_NAME
+          Get-ChildItem Env: | Where-Object { $_.Name -like 'RUNNER_*' } | ForEach-Object {
+            Remove-Item "Env:$($_.Name)" -ErrorAction SilentlyContinue
+          }
+          Remove-Item Env:GITHUB_ACTIONS -ErrorAction SilentlyContinue
+
+          $configCmd = Join-Path $root 'config.cmd'
+          $arguments = '/d /s /c ""{0}" --unattended --url "https://github.com/{1}" --token "{2}" --name "Jolly-Kabuto" --work "_work" --labels "kabuto,forge-1.20.1" --replace"' -f $configCmd,$env:KABUTO_REPOSITORY,$token
+          $process = Start-Process cmd.exe -ArgumentList $arguments -WorkingDirectory $root -RedirectStandardOutput $configOut -RedirectStandardError $configErr -PassThru
+          if (-not $process.WaitForExit(180000)) {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            throw 'config.cmd exceeded the 180 second timeout.'
+          }
+
+          Record "config_exit_code=$($process.ExitCode)"
+          foreach ($line in @((Get-Content $configOut -ErrorAction SilentlyContinue) + (Get-Content $configErr -ErrorAction SilentlyContinue) | Select-Object -Last 30)) {
+            $safe = ([string]$line).Replace($token, '***') -replace '[\r\n]+',' '
+            Record "config_output=$safe"
+          }
+          if ($process.ExitCode -ne 0) { throw "config.cmd failed with exit code $($process.ExitCode)" }
+          if (-not ((Test-Path (Join-Path $root '.runner')) -and (Test-Path (Join-Path $root '.credentials')))) {
+            throw 'config.cmd exited successfully but runner credentials were not created.'
+          }
+          Record 'registration=success'
+
+      - name: Stop after registration failure
+        if: steps.register.outcome == 'failure'
+        run: exit 1
+
+      - name: Start and verify Kabuto runner
+        id: start_runner
+        continue-on-error: true
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $report = Join-Path $env:GITHUB_WORKSPACE 'kabuto-runner-bootstrap.txt'
+          function Record([string]$line) { $line | Tee-Object -FilePath $report -Append }
+
+          $root = $env:KABUTO_RUNNER_ROOT
+          $escaped = [regex]::Escape($root)
+          $running = @(Get-CimInstance Win32_Process -Filter "Name='Runner.Listener.exe'" |
+            Where-Object {
+              ([string]$_.ExecutablePath -match "^$escaped") -or
+              ([string]$_.CommandLine -match $escaped)
+            }).Count -gt 0
+
+          if (-not $running) {
+            $log = Join-Path $root '_diag\jolly-kabuto-launch.log'
+            $runCmd = Join-Path $root 'run.cmd'
+            $line = '""{0}" >> "{1}" 2>&1"' -f $runCmd,$log
+            Start-Process cmd.exe -ArgumentList '/d','/s','/c',$line -WorkingDirectory $root -WindowStyle Hidden | Out-Null
+            Record 'listener_launch_requested=true'
+          }
+
+          Start-Sleep -Seconds 8
+          $running = @(Get-CimInstance Win32_Process -Filter "Name='Runner.Listener.exe'" |
+            Where-Object {
+              ([string]$_.ExecutablePath -match "^$escaped") -or
+              ([string]$_.CommandLine -match $escaped)
+            }).Count -gt 0
+          Record "listener_running=$running"
+          if (-not $running) { throw 'Jolly-Kabuto listener did not remain running.' }
+
+          $runner = & gh api "repos/$env:KABUTO_REPOSITORY/actions/runners" --jq '.runners[] | select(.name == "Jolly-Kabuto") | [.status, .busy] | @tsv'
+          Record "api_runner_state=$runner"
+          if (-not $runner) { throw 'Jolly-Kabuto was not returned by the repository runners API.' }
 
       - name: Upload bootstrap report
         if: always()
@@ -182,6 +189,6 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: Fail when bootstrap did not complete
-        if: steps.bootstrap.outcome == 'failure'
+      - name: Fail when runner did not start
+        if: steps.start_runner.outcome == 'failure'
         run: exit 1
