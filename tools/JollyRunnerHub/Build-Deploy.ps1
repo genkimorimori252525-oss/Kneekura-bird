@@ -16,6 +16,26 @@ $launcherPath = Join-Path $root 'Launcher.cs'
 $defaultConfig = Join-Path $root 'profiles.default.json'
 $scriptPath = Join-Path $root 'JollyRunnerHub.ps1'
 
+$tokens = $null
+$parseErrors = $null
+[System.Management.Automation.Language.Parser]::ParseFile(
+    $scriptPath, [ref]$tokens, [ref]$parseErrors) | Out-Null
+if (@($parseErrors).Count -gt 0) {
+    $details = @($parseErrors | ForEach-Object {
+        '{0}:{1} {2}' -f $_.Extent.StartLineNumber,$_.Extent.StartColumnNumber,$_.Message
+    }) -join [Environment]::NewLine
+    throw "JollyRunnerHub.ps1 syntax validation failed:`n$details"
+}
+
+try {
+    Add-Type -AssemblyName System.Windows.Forms.DataVisualization -ErrorAction Stop
+}
+catch {
+    throw 'System.Windows.Forms.DataVisualization is required for the real-time dashboard charts.'
+}
+
+$null = Get-Content -LiteralPath $defaultConfig -Raw -Encoding UTF8 | ConvertFrom-Json
+
 New-Item -ItemType Directory -Force -Path $buildDir | Out-Null
 New-Item -ItemType Directory -Force -Path $appData | Out-Null
 
@@ -53,7 +73,9 @@ function Copy-Or-StageUpdate {
     )
     try {
         Copy-Item -LiteralPath $Source -Destination $Destination -Force -ErrorAction Stop
-        if (Test-Path -LiteralPath $Staged) { Remove-Item -LiteralPath $Staged -Force -ErrorAction SilentlyContinue }
+        if (Test-Path -LiteralPath $Staged) {
+            Remove-Item -LiteralPath $Staged -Force -ErrorAction SilentlyContinue
+        }
         return $false
     }
     catch [System.IO.IOException] {
@@ -100,8 +122,14 @@ $stagedExe = Join-Path $appData 'JollyRunnerHub.pending.exe'
 $stagedIcon = Join-Path $appData 'JollyRunnerHub.pending.ico'
 for ($attempt = 0; $attempt -lt 21600; $attempt++) {
     if (-not (Get-Process -Name 'JollyRunnerHub' -ErrorAction SilentlyContinue)) {
-        if (Test-Path -LiteralPath $stagedExe) { Copy-Item -LiteralPath $stagedExe -Destination $desktopExe -Force; Remove-Item -LiteralPath $stagedExe -Force }
-        if (Test-Path -LiteralPath $stagedIcon) { Copy-Item -LiteralPath $stagedIcon -Destination $installedIcon -Force; Remove-Item -LiteralPath $stagedIcon -Force }
+        if (Test-Path -LiteralPath $stagedExe) {
+            Copy-Item -LiteralPath $stagedExe -Destination $desktopExe -Force
+            Remove-Item -LiteralPath $stagedExe -Force
+        }
+        if (Test-Path -LiteralPath $stagedIcon) {
+            Copy-Item -LiteralPath $stagedIcon -Destination $installedIcon -Force
+            Remove-Item -LiteralPath $stagedIcon -Force
+        }
         break
     }
     Start-Sleep -Seconds 1
@@ -122,8 +150,10 @@ for ($attempt = 0; $attempt -lt 21600; $attempt++) {
         config = $profilePath
         icon_sha256 = (Get-FileHash -LiteralPath $iconPath -Algorithm SHA256).Hash.ToLowerInvariant()
         pending_restart = $pendingRestart
+        dashboard_version = 2
     }
-    $installInfo | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $appData 'install-status.json') -Encoding UTF8
+    $installInfo | ConvertTo-Json |
+        Set-Content -LiteralPath (Join-Path $appData 'install-status.json') -Encoding UTF8
     Write-Host "Installed JollyRunnerHub to $desktop (pending_restart=$pendingRestart)"
 }
 
