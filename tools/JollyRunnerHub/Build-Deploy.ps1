@@ -16,10 +16,11 @@ $launcherPath = Join-Path $root 'Launcher.cs'
 $defaultConfig = Join-Path $root 'profiles.default.json'
 $scriptPath = Join-Path $root 'JollyRunnerHub.ps1'
 
+$scriptText = Get-Content -LiteralPath $scriptPath -Raw -Encoding UTF8
 $tokens = $null
 $parseErrors = $null
-[System.Management.Automation.Language.Parser]::ParseFile(
-    $scriptPath, [ref]$tokens, [ref]$parseErrors) | Out-Null
+[System.Management.Automation.Language.Parser]::ParseInput(
+    $scriptText, [ref]$tokens, [ref]$parseErrors) | Out-Null
 if (@($parseErrors).Count -gt 0) {
     $details = @($parseErrors | ForEach-Object {
         '{0}:{1} {2}' -f $_.Extent.StartLineNumber,$_.Extent.StartColumnNumber,$_.Message
@@ -89,7 +90,8 @@ function Copy-Or-StageUpdate {
 }
 
 if ($Install) {
-    Copy-Item -LiteralPath $scriptPath -Destination (Join-Path $appData 'JollyRunnerHub.ps1') -Force
+    $installedScriptPath = Join-Path $appData 'JollyRunnerHub.ps1'
+    Set-Content -LiteralPath $installedScriptPath -Value $scriptText -Encoding UTF8
     Copy-Item -LiteralPath $defaultConfig -Destination (Join-Path $appData 'profiles.default.json') -Force
 
     $profilePath = Join-Path $appData 'profiles.json'
