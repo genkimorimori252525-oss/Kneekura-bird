@@ -84,7 +84,8 @@ public final class MissionOrderCodec {
         }
 
         Tag abortTag = tag.get("abort_conditions");
-        if (!(abortTag instanceof ListTag aborts) || aborts.getElementType() != Tag.TAG_STRING) {
+        if (!(abortTag instanceof ListTag aborts)
+                || (!aborts.isEmpty() && aborts.getElementType() != Tag.TAG_STRING)) {
             throw new IllegalArgumentException("Invalid string-list field: abort_conditions");
         }
         Set<MissionOrder.AbortCondition> conditions = EnumSet.noneOf(MissionOrder.AbortCondition.class);
