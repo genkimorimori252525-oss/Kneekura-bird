@@ -87,12 +87,39 @@ jobs:
             }
 
             $runnerConfig = Join-Path $targetRoot '.runner'
-            if (-not (Test-Path $runnerConfig)) {
+            $runnerCredentials = Join-Path $targetRoot '.credentials'
+            $runnerRsa = Join-Path $targetRoot '.credentials_rsaparams'
+            $runnerService = Join-Path $targetRoot '.service'
+            Record "config_file_present=$(Test-Path $runnerConfig)"
+            Record "credentials_file_present=$(Test-Path $runnerCredentials)"
+            Record "rsa_file_present=$(Test-Path $runnerRsa)"
+            Record "service_file_present=$(Test-Path $runnerService)"
+            Record "env_file_present=$(Test-Path (Join-Path $targetRoot '.env'))"
+            Record "path_file_present=$(Test-Path (Join-Path $targetRoot '.path'))"
+
+            $fullyConfigured = (Test-Path $runnerConfig) -and (Test-Path $runnerCredentials)
+            $partiallyConfigured = ((Test-Path $runnerConfig) -or (Test-Path $runnerCredentials)) -and (-not $fullyConfigured)
+            if ($partiallyConfigured) {
+              Remove-Item -Force $runnerConfig, $runnerCredentials, $runnerRsa, $runnerService -ErrorAction SilentlyContinue
+              Record 'partial_configuration_removed=true'
+            }
+
+            if (-not $fullyConfigured) {
+              $configLogRoot = Join-Path $targetRoot '_diag'
+              New-Item -ItemType Directory -Force -Path $configLogRoot | Out-Null
+              $configLog = Join-Path $configLogRoot 'kabuto-config.log'
               Push-Location $targetRoot
               try {
-                & .\config.cmd --unattended --url $repoUrl --token $token --name 'Jolly-Kabuto' --work '_work' --labels 'kabuto,forge-1.20.1' --replace
-                if ($LASTEXITCODE -ne 0) {
-                  throw "config.cmd failed with exit code $LASTEXITCODE"
+                $configOutput = @(& .\config.cmd --unattended --url $repoUrl --token $token --name 'Jolly-Kabuto' --work '_work' --labels 'kabuto,forge-1.20.1' --replace 2>&1)
+                $configStatus = $LASTEXITCODE
+                $configOutput | Set-Content -Encoding UTF8 $configLog
+                foreach ($entry in ($configOutput | Select-Object -Last 40)) {
+                  $safeEntry = ([string]$entry).Replace($token, '***') -replace '[\r\n]+', ' '
+                  Record "config_output=$safeEntry"
+                }
+                Record "config_exit_code=$configStatus"
+                if ($configStatus -ne 0) {
+                  throw "config.cmd failed with exit code $configStatus"
                 }
               }
               finally {
