@@ -1,0 +1,67 @@
+name: Start Kabuto Self-Hosted Runner
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/start-kabuto-runner.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: start-kabuto-runner
+  cancel-in-progress: true
+
+jobs:
+  start:
+    if: github.actor == 'genkimorimori252525-oss'
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell
+
+    steps:
+      - name: Start and verify Jolly-Kabuto
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = 'C:\actions-runner-kabuto'
+          $repo = 'genkimorimori252525-oss/kabuto'
+
+          if (-not ((Test-Path (Join-Path $root '.runner')) -and (Test-Path (Join-Path $root '.credentials')))) {
+            throw 'Jolly-Kabuto is not configured.'
+          }
+
+          $escaped = [regex]::Escape($root)
+          $running = @(Get-CimInstance Win32_Process -Filter "Name='Runner.Listener.exe'" |
+            Where-Object {
+              ([string]$_.ExecutablePath -match "^$escaped") -or
+              ([string]$_.CommandLine -match $escaped)
+            }).Count -gt 0
+
+          if (-not $running) {
+            $log = Join-Path $root '_diag\jolly-kabuto-launch.log'
+            $runCmd = Join-Path $root 'run.cmd'
+            $command = '""{0}" >> "{1}" 2>&1"' -f $runCmd,$log
+            Start-Process cmd.exe -ArgumentList '/d','/s','/c',$command -WorkingDirectory $root -WindowStyle Hidden | Out-Null
+          }
+
+          Start-Sleep -Seconds 10
+
+          $running = @(Get-CimInstance Win32_Process -Filter "Name='Runner.Listener.exe'" |
+            Where-Object {
+              ([string]$_.ExecutablePath -match "^$escaped") -or
+              ([string]$_.CommandLine -match $escaped)
+            }).Count -gt 0
+          if (-not $running) {
+            $launchLog = Join-Path $root '_diag\jolly-kabuto-launch.log'
+            if (Test-Path $launchLog) { Get-Content $launchLog -Tail 100 }
+            throw 'Jolly-Kabuto listener did not remain running.'
+          }
+
+          $state = & gh api "repos/$repo/actions/runners" --jq '.runners[] | select(.name == "Jolly-Kabuto") | [.status, .busy] | @tsv'
+          Write-Host "Jolly-Kabuto state: $state"
+          if (-not $state) {
+            throw 'Jolly-Kabuto was not returned by the repository runners API.'
+          }
