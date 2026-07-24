@@ -17,7 +17,7 @@ jobs:
   bootstrap:
     if: github.actor == 'genkimorimori252525-oss'
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 20
+    timeout-minutes: 35
     defaults:
       run:
         shell: powershell
@@ -62,10 +62,14 @@ jobs:
           Remove-Item -Recurse -Force $root -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path $root | Out-Null
 
-          $archive = Join-Path $env:RUNNER_TEMP "actions-runner-win-x64-$env:KABUTO_RUNNER_VERSION.zip"
+          $cacheRoot = 'C:\actions-runner-cache'
+          New-Item -ItemType Directory -Force -Path $cacheRoot | Out-Null
+          $archive = Join-Path $cacheRoot "actions-runner-win-x64-$env:KABUTO_RUNNER_VERSION.zip"
           $url = "https://github.com/actions/runner/releases/download/v$env:KABUTO_RUNNER_VERSION/actions-runner-win-x64-$env:KABUTO_RUNNER_VERSION.zip"
+          $cachedBytes = if (Test-Path $archive) { (Get-Item $archive).Length } else { 0 }
+          Record "download_cached_bytes=$cachedBytes"
           Record 'download_started=true'
-          & curl.exe --location --fail --silent --show-error --max-time 300 --output $archive $url
+          & curl.exe --location --fail --silent --show-error --continue-at - --retry 3 --retry-delay 5 --retry-all-errors --max-time 1200 --output $archive $url
           if ($LASTEXITCODE -ne 0) { throw "curl failed with exit code $LASTEXITCODE" }
           $size = (Get-Item $archive).Length
           Record "download_bytes=$size"
@@ -114,7 +118,6 @@ jobs:
           $configErr = Join-Path $root '_diag\kabuto-config.stderr.log'
           New-Item -ItemType Directory -Force -Path (Split-Path $configOut -Parent) | Out-Null
 
-          $savedRunnerName = $env:RUNNER_NAME
           Get-ChildItem Env: | Where-Object { $_.Name -like 'RUNNER_*' } | ForEach-Object {
             Remove-Item "Env:$($_.Name)" -ErrorAction SilentlyContinue
           }
