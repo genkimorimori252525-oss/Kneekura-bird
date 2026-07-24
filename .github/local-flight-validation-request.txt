@@ -1,5 +1,5 @@
-# Local flight validation request pr57-a6m-representative-route
-ref=c20e85e34e949fbed6c5d135943c54c7d56c1567
+# Local flight validation request pr57-a6m-obstacle-clearance
+ref=ecedd99f8ce79abf4afae81991e890120a1a5cf4
 aircraft=warfare_wings:a6m
 scenario=full
 gametest=true
