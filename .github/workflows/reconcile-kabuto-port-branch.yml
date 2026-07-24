@@ -1,0 +1,84 @@
+name: Reconcile Kabuto Port Branch
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/reconcile-kabuto-port-branch.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reconcile-kabuto-port-branch
+  cancel-in-progress: true
+
+jobs:
+  reconcile:
+    if: github.actor == 'genkimorimori252525-oss'
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: powershell
+
+    steps:
+      - name: Merge master and retain archived class inputs
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $repo = 'genkimorimori252525-oss/kabuto'
+          $branch = 'agent/forge-1.20.1-port'
+          $archive = 'archive/original-neoforge-1.21.1'
+          $workspace = 'C:\actions-runner-cache\kabuto-port-reconcile'
+
+          Remove-Item -Recurse -Force $workspace -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path (Split-Path $workspace -Parent) | Out-Null
+
+          & gh auth setup-git
+          if ($LASTEXITCODE -ne 0) { throw 'gh auth setup-git failed.' }
+
+          & gh repo clone $repo $workspace -- --filter=blob:none
+          if ($LASTEXITCODE -ne 0) { throw 'Could not clone the Kabuto repository.' }
+
+          Push-Location $workspace
+          try {
+            git config user.name 'Jolly Runner'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git fetch origin master $branch $archive --prune
+            if ($LASTEXITCODE -ne 0) { throw 'Could not fetch Kabuto branches.' }
+
+            git checkout -B $branch "origin/$branch"
+            if ($LASTEXITCODE -ne 0) { throw 'Could not check out the port branch.' }
+
+            git merge --no-edit origin/master
+            if ($LASTEXITCODE -ne 0) {
+              git status --short
+              throw 'Merging master into the Kabuto port branch failed.'
+            }
+
+            git checkout "origin/$archive" -- net
+            if ($LASTEXITCODE -ne 0) { throw 'Could not restore original class inputs from the archive branch.' }
+            git add -f -- net
+
+            git diff --cached --quiet
+            if ($LASTEXITCODE -ne 0) {
+              git commit -m 'Retain original class inputs after master reconciliation'
+              if ($LASTEXITCODE -ne 0) { throw 'Could not commit restored class inputs.' }
+            }
+
+            git merge-base --is-ancestor origin/master HEAD
+            if ($LASTEXITCODE -ne 0) { throw 'The reconciled branch does not contain master.' }
+
+            $classCount = @(Get-ChildItem -Path net -Recurse -File -Filter '*.class').Count
+            Write-Host "Tracked original class files after reconciliation: $classCount"
+            if ($classCount -eq 0) { throw 'No original class files remain after reconciliation.' }
+
+            git push origin "HEAD:$branch"
+            if ($LASTEXITCODE -ne 0) { throw 'Could not push the reconciled Kabuto branch.' }
+
+            Write-Host "Reconciled $branch with master while retaining $classCount class files."
+          }
+          finally {
+            Pop-Location
+            Remove-Item -Recurse -Force $workspace -ErrorAction SilentlyContinue
+          }
