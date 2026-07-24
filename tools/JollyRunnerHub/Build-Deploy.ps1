@@ -11,21 +11,50 @@ $desktop = [Environment]::GetFolderPath('Desktop')
 $buildDir = Join-Path $root 'build'
 $iconPath = Join-Path $buildDir 'JollyRunnerHub.ico'
 $exePath = Join-Path $buildDir 'JollyRunnerHub.exe'
+$runtimeScriptPath = Join-Path $buildDir 'JollyRunnerHub.runtime.ps1'
 $manifestPath = Join-Path $root 'app.manifest'
 $launcherPath = Join-Path $root 'Launcher.cs'
 $defaultConfig = Join-Path $root 'profiles.default.json'
 $scriptPath = Join-Path $root 'JollyRunnerHub.ps1'
 
-$scriptText = Get-Content -LiteralPath $scriptPath -Raw -Encoding UTF8
+New-Item -ItemType Directory -Force -Path $buildDir | Out-Null
+New-Item -ItemType Directory -Force -Path $appData | Out-Null
+
+$sourceScriptText = Get-Content -LiteralPath $scriptPath -Raw -Encoding UTF8
+$runtimeScriptText = $sourceScriptText
+$runtimeScriptText = $runtimeScriptText.Replace(
+    '$captionLabel.Size = New-Object Drawing.Size($Width-20,14)',
+    '$captionLabel.Size = New-Object Drawing.Size(($Width - 20),14)')
+$runtimeScriptText = $runtimeScriptText.Replace(
+    '$valueLabel.Size = New-Object Drawing.Size($Width-20,20)',
+    '$valueLabel.Size = New-Object Drawing.Size(($Width - 20),20)')
+
+if ($runtimeScriptText -match '\$Width-\d') {
+    throw 'JollyRunnerHub.ps1 still contains an ambiguous PowerShell variable subtraction expression.'
+}
+
+if ($runtimeScriptText -notmatch 'param\(\[switch\]\$StartupSmokeTest\)') {
+    $runtimeScriptText = $runtimeScriptText.Replace(
+        '#requires -version 5.1',
+        "#requires -version 5.1`r`nparam([switch]`$StartupSmokeTest)")
+}
+if ($runtimeScriptText -notmatch 'startup smoke test passed') {
+    $runtimeScriptText = $runtimeScriptText.Replace(
+        '[void]$form.ShowDialog()',
+        "if (`$StartupSmokeTest) {`r`n    `$form.Dispose()`r`n    Write-Host 'Jolly Runner Hub startup smoke test passed.'`r`n    exit 0`r`n}`r`n[void]`$form.ShowDialog()")
+}
+
+Set-Content -LiteralPath $runtimeScriptPath -Value $runtimeScriptText -Encoding UTF8
+
 $tokens = $null
 $parseErrors = $null
 [System.Management.Automation.Language.Parser]::ParseInput(
-    $scriptText, [ref]$tokens, [ref]$parseErrors) | Out-Null
+    $runtimeScriptText, [ref]$tokens, [ref]$parseErrors) | Out-Null
 if (@($parseErrors).Count -gt 0) {
     $details = @($parseErrors | ForEach-Object {
         '{0}:{1} {2}' -f $_.Extent.StartLineNumber,$_.Extent.StartColumnNumber,$_.Message
     }) -join [Environment]::NewLine
-    throw "JollyRunnerHub.ps1 syntax validation failed:`n$details"
+    throw "JollyRunnerHub runtime syntax validation failed:`n$details"
 }
 
 try {
@@ -37,8 +66,10 @@ catch {
 
 $null = Get-Content -LiteralPath $defaultConfig -Raw -Encoding UTF8 | ConvertFrom-Json
 
-New-Item -ItemType Directory -Force -Path $buildDir | Out-Null
-New-Item -ItemType Directory -Force -Path $appData | Out-Null
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $runtimeScriptPath -StartupSmokeTest
+if ($LASTEXITCODE -ne 0) {
+    throw "JollyRunnerHub startup smoke test failed with exit code $LASTEXITCODE"
+}
 
 $iconParts = @(Get-ChildItem -LiteralPath $root -Filter 'JollyRunnerHub.ico.b64.part*' -File |
     Sort-Object Name)
@@ -91,7 +122,7 @@ function Copy-Or-StageUpdate {
 
 if ($Install) {
     $installedScriptPath = Join-Path $appData 'JollyRunnerHub.ps1'
-    Set-Content -LiteralPath $installedScriptPath -Value $scriptText -Encoding UTF8
+    Copy-Item -LiteralPath $runtimeScriptPath -Destination $installedScriptPath -Force
     Copy-Item -LiteralPath $defaultConfig -Destination (Join-Path $appData 'profiles.default.json') -Force
 
     $profilePath = Join-Path $appData 'profiles.json'
@@ -153,6 +184,7 @@ for ($attempt = 0; $attempt -lt 21600; $attempt++) {
         icon_sha256 = (Get-FileHash -LiteralPath $iconPath -Algorithm SHA256).Hash.ToLowerInvariant()
         pending_restart = $pendingRestart
         dashboard_version = 2
+        startup_smoke_test = 'passed'
     }
     $installInfo | ConvertTo-Json |
         Set-Content -LiteralPath (Join-Path $appData 'install-status.json') -Encoding UTF8
