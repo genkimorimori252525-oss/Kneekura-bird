@@ -1,5 +1,7 @@
 package com.wwdebug.autopilot;
 
+import net.minecraft.server.MinecraftServer;
+
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -16,6 +18,7 @@ import java.util.concurrent.atomic.AtomicLong;
 public final class MissionOrderManager {
     private static final Map<UUID, Assignment> ASSIGNMENTS = new ConcurrentHashMap<>();
     private static final AtomicLong REVISIONS = new AtomicLong();
+    private static volatile MissionOrderSavedData persistentData;
 
     private MissionOrderManager() {
     }
@@ -25,6 +28,7 @@ public final class MissionOrderManager {
         Objects.requireNonNull(order, "order");
         Assignment assignment = new Assignment(REVISIONS.incrementAndGet(), order);
         ASSIGNMENTS.put(aircraftId, assignment);
+        persist();
         return assignment;
     }
 
@@ -33,7 +37,7 @@ public final class MissionOrderManager {
     }
 
     public static Optional<Assignment> replace(UUID aircraftId, long expectedRevision,
-                                               MissionOrder replacement) {
+                                                MissionOrder replacement) {
         Objects.requireNonNull(aircraftId, "aircraftId");
         Objects.requireNonNull(replacement, "replacement");
         Assignment[] updated = new Assignment[1];
@@ -45,18 +49,27 @@ public final class MissionOrderManager {
             updated[0] = next;
             return next;
         });
+        if (updated[0] != null) {
+            persist();
+        }
         return Optional.ofNullable(updated[0]);
     }
 
     public static boolean clear(UUID aircraftId, long expectedRevision) {
         Objects.requireNonNull(aircraftId, "aircraftId");
         Assignment current = ASSIGNMENTS.get(aircraftId);
-        return current != null && current.revision() == expectedRevision
+        boolean removed = current != null && current.revision() == expectedRevision
                 && ASSIGNMENTS.remove(aircraftId, current);
+        if (removed) {
+            persist();
+        }
+        return removed;
     }
 
     public static void clear(UUID aircraftId) {
-        ASSIGNMENTS.remove(Objects.requireNonNull(aircraftId, "aircraftId"));
+        if (ASSIGNMENTS.remove(Objects.requireNonNull(aircraftId, "aircraftId")) != null) {
+            persist();
+        }
     }
 
     public static Map<UUID, Assignment> snapshot() {
@@ -64,7 +77,40 @@ public final class MissionOrderManager {
     }
 
     public static void clearAll() {
+        if (!ASSIGNMENTS.isEmpty()) {
+            ASSIGNMENTS.clear();
+            persist();
+        }
+    }
+
+    public static void bind(MinecraftServer server) {
+        MissionOrderSavedData data = MissionOrderSavedData.get(server);
+        persistentData = data;
+        restore(data.snapshot());
+    }
+
+    public static void unbind() {
+        persist();
+        persistentData = null;
         ASSIGNMENTS.clear();
+        REVISIONS.set(0L);
+    }
+
+    static void restore(Map<UUID, Assignment> values) {
+        ASSIGNMENTS.clear();
+        ASSIGNMENTS.putAll(values);
+        long highestRevision = values.values().stream()
+                .mapToLong(Assignment::revision)
+                .max()
+                .orElse(0L);
+        REVISIONS.set(highestRevision);
+    }
+
+    private static void persist() {
+        MissionOrderSavedData data = persistentData;
+        if (data != null) {
+            data.replace(snapshot());
+        }
     }
 
     public record Assignment(long revision, MissionOrder order) {

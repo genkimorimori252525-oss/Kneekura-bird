@@ -3,10 +3,12 @@ package com.wwdebug.autopilot;
 import com.wwdebug.benchmark.WWDebugBenchmarkMod;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 
+import java.util.Map;
 import java.util.UUID;
 
 /** Deterministic contract checks for the mission-order data boundary. */
@@ -86,6 +88,49 @@ public final class MissionOrderGameTests {
                 .replace(aircraft, strikeAssignment.revision(), oneRunLeft).orElseThrow();
         check(replacement.order().remainingAttackRuns() == 1,
                 "attack-run changes must use the same revision-guarded replacement boundary");
+
+        MissionOrderManager.clearAll();
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty", timeoutTicks = 20, batch = "mission_order_contract")
+    public static void missionOrderPersistenceRoundTripContract(GameTestHelper helper) {
+        UUID aircraft = UUID.fromString("00000000-0000-0000-0000-000000000501");
+        MissionOrder order = MissionOrder.builder(MissionOrder.Type.ESCORT)
+                .orderId(UUID.fromString("00000000-0000-0000-0000-000000000502"))
+                .targetEntity(UUID.fromString("00000000-0000-0000-0000-000000000503"))
+                .targetPosition(new Vec3(-320.5, 110.0, 88.25), 64.0)
+                .home(new Vec3(12.0, 70.0, -9.0), new Vec3(4.0, 2.0, 0.0))
+                .formation(UUID.fromString("00000000-0000-0000-0000-000000000504"),
+                        UUID.fromString("00000000-0000-0000-0000-000000000505"))
+                .minimumReturnFuelFraction(0.35)
+                .weaponsFree(true)
+                .missionAltitude(110.0)
+                .ingressDirection(new Vec3(-2.0, 7.0, 5.0))
+                .abortOn(MissionOrder.AbortCondition.PLAYER_TAKES_CONTROL,
+                        MissionOrder.AbortCondition.TARGET_LOST,
+                        MissionOrder.AbortCondition.FRIENDLY_FIRE_RISK)
+                .build();
+        MissionOrderManager.Assignment assignment = new MissionOrderManager.Assignment(42L, order);
+
+        MissionOrderSavedData initial = new MissionOrderSavedData();
+        initial.replace(Map.of(aircraft, assignment));
+        CompoundTag serialized = initial.save(new CompoundTag());
+        MissionOrderSavedData restoredData = MissionOrderSavedData.load(serialized);
+        MissionOrderManager.Assignment restored = restoredData.snapshot().get(aircraft);
+
+        check(assignment.equals(restored), "saved assignment must round-trip exactly");
+        check(MissionOrderCodec.read(MissionOrderCodec.write(order)).equals(order),
+                "mission order codec must preserve every immutable field");
+
+        MissionOrderManager.restore(restoredData.snapshot());
+        MissionOrderManager.Assignment next = MissionOrderManager.assign(
+                UUID.fromString("00000000-0000-0000-0000-000000000506"),
+                MissionOrder.builder(MissionOrder.Type.HOLD_POSITION)
+                        .targetPosition(new Vec3(1.0, 80.0, 1.0), 8.0)
+                        .build());
+        check(next.revision() > assignment.revision(),
+                "restored revisions must remain monotonic after restart");
 
         MissionOrderManager.clearAll();
         helper.succeed();
