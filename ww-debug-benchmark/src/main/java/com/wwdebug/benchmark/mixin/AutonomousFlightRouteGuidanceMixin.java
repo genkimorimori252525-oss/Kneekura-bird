@@ -14,6 +14,7 @@ abstract class AutonomousFlightRouteGuidanceMixin {
             method = "applyControl",
             at = @At(value = "STORE"),
             ordinal = 0,
+            require = 1,
             remap = false
     )
     private static FlightControlOutput wwdebugBenchmark$applyOwnedRouteGuidance(
