@@ -6,67 +6,70 @@ Follow `/AGENTS.md` before changing code. Live GitHub state overrides older note
 
 ## Current production baseline
 
-PR #53 is merged and provides live owned-route guidance below terrain, collision, combat, emergency, and player-control authority.
+Production owned-route guidance remains below player-control, emergency, terrain, collision, and combat authority. No weapon or minimum-separation rule was relaxed.
 
-Windows self-hosted run `30106085402` passed the A6M exact-physics proof:
+Merged route milestones:
 
-- ordered waypoint progression `3,2,1,0`;
-- route proposal followed by terrain override in the same tick;
-- no ordinary mission phase advancement during route ownership;
-- no ground contact during route guidance;
-- release to ordinary mission;
-- return, landing, braking, and final `PARKED`;
-- no crash reports.
+- PR #53: live owned-route guidance integrated into the single final aircraft-input path;
+- PR #58: G4M legacy metadata recovery and `torpedo_bomber` common-flight admission;
+- PR #59: IL-2 attacker representative route proof;
+- PR #60: B-17 level-bomber compact route proof;
+- PR #63: dedicated Windows self-hosted generic `route` validation workflow;
+- PR #64: profile-driven compact route geometry and arbitrary-aircraft strict evidence, merged as `a91c610b970721e3508dca4c1460e75b262ec3d0`.
 
-## Representative-matrix research history
+The generic route plan derives four waypoints from measured `FlightProfile` role, cruise speed, live position, and live heading. Supported roles are fighter, bomber, attacker, and torpedo bomber. Unknown roles and malformed geometry inputs are rejected deterministically.
 
-Experimental Draft PR #57 was closed without merge after reaching its 8-run limit.
+## Exact-physics qualification evidence
 
-Useful evidence retained there:
+Fully qualified with artifacts and terminal `PARKED`:
 
-- A6M run `30110401857`: generalized route proof passed and ended `PARKED`;
-- B-17 runs `30111253908` and `30112101949`: base mission ended `PARKED`, but a flat artificial wall was not a valid heavy-aircraft terrain-proof design;
-- G4M run `30112520940`: legacy metadata recovered `role=torpedo_bomber`, common-flight admission worked, route progressed `3,2,1,0`, and ordinary mission resumed, but the long representative route caused `return_to_pattern_timeout` about 175 blocks from the runway;
-- IL-2 representative proof was not run.
+- A6M terrain-precedence proof — Run `30106085402`;
+- G4M compact torpedo-bomber route — Run `30113770224`;
+- IL-2 compact attacker route — Run `30115029120`;
+- B-17 compact level-bomber route — Run `30115815404`;
+- P-51D generic profile-driven route — Run `30118532513`;
+- Spitfire generic turn-fighter route — Run `30120064170`;
+- B-29 generic bomber route — Run `30120521495`.
 
-Do not reopen or merge PR #57. Treat it only as telemetry evidence.
+Each completed generic qualification required ordered waypoint progression `3,2,1,0`, no ground contact during route ownership, release to the ordinary mission, return, landing, braking, final `PARKED`, passed summary, Gradle status 0, and no crash reports.
 
-## Active focused work
+B-29 specifically performed a safe go-around before the successful final landing.
 
-Draft PR #58, branch `agent/g4m-compact-owned-route`, head `7b5471b1cd4b9402a18d3fa1ec4321a0110f87b9`.
+## Current infrastructure exception
 
-Focused hypothesis:
+Ju 87 generic route Run `30121385930` checked out exact behavior SHA `a91c610b970721e3508dca4c1460e75b262ec3d0` on Windows runner `ジョリー`.
 
-> Keeping all production timeouts and safety thresholds unchanged, shortening only the G4M test route to `leg=145` should preserve `torpedo_bomber` role admission, ordered four-waypoint execution, ordinary mission release, return, landing, and final `PARKED`.
+Observed workflow result:
 
-PR #58 changes six files:
+- build and deterministic simulation: success;
+- exact-physics route scenario and strict GameTest evidence: success;
+- artifact upload: failure;
+- automatic finish-status write: failure;
+- final job conclusion: failure only because the two GitHub post-processing steps failed.
 
-- normalizes and admits `torpedo_bomber` to common noncombat autonomous flight;
-- applies the existing heavy-aircraft turn-floor bound;
-- restores G4M's torpedo-bomber role when legacy public runtime data lacks the optional `ai` block;
-- adds a compact G4M-only route from live `CRUISE_OUTBOUND` position;
-- keeps A6M's existing terrain-precedence proof unchanged;
-- adds deterministic role-admission and unknown-role exclusion GameTests;
-- requires G4M role evidence, waypoint sequence `3,2,1,0`, release, and a passed terminal mission.
+No diagnostics artifact was created, so Ju 87 must not yet be counted as fully qualified even though the strict route scenario itself passed. Do not retune aircraft control from this run. `.github/local-route-validation-status.json` was manually corrected to record `conclusion=infrastructure_failure` and both successful behavior outcomes.
 
-Validation request commit on `main`: `61310e57a4315c8fd11837ae69bc800987dc5836`.
-Requested exact head: `7b5471b1cd4b9402a18d3fa1ec4321a0110f87b9`, aircraft `warfare_wings:g4m`, scenario `full`, GameTests enabled.
+## Repository state
 
-At this handoff update, the status file still showed completed run `30112520940`; no new run-start record had appeared. Do not issue a duplicate request. First reread `.github/local-flight-validation-status.json` and recent Actions/start commits.
+- Parent roadmap: Issue #7 remains the only open issue.
+- No behavior PR is currently open.
+- Obsolete Draft PR #61 was closed as superseded by merged PR #64.
+- Windows self-hosted runner was online and executed Run `30121385930`.
+- Current main includes status checkpoint commit `d7c6395c1422306acc12b08b5418462138e0039e` or a later metadata/documentation commit.
 
 ## Preserved invariants
 
 - player-controlled aircraft receive no AI input;
 - terrain, collision, combat, and emergency control remain above route guidance;
-- there is still one final aircraft-input write;
+- there is one final aircraft-input write;
 - noncombat route orders do not grant weapon authority;
 - fixed-gun, line-of-sight, range, friendly-fire, and minimum 8-block separation rules are unchanged;
 - no return timeout or safety threshold was relaxed.
 
 ## Next exact action
 
-1. Check whether the Windows runner accepted PR #58 exact head.
-2. If a run exists, inspect build and exact-physics artifacts once.
-3. Merge only if G4M profile is `torpedo_bomber`, waypoint progression is `3,2,1,0`, ordinary mission resumes, final state is `PARKED`, and crash reports are absent.
-4. If it fails, record the exact remaining distance/phase without changing the return timeout.
-5. After G4M is isolated and merged, create separate focused work for B-17 open-gate terrain qualification, then IL-2 representative route proof.
+1. Do not issue another Ju 87 behavior run immediately.
+2. Inspect the failed `Upload route diagnostics` and `Persist route validation finish` steps from Run `30121385930`; treat them as infrastructure/network/storage failures unless logs prove otherwise.
+3. Make one focused workflow-only fix if a deterministic root cause is found. Do not change aircraft geometry or control thresholds.
+4. After the post-processing path is healthy, re-run Ju 87 once on exact production behavior SHA and require artifact-backed `PARKED` plus crash-report inspection.
+5. Continue the 24-aircraft route matrix with an unqualified base aircraft selected to broaden role/physics coverage. Keep each request exact-SHA and sequential on the self-hosted runner.
