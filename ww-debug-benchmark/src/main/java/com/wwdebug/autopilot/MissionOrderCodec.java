@@ -83,11 +83,8 @@ public final class MissionOrderCodec {
             builder.ingressDirection(ingress);
         }
 
-        if (!tag.contains("abort_conditions", Tag.TAG_LIST)) {
-            throw new IllegalArgumentException("Missing string-list field: abort_conditions");
-        }
-        ListTag aborts = tag.getList("abort_conditions", Tag.TAG_STRING);
-        if (aborts.size() != tag.getList("abort_conditions", Tag.TAG_END).size()) {
+        Tag abortTag = tag.get("abort_conditions");
+        if (!(abortTag instanceof ListTag aborts) || aborts.getElementType() != Tag.TAG_STRING) {
             throw new IllegalArgumentException("Invalid string-list field: abort_conditions");
         }
         Set<MissionOrder.AbortCondition> conditions = EnumSet.noneOf(MissionOrder.AbortCondition.class);
