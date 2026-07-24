@@ -1,12 +1,15 @@
 {
   "run_id": 30118217670,
-  "status": "in_progress",
-  "conclusion": null,
+  "status": "completed",
+  "conclusion": "failure",
   "event": "push",
   "branch": "agent/generic-route-validation-scenario",
   "event_sha": "a9b43144fb58c4787e4ddc08dc098501a0966aa7",
   "requested_ref": "70af5ebcc427853ae9da6a6bb0c5dbc983885c7e",
+  "requested_sha": "70af5ebcc427853ae9da6a6bb0c5dbc983885c7e",
   "aircraft": "warfare_wings:p51d",
   "scenario": "route",
-  "updated_at": "2026-07-24T18:48:53.878Z"
+  "build_outcome": "success",
+  "gametest_outcome": "skipped",
+  "updated_at": "2026-07-24T18:51:18.584Z"
 }
