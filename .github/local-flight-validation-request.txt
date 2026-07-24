@@ -1,5 +1,5 @@
-# Local flight validation request pr57-g4m-torpedo-role-route
-ref=3f898dea6b2b1ba772985c8996dc0b968594788f
+# Local flight validation request pr58-g4m-compact-owned-route
+ref=7b5471b1cd4b9402a18d3fa1ec4321a0110f87b9
 aircraft=warfare_wings:g4m
 scenario=full
 gametest=true
