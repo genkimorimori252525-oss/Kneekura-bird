@@ -107,7 +107,10 @@ final class MissionRouteValidationSetup {
     }
 
     private static RouteGeometry geometry(FlightProfile profile) {
-        double leg = clamp(profile.cruiseSpeedBps() * 14.0, 300.0, 520.0);
+        // PR #53 proved a remaining live-route distance of roughly 730 blocks. Scale the
+        // representative route by measured cruise speed while keeping the whole proof within the
+        // unchanged return-to-pattern budget for both fast fighters and slow heavy aircraft.
+        double leg = clamp(profile.cruiseSpeedBps() * 7.5, 220.0, 280.0);
         boolean heavy = profile.isLevelBomber() || profile.isTorpedoBomber();
         double lateral = heavy ? 135.0 : profile.isAttacker() ? 105.0 : 95.0;
         double radius = heavy ? 78.0 : profile.isAttacker() ? 62.0 : 54.0;
