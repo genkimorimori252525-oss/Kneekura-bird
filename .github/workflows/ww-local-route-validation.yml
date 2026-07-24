@@ -179,7 +179,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ww-local-route-${{ steps.request.outputs.aircraft }}-${{ github.run_id }}
+          name: ww-local-route-${{ github.run_id }}
           if-no-files-found: warn
           path: |
             ww-debug-benchmark/build.log
