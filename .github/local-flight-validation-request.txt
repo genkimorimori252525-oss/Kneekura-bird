@@ -1,5 +1,5 @@
-# Local flight validation request pr58-g4m-compact-owned-route
-ref=7b5471b1cd4b9402a18d3fa1ec4321a0110f87b9
-aircraft=warfare_wings:g4m
+# Local flight validation request pr59-il2-compact-owned-route
+ref=7783d289ed17d39eb9465196a56809d16dd1fa9e
+aircraft=warfare_wings:il2
 scenario=full
 gametest=true
