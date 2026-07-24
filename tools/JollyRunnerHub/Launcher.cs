@@ -35,7 +35,7 @@ namespace JollyRunnerHubLauncher
                 throw new InvalidOperationException(
                     "Runner Hub runtime patch target was not found: " + description);
             }
-            return regex.Replace(source, _ => replacement, 1);
+            return regex.Replace(source, match => replacement, 1);
         }
 
         [STAThread]
@@ -70,8 +70,6 @@ namespace JollyRunnerHubLauncher
                 string scriptText = File.ReadAllText(sourceScript)
                     .Replace("\r\n", "\n");
 
-                // Windows PowerShell functions emit every uncaptured expression. Controls.Add and
-                // List.Add return integers, which can turn the intended return value into Object[].
                 scriptText = scriptText
                     .Replace("$top.Controls.Add($b);return $b", "[void]$top.Controls.Add($b);return $b")
                     .Replace("$lines.Add($line)", "[void]$lines.Add($line)")
@@ -82,8 +80,6 @@ namespace JollyRunnerHubLauncher
                     .Replace("$cells.Add([string]$a.Name)", "[void]$cells.Add([string]$a.Name)")
                     .Replace("{$cells.Add($a.Values[[string]$m.key])}", "{[void]$cells.Add($a.Values[[string]$m.key])}");
 
-                // Windows PowerShell 5.1 can throw "Argument types do not match" when @(...)
-                // wraps a generic List<object>. Enumerate those lists directly.
                 scriptText = scriptText
                     .Replace("foreach ($a in @($Snapshot.Aircraft))", "foreach ($a in $Snapshot.Aircraft)")
                     .Replace("foreach ($e in @($Snapshot.Events))", "foreach ($e in $Snapshot.Events)")
@@ -91,7 +87,6 @@ namespace JollyRunnerHubLauncher
                     .Replace("foreach ($event in @($Snapshot.Events))", "foreach ($event in $Snapshot.Events)")
                     .Replace("$grouped = @($Records) | Group-Object aircraft", "$grouped = $Records | Group-Object aircraft");
 
-                // New-Object treats unparenthesized arithmetic in constructor arguments as a string.
                 scriptText = scriptText
                     .Replace(
                         "New-Object Drawing.Size($Width-20,14)",
@@ -100,8 +95,6 @@ namespace JollyRunnerHubLauncher
                         "New-Object Drawing.Size($Width-20,20)",
                         "New-Object Drawing.Size(($Width - 20),20)");
 
-                // Put the header and tabs in separate layout rows. The old BringToFront approach
-                // overlaid the first aircraft-card row beneath the header.
                 const string rootLayout = @"$rootLayout = New-Object Windows.Forms.TableLayoutPanel
 $rootLayout.Dock = 'Fill'
 $rootLayout.RowCount = 2
@@ -125,7 +118,6 @@ $header.Dock = 'Fill'
                     "[void]$rootLayout.Controls.Add($tabs,0,1)",
                     "tabs below header");
 
-                // Use more of the screen for simultaneous charts while keeping cards and details visible.
                 scriptText = scriptText
                     .Replace(
                         "[void]$dashboardLayout.RowStyles.Add((New-Object Windows.Forms.RowStyle('Absolute',144)))",
@@ -208,8 +200,6 @@ for ([int]$i=0; $i -lt $script:ChartBoxes.Count; $i++) {
                     chartGrid,
                     "six-chart dashboard grid");
 
-                // During an active validation, names already come from aircraft_name in telemetry.
-                // While idle, show the latest locally persisted run instead of hard-coded A6M/P-47N.
                 const string dynamicIdleNames = @"$names = New-Object System.Collections.Generic.List[string]
 foreach ($sampleName in ($script:LiveSamples | Select-Object -ExpandProperty aircraft -Unique)) {
     if (-not [string]::IsNullOrWhiteSpace([string]$sampleName)) {
@@ -268,8 +258,7 @@ if ($names.Count -eq 0) {
     $localChartBox = $chartBox
     $localChartBox.Combo.add_SelectedIndexChanged({
         if ($null -ne $script:Profile) {
-            Update-Chart $localChartBox.Chart $script:LiveSamples \
-                (Selected-MetricKey $localChartBox.Combo ([string]$localChartBox.Preferred)) $script:Profile
+            Update-Chart $localChartBox.Chart $script:LiveSamples (Selected-MetricKey $localChartBox.Combo ([string]$localChartBox.Preferred)) $script:Profile
         }
     }.GetNewClosure())
 }";
@@ -280,8 +269,7 @@ if ($names.Count -eq 0) {
                     "six chart selector handlers");
 
                 const string liveChartRefresh = @"foreach ($chartBox in $script:ChartBoxes) {
-                Update-Chart $chartBox.Chart $script:LiveSamples \
-                    (Selected-MetricKey $chartBox.Combo ([string]$chartBox.Preferred)) $script:Profile
+                Update-Chart $chartBox.Chart $script:LiveSamples (Selected-MetricKey $chartBox.Combo ([string]$chartBox.Preferred)) $script:Profile
             }";
                 scriptText = ReplaceRequired(
                     scriptText,
@@ -289,7 +277,6 @@ if ($names.Count -eq 0) {
                     liveChartRefresh,
                     "live six chart refresh");
 
-                // Rebuild profile selection without recursively re-entering Select-Profile.
                 const string reloadProfiles = @"function Reload-Profiles([string]$Id) {
     $script:ReloadingProfiles=$true
     try {
@@ -315,10 +302,11 @@ function Select-Profile";
                     @"function Reload-Profiles\(\[string\]\$Id\) \{.*?\n\}\s*\n\s*function Select-Profile",
                     reloadProfiles,
                     "safe profile reload");
-                scriptText = Regex.Replace(
+                scriptText = ReplaceRegexRequired(
                     scriptText,
                     @"\$profiles\.add_SelectedIndexChanged\(\{\s*Select-Profile\s*\}\)",
-                    "$profiles.add_SelectedIndexChanged({if(-not $script:ReloadingProfiles){Select-Profile}})");
+                    "$profiles.add_SelectedIndexChanged({if(-not $script:ReloadingProfiles){Select-Profile}})",
+                    "guarded profile selection handler");
                 scriptText = Regex.Replace(
                     scriptText,
                     @"Reload-Profiles ''\s*\nSelect-Profile",
@@ -343,7 +331,6 @@ exit 0";
                     scriptText = scriptText.Replace(showDialog, smokeBody);
                 }
 
-                // A BOM keeps Japanese text reliable under Windows PowerShell 5.1.
                 File.WriteAllText(runtimeScript, scriptText, new UTF8Encoding(true));
 
                 string escapedRuntime = runtimeScript.Replace("'", "''");
