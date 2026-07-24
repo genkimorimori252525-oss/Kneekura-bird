@@ -1,3 +1,3 @@
-# Generic route validation request pr62-p51d
-ref=2206c32fc3c2c866efd74e01ecc312769bd758c5
+# Generic route validation request pr62-p51d-status
+ref=70af5ebcc427853ae9da6a6bb0c5dbc983885c7e
 aircraft=warfare_wings:p51d
