@@ -2,6 +2,7 @@ package com.wwdebug.benchmark.mixin;
 
 import com.wwdebug.autopilot.FlightControlOutput;
 import com.wwdebug.autopilot.FlightPhase;
+import com.wwdebug.autopilot.MissionRouteClockPolicy;
 import com.wwdebug.autopilot.MissionRouteLiveControlBridge;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.entity.Entity;
@@ -13,7 +14,10 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.util.UUID;
 
-/** Prevents the fixed demonstration mission from timing out underneath owned route navigation. */
+/**
+ * Holds the fixed mission timeout under owned route navigation while allowing real outbound route
+ * travel to satisfy the ordinary cruise sample without advancing the phase before route release.
+ */
 @Mixin(targets = "com.wwdebug.autopilot.AutopilotSession", remap = false)
 abstract class AutopilotSessionRouteClockMixin {
     @Shadow private UUID aircraftUuid;
@@ -27,8 +31,8 @@ abstract class AutopilotSessionRouteClockMixin {
             Entity aircraft,
             CallbackInfoReturnable<FlightControlOutput> callback) {
         if (MissionRouteLiveControlBridge.shouldHoldMissionClock(aircraftUuid, phase)) {
-            phaseTicks = Math.max(0, phaseTicks - 1);
-            missionTicks = Math.max(0, missionTicks - 1);
+            phaseTicks = MissionRouteClockPolicy.phaseTicksAfterHeldTick(phase, phaseTicks);
+            missionTicks = MissionRouteClockPolicy.missionTicksAfterHeldTick(missionTicks);
         }
     }
 }
