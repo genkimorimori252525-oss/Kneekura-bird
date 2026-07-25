@@ -58,6 +58,7 @@ jobs:
             tools/JollyRunnerHub/build/JollyRunnerHub.ico
             tools/JollyRunnerHub/build/deploy.log
             tools/JollyRunnerHub/JollyRunnerHub.ps1
+            tools/JollyRunnerHub/RunnerConnectionState.ps1
             tools/JollyRunnerHub/profiles.default.json
             tools/JollyRunnerHub/README.md
 
