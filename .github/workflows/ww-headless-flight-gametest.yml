@@ -32,6 +32,9 @@ on:
       - 'ww-debug-benchmark/**'
       - '.github/workflows/ww-headless-flight-gametest.yml'
 
+# Runs on the single self-hosted runner. A superseded scenario for the same ref may be
+# cancelled, but this must never share a group with the physics qualifications, which use
+# ww-selfhosted-physics with cancel-in-progress false.
 concurrency:
   group: ww-headless-flight-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -39,8 +42,8 @@ concurrency:
 jobs:
   headless-flight:
     name: Headless flight (${{ matrix.scenario }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 110
     strategy:
       fail-fast: false
       matrix:
@@ -50,10 +53,14 @@ jobs:
       FLIGHT_TEST_SCENARIO: ${{ matrix.scenario }}
     defaults:
       run:
+        shell: powershell
         working-directory: ww-debug-benchmark
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          clean: true
+          persist-credentials: false
 
       - uses: actions/setup-java@v4
         with:
@@ -73,134 +80,110 @@ jobs:
 
       - name: Download exact runtime aircraft mods from Modrinth
         if: steps.flight-mod-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 15
         run: |
-          mkdir -p flight-test-mods
-          python - <<'PY'
+          New-Item -ItemType Directory -Force flight-test-mods | Out-Null
+          @'
           import json
           import pathlib
           import urllib.request
 
           versions = {
-              'GsVmbbkj': 'immersive_aircraft-1.3.3+1.20.1-forge.jar',
-              'q94LN7dV': 'warfare_wings-1.1.4-1.20.1-forge.jar',
+              "GsVmbbkj": "immersive_aircraft-1.3.3+1.20.1-forge.jar",
+              "q94LN7dV": "warfare_wings-1.1.4-1.20.1-forge.jar",
           }
-          target = pathlib.Path('flight-test-mods')
+          target = pathlib.Path("flight-test-mods")
           for version_id, required_name in versions.items():
               destination = target / required_name
               if destination.is_file() and destination.stat().st_size > 0:
-                  print(f'using cached {destination} ({destination.stat().st_size} bytes)')
+                  print(f"using cached {destination} ({destination.stat().st_size} bytes)")
                   continue
               request = urllib.request.Request(
-                  f'https://api.modrinth.com/v2/version/{version_id}',
-                  headers={'User-Agent': 'Kamogawa-WW-Autonomous-Flight-Test/1.0'}
+                  f"https://api.modrinth.com/v2/version/{version_id}",
+                  headers={"User-Agent": "Kamogawa-WW-Local-Runner/1.0"},
               )
               with urllib.request.urlopen(request) as response:
                   metadata = json.load(response)
-              files = metadata.get('files', [])
-              selected = next((item for item in files if item.get('primary')), files[0])
+              files = metadata.get("files", [])
+              if not files:
+                  raise RuntimeError(f"Modrinth version {version_id} returned no files")
+              selected = next((item for item in files if item.get("primary")), files[0])
               download = urllib.request.Request(
-                  selected['url'],
-                  headers={'User-Agent': 'Kamogawa-WW-Autonomous-Flight-Test/1.0'}
+                  selected["url"],
+                  headers={"User-Agent": "Kamogawa-WW-Local-Runner/1.0"},
               )
-              with urllib.request.urlopen(download) as response, destination.open('wb') as output:
+              with urllib.request.urlopen(download) as response, destination.open("wb") as output:
                   output.write(response.read())
-              print(f'downloaded {destination} ({destination.stat().st_size} bytes)')
-          PY
+              print(f"downloaded {destination} ({destination.stat().st_size} bytes)")
+          '@ | python -
+
+      - name: Purge previous scenario state
+        run: |
+          # The Python verifiers select telemetry and validation summaries by newest mtime,
+          # so residue from an earlier run on this persistent runner can produce a false pass.
+          # server.properties is tracked; everything else under run-gametest is disposable.
+          foreach ($dir in @('run-gametest/world', 'run-gametest/logs', 'run-gametest/crash-reports')) {
+            if (Test-Path $dir) { Remove-Item $dir -Recurse -Force -ErrorAction Stop }
+          }
+          Get-ChildItem -Path . -Filter 'headless-flight*.log' -File -ErrorAction SilentlyContinue |
+            Remove-Item -Force -ErrorAction SilentlyContinue
+          Write-Output 'Scenario state purged.'
 
       - name: Inventory Warfare Wings weapon APIs
         if: matrix.scenario == 'terrain'
         run: |
-          mkdir -p run-gametest/api-inventory
-          python tools/inspect_weapon_api.py \
-            --jar flight-test-mods/warfare_wings-1.1.4-1.20.1-forge.jar \
-            --json-output run-gametest/api-inventory/weapon-api-inventory.json \
-            --text-output run-gametest/api-inventory/weapon-api-inventory.txt
+          New-Item -ItemType Directory -Force run-gametest/api-inventory | Out-Null
+          python tools/inspect_weapon_api.py --jar flight-test-mods/warfare_wings-1.1.4-1.20.1-forge.jar --json-output run-gametest/api-inventory/weapon-api-inventory.json --text-output run-gametest/api-inventory/weapon-api-inventory.txt
 
       - name: Run and verify real-physics headless GameTest
         id: gametest
         continue-on-error: true
+        timeout-minutes: 90
         run: |
-          run_gametest() {
-            set -o pipefail
-            gradle --no-daemon --console=plain runGameTestServer \
-              -PflightTestAircraft="$FLIGHT_TEST_TARGET" \
-              -PflightTestScenario="$FLIGHT_TEST_SCENARIO" \
-              2>&1 | tee headless-flight.log
-            return ${PIPESTATUS[0]}
+          $target = $env:FLIGHT_TEST_TARGET
+          $scenario = $env:FLIGHT_TEST_SCENARIO
+          Write-Output "Headless scenario=$scenario aircraft=$target"
+
+          cmd /d /s /c "gradle --no-daemon --console=plain runGameTestServer -PflightTestAircraft=$target -PflightTestScenario=$scenario > headless-flight.log 2>&1"
+          $gradleStatus = $LASTEXITCODE
+
+          # Retry once, and only for a transient Minecraft asset-download failure.
+          if ($gradleStatus -ne 0 -and (Test-Path headless-flight.log)) {
+            $transient = Select-String -Path headless-flight.log -Pattern 'downloadAssets FAILED|Failed to get asset|SocketTimeoutException' -Quiet
+            if ($transient) {
+              Write-Output 'Retrying once after a transient Minecraft asset download failure.'
+              Move-Item headless-flight.log headless-flight-first-attempt.log -Force
+              cmd /d /s /c "gradle --no-daemon --console=plain runGameTestServer -PflightTestAircraft=$target -PflightTestScenario=$scenario > headless-flight.log 2>&1"
+              $gradleStatus = $LASTEXITCODE
+            }
           }
 
-          echo "Headless scenario=$FLIGHT_TEST_SCENARIO aircraft=$FLIGHT_TEST_TARGET"
-          set +e
-          run_gametest
-          gradle_status=$?
-          if [ "$gradle_status" -ne 0 ] && grep -qE 'downloadAssets FAILED|Failed to get asset|SocketTimeoutException' headless-flight.log; then
-            echo 'Retrying once after a transient Minecraft asset download failure.'
-            mv headless-flight.log headless-flight-first-attempt.log
-            run_gametest
-            gradle_status=$?
-          fi
-          set -e
+          if (Test-Path headless-flight.log) { Get-Content headless-flight.log -Tail 320 }
 
-          if [ "$FLIGHT_TEST_SCENARIO" = "terrain" ]; then
-            python tools/verify_terrain_scenario.py \
-              --root run-gametest \
-              --gradle-status "$gradle_status" \
-              --output "run-gametest/scenario-verification-$FLIGHT_TEST_SCENARIO.json"
-          elif [ "$FLIGHT_TEST_SCENARIO" = "targeting" ]; then
-            python tools/verify_targeting_scenario.py \
-              --root run-gametest \
-              --gradle-status "$gradle_status" \
-              --output "run-gametest/scenario-verification-$FLIGHT_TEST_SCENARIO.json"
-          elif [ "$FLIGHT_TEST_SCENARIO" = "weapons" ]; then
-            python tools/verify_weapons_scenario.py \
-              --root run-gametest \
-              --gradle-status "$gradle_status" \
-              --output "run-gametest/scenario-verification-$FLIGHT_TEST_SCENARIO.json"
-          elif [ "$FLIGHT_TEST_SCENARIO" = "formation" ]; then
-            python tools/verify_formation_scenario.py \
-              --root run-gametest \
-              --gradle-status "$gradle_status" \
-              --output "run-gametest/scenario-verification-$FLIGHT_TEST_SCENARIO.json"
-          elif [ "$FLIGHT_TEST_SCENARIO" = "dogfight" ]; then
-            python tools/verify_dogfight_scenario.py \
-              --root run-gametest \
-              --gradle-status "$gradle_status" \
-              --output "run-gametest/scenario-verification-$FLIGHT_TEST_SCENARIO.json"
-          elif [ "$FLIGHT_TEST_SCENARIO" = "dogfight_crossing" ]; then
-            python tools/verify_crossing_dogfight_scenario.py \
-              --root run-gametest \
-              --gradle-status "$gradle_status" \
-              --output "run-gametest/scenario-verification-$FLIGHT_TEST_SCENARIO.json"
-          elif [ "$FLIGHT_TEST_SCENARIO" = "dogfight_energy" ]; then
-            python tools/verify_energy_dogfight_scenario.py \
-              --root run-gametest \
-              --gradle-status "$gradle_status" \
-              --output "run-gametest/scenario-verification-$FLIGHT_TEST_SCENARIO.json"
-          elif [ "$FLIGHT_TEST_SCENARIO" = "dogfight_evasive" ]; then
-            python tools/verify_evasive_dogfight_scenario.py \
-              --root run-gametest \
-              --gradle-status "$gradle_status" \
-              --output "run-gametest/scenario-verification-$FLIGHT_TEST_SCENARIO.json"
-          elif [ "$FLIGHT_TEST_SCENARIO" = "dogfight_mutual" ]; then
-            python tools/verify_mutual_dogfight_scenario.py \
-              --root run-gametest \
-              --gradle-status "$gradle_status" \
-              --output "run-gametest/scenario-verification-$FLIGHT_TEST_SCENARIO.json"
-          else
-            python tools/verify_flight_scenario.py \
-              --root run-gametest \
-              --scenario "$FLIGHT_TEST_SCENARIO" \
-              --gradle-status "$gradle_status" \
-              --output "run-gametest/scenario-verification-$FLIGHT_TEST_SCENARIO.json"
-          fi
+          $verifiers = @{
+            'terrain'           = 'tools/verify_terrain_scenario.py'
+            'targeting'         = 'tools/verify_targeting_scenario.py'
+            'weapons'           = 'tools/verify_weapons_scenario.py'
+            'formation'         = 'tools/verify_formation_scenario.py'
+            'dogfight'          = 'tools/verify_dogfight_scenario.py'
+            'dogfight_crossing' = 'tools/verify_crossing_dogfight_scenario.py'
+            'dogfight_energy'   = 'tools/verify_energy_dogfight_scenario.py'
+            'dogfight_evasive'  = 'tools/verify_evasive_dogfight_scenario.py'
+            'dogfight_mutual'   = 'tools/verify_mutual_dogfight_scenario.py'
+          }
+          $output = "run-gametest/scenario-verification-$scenario.json"
+
+          if ($verifiers.ContainsKey($scenario)) {
+            python $verifiers[$scenario] --root run-gametest --gradle-status $gradleStatus --output $output
+          } else {
+            python tools/verify_flight_scenario.py --root run-gametest --scenario $scenario --gradle-status $gradleStatus --output $output
+          }
+          exit $LASTEXITCODE
 
       - name: Render visual flight diagnostics
         if: always()
         run: |
-          python tools/render_flight_diagnostics.py \
-            --root run-gametest \
-            --output "run-gametest/flight-diagnostics-$FLIGHT_TEST_SCENARIO.html" \
-            --scenario "$FLIGHT_TEST_SCENARIO"
+          python tools/render_flight_diagnostics.py --root run-gametest --output "run-gametest/flight-diagnostics-$env:FLIGHT_TEST_SCENARIO.html" --scenario $env:FLIGHT_TEST_SCENARIO
 
       - name: Upload headless server log
         if: always()
@@ -229,5 +212,5 @@ jobs:
       - name: Fail after preserving GameTest diagnostics
         if: steps.gametest.outcome == 'failure'
         run: |
-          tail -n 320 headless-flight.log
+          if (Test-Path headless-flight.log) { Get-Content headless-flight.log -Tail 320 }
           exit 1
