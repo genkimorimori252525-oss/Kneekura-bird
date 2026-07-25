@@ -4,6 +4,21 @@ Last updated: 2026-07-25 (Asia/Tokyo)
 
 Follow `/AGENTS.md` before changing code. Live GitHub state overrides older notes.
 
+## Active operating mode
+
+`Jolly Endurance Mode` / `ジョリー長航続モード` is active by explicit owner instruction.
+
+Activation baseline:
+
+- mode-definition commit: `fa729e2824bbc9adcc52d0ce41da7828503705ce`;
+- last fully qualified aircraft: Yak-3, Run `30149217195`;
+- current qualification request commit: `bb9665eb6b0bc0c4e22a777127c1013335de9aec`;
+- requested immutable behavior head: `bc790bca60267a7339103c6ed5d29b95eae3ceac`;
+- requested aircraft: `warfare_wings:bf109`;
+- status at activation still showed the completed Yak-3 run, so the Bf 109 request must not be duplicated while awaiting a fresh start record.
+
+While this mode remains active, the default 60-minute / 8-run stop and 30-minute / 4-run approval pause are suspended. Continue serial aircraft qualification and focused hypothesis work without waiting for another owner message. Preserve a durable checkpoint every four remote runs or at every merge, major qualification milestone, terminal failure, or hypothesis change. Duration limits are lifted; safety, evidence, one-request-at-a-time operation, one-hypothesis-per-commit discipline, and patch-size limits remain authoritative. This is resumable interactive work, not background execution; record the exact state before every interaction ends.
+
 ## Current production baseline
 
 Production owned-route guidance remains below player-control, emergency, terrain, collision, and combat authority. No weapon, timeout, waypoint-radius, landing-geometry, or minimum-separation rule has been relaxed.
@@ -47,7 +62,7 @@ Operational interpretation:
 7. Follow the same run through build, exact-physics GameTest, diagnostics upload, and finish persistence. On failure, fetch logs and artifact once and stop before selecting a materially different hypothesis.
 8. A successful workflow step alone is insufficient for qualification; verify route order, ordinary mission release, return, landing, final `PARKED`, summary 1/1, Gradle status 0, and crash count 0 from the artifact/verifier evidence.
 
-The recent requests for Ju 87 Run `30147903349`, SBD Run `30148395384`, D4Y Run `30148766789`, and Yak-3 Run `30149217195` were accepted and completed successfully by this runner. Therefore the self-hosted path is currently proven operational; future sessions must not describe it as unavailable solely because a fresh request has not yet received its start-status commit.
+The recent requests for Ju 87 Run `30147903349`, SBD Run `30148395384`, D4Y Run `30148766789`, and Yak-3 Run `30149217195` were accepted and completed successfully by this runner. Therefore the self-hosted path is proven operational; future sessions must not describe it as unavailable solely because a fresh request has not yet received its start-status commit.
 
 ## Exact-physics qualification evidence
 
@@ -107,9 +122,9 @@ No timeout, route geometry, waypoint radius, landing-pattern geometry, terrain, 
 
 ## Remaining base-aircraft route qualifications
 
-Unqualified energy fighters:
+Unqualified energy fighters, in current execution order:
 
-- `warfare_wings:bf109`;
+- `warfare_wings:bf109` — request already committed and awaiting acceptance;
 - `warfare_wings:f4u`;
 - `warfare_wings:f6f`;
 - `warfare_wings:fw190`;
@@ -134,7 +149,8 @@ Unqualified bombers:
 - Latest completed route status is Yak-3 Run `30149217195`: build success, GameTest success, artifact success.
 - Diagnostic artifact: `ww-local-route-30149217195`.
 - All three turn fighters have route evidence.
-- Durable self-hosted-runner rules are recorded in `/AGENTS.md` and this handoff.
+- `ジョリー長航続モード` is active.
+- Bf 109 request commit `bb9665eb6b0bc0c4e22a777127c1013335de9aec` points to behavior head `bc790bca60267a7339103c6ed5d29b95eae3ceac`; do not duplicate it while the status file still shows the previous Yak-3 completion.
 
 ## Preserved invariants
 
@@ -147,7 +163,8 @@ Unqualified bombers:
 
 ## Next exact action
 
-1. Qualify `warfare_wings:bf109` on the current `main` using scenario `route`, without behavior changes.
-2. Require build success, deterministic contracts, route `3,2,1,0`, ordinary mission release, return, landing, final `PARKED`, summary 1/1, Gradle status 0, and no crash report.
-3. If Bf 109 passes, record the artifact-backed evidence and continue with `warfare_wings:f4u` on the then-current `main`.
-4. If any aircraft fails, fetch its logs and artifact once, identify the first meaningful acceptance failure, and open one focused draft PR only if a code change is necessary. Do not change timeouts, geometry, radii, or safety thresholds blindly.
+1. Read `.github/local-route-validation-status.json` and recent commits for acceptance of Bf 109 request commit `bb9665eb6b0bc0c4e22a777127c1013335de9aec`.
+2. Once a fresh Bf 109 Run ID appears, follow that single run through build, exact-physics route, return, landing, diagnostics, and finish persistence.
+3. If Bf 109 passes, record artifact-backed evidence and immediately continue with `warfare_wings:f4u` on the then-current `main` without another approval pause.
+4. Continue the listed energy fighters serially. At four completed remote runs, write a durable checkpoint and continue under `ジョリー長航続モード`.
+5. On any failure, fetch logs and artifact once, identify the first meaningful acceptance failure, and open one focused draft PR only if a code change is necessary. Do not change timeouts, geometry, radii, or safety thresholds blindly.
