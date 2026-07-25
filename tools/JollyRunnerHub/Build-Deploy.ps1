@@ -15,6 +15,7 @@ $manifestPath = Join-Path $root 'app.manifest'
 $launcherPath = Join-Path $root 'Launcher.cs'
 $defaultConfig = Join-Path $root 'profiles.default.json'
 $scriptPath = Join-Path $root 'JollyRunnerHub.ps1'
+$connectionStatePath = Join-Path $root 'RunnerConnectionState.ps1'
 $runtimeSourcePath = Join-Path $buildDir 'JollyRunnerHub.source.ps1'
 
 $scriptText = Get-Content -LiteralPath $scriptPath -Raw -Encoding UTF8
@@ -28,6 +29,37 @@ if (@($parseErrors).Count -gt 0) {
     }) -join [Environment]::NewLine
     throw "JollyRunnerHub.ps1 syntax validation failed:`n$details"
 }
+
+$connectionStateText = Get-Content -LiteralPath $connectionStatePath -Raw -Encoding UTF8
+$connectionTokens = $null
+$connectionParseErrors = $null
+[System.Management.Automation.Language.Parser]::ParseInput(
+    $connectionStateText, [ref]$connectionTokens, [ref]$connectionParseErrors) | Out-Null
+if (@($connectionParseErrors).Count -gt 0) {
+    $details = @($connectionParseErrors | ForEach-Object {
+        '{0}:{1} {2}' -f $_.Extent.StartLineNumber,$_.Extent.StartColumnNumber,$_.Message
+    }) -join [Environment]::NewLine
+    throw "RunnerConnectionState.ps1 syntax validation failed:`n$details"
+}
+
+. $connectionStatePath
+function Assert-RunnerConnectionState {
+    param(
+        [Parameter(Mandatory=$true)][string]$Expected,
+        [Parameter(Mandatory=$true)][bool]$ProcessRunning,
+        [string[]]$Lines = @()
+    )
+    $actual = Get-JollyRunnerConnectionState -ProcessRunning $ProcessRunning -LogLines $Lines
+    if ([string]$actual.Code -ne $Expected) {
+        throw "Runner connection classifier expected '$Expected' but returned '$($actual.Code)' from '$($actual.Evidence)'"
+    }
+}
+Assert-RunnerConnectionState -Expected 'stopped' -ProcessRunning $false
+Assert-RunnerConnectionState -Expected 'starting' -ProcessRunning $true -Lines @('Runner boot sequence')
+Assert-RunnerConnectionState -Expected 'connected_starting' -ProcessRunning $true -Lines @('Connected to GitHub')
+Assert-RunnerConnectionState -Expected 'listening' -ProcessRunning $true -Lines @('Connected to GitHub','Listening for Jobs')
+Assert-RunnerConnectionState -Expected 'running_job' -ProcessRunning $true -Lines @('Listening for Jobs','Running job: validate')
+Assert-RunnerConnectionState -Expected 'reconnecting' -ProcessRunning $true -Lines @('Listening for Jobs','Runner connect error: The HTTP request timed out')
 
 try {
     Add-Type -AssemblyName System.Windows.Forms.DataVisualization -ErrorAction Stop
@@ -66,6 +98,79 @@ if (-not $runtimeScriptText.Contains($dashboardLayoutTarget)) {
 $runtimeScriptText = $runtimeScriptText.Replace(
     $dashboardLayoutTarget,
     $dashboardLayoutReplacement.TrimEnd())
+
+$runnerAdapterTarget = 'function Start-Runner($Profile) {'
+$runnerAdapter = @'
+function Get-RunnerConnectionLogLines($Profile) {
+    $files = New-Object System.Collections.Generic.List[object]
+
+    $hubLog = Log-Path $Profile
+    if (Test-Path -LiteralPath $hubLog) {
+        [void]$files.Add((Get-Item -LiteralPath $hubLog))
+    }
+
+    $runnerRoot = [Environment]::ExpandEnvironmentVariables([string]$Profile.runnerRoot)
+    $diagRoot = Join-Path $runnerRoot '_diag'
+    if (Test-Path -LiteralPath $diagRoot) {
+        $diagLog = Get-ChildItem -LiteralPath $diagRoot -Filter 'Runner_*.log' -File -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTimeUtc -Descending |
+            Select-Object -First 1
+        if ($null -ne $diagLog) { [void]$files.Add($diagLog) }
+    }
+
+    $lines = New-Object System.Collections.Generic.List[string]
+    foreach ($file in @($files | Sort-Object LastWriteTimeUtc)) {
+        foreach ($line in (Tail-Lines $file.FullName 1048576)) {
+            [void]$lines.Add([string]$line)
+        }
+    }
+    return $lines.ToArray()
+}
+
+function Read-RunnerConnectionState($Profile) {
+    $running = Runner-Running $Profile
+    if (-not $running) {
+        return Get-JollyRunnerConnectionState -ProcessRunning $false -LogLines @()
+    }
+    $lines = @(Get-RunnerConnectionLogLines $Profile)
+    return Get-JollyRunnerConnectionState -ProcessRunning $true -LogLines $lines
+}
+
+function Start-Runner($Profile) {
+'@
+if (-not $runtimeScriptText.Contains($runnerAdapterTarget)) {
+    throw 'Runner Hub connection patch target was not found: Start-Runner.'
+}
+$runnerRuntimeFunctions = $connectionStateText.TrimEnd() + [Environment]::NewLine +
+    [Environment]::NewLine + $runnerAdapter.TrimEnd()
+$runtimeScriptText = $runtimeScriptText.Replace($runnerAdapterTarget,$runnerRuntimeFunctions)
+
+$runnerStatusTarget = @'
+        if (Runner-Running $script:Profile) {
+            $runnerStatus.Value.Text = '接続中'
+            $runnerStatus.Value.ForeColor = [Drawing.Color]::FromArgb(105,228,154)
+        } else {
+            $runnerStatus.Value.Text = '停止中'
+            $runnerStatus.Value.ForeColor = [Drawing.Color]::FromArgb(255,137,141)
+        }
+'@
+$runnerStatusReplacement = @'
+        $runnerConnection = Read-RunnerConnectionState $script:Profile
+        $runnerStatus.Value.Text = [string]$runnerConnection.Text
+        $runnerStatus.Value.AccessibleDescription = [string]$runnerConnection.Evidence
+        switch ([string]$runnerConnection.Tone) {
+            'good' { $runnerStatus.Value.ForeColor = [Drawing.Color]::FromArgb(105,228,154) }
+            'warn' { $runnerStatus.Value.ForeColor = [Drawing.Color]::FromArgb(255,205,112) }
+            default { $runnerStatus.Value.ForeColor = [Drawing.Color]::FromArgb(255,137,141) }
+        }
+'@
+if (-not $runtimeScriptText.Contains($runnerStatusTarget.TrimEnd())) {
+    throw 'Runner Hub connection patch target was not found: status timer.'
+}
+$runtimeScriptText = $runtimeScriptText.Replace(
+    $runnerStatusTarget.TrimEnd(),
+    $runnerStatusReplacement.TrimEnd())
+
 Set-Content -LiteralPath $runtimeSourcePath -Value $runtimeScriptText -Encoding UTF8
 
 $runtimeTokens = $null
@@ -220,9 +325,10 @@ for ($attempt = 0; $attempt -lt 21600; $attempt++) {
         config = $profilePath
         icon_sha256 = (Get-FileHash -LiteralPath $iconPath -Algorithm SHA256).Hash.ToLowerInvariant()
         pending_restart = $pendingRestart
-        dashboard_version = 3
+        dashboard_version = 4
         startup_smoke_test = 'passed'
         dashboard_scroll = 'vertical'
+        runner_connection_state = 'log-classified'
     }
     $installInfo | ConvertTo-Json |
         Set-Content -LiteralPath (Join-Path $appData 'install-status.json') -Encoding UTF8
