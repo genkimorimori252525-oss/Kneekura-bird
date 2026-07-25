@@ -158,10 +158,13 @@ $runnerStatusReplacement = @'
             default { $runnerStatus.Value.ForeColor = [Drawing.Color]::FromArgb(255,137,141) }
         }
 '@
-$runnerStatusRegex = New-Object System.Text.RegularExpressions.Regex(
-    $runnerStatusPattern.Trim(),
-    [System.Text.RegularExpressions.RegexOptions]::Multiline -bor
-        [System.Text.RegularExpressions.RegexOptions]::Singleline)
+$runnerStatusExpression = $runnerStatusPattern.Trim()
+$runnerStatusOptions = ([System.Text.RegularExpressions.RegexOptions]::Multiline -bor
+    [System.Text.RegularExpressions.RegexOptions]::Singleline)
+$runnerStatusRegex = New-Object System.Text.RegularExpressions.Regex -ArgumentList @(
+    $runnerStatusExpression,
+    $runnerStatusOptions
+)
 if (-not $runnerStatusRegex.IsMatch($runtimeScriptText)) {
     throw 'Runner Hub connection patch target was not found: status timer.'
 }
