@@ -8,15 +8,31 @@ These instructions apply to every AI-assisted GitHub session in this repository.
 - Do not ask the owner to perform routine GitHub operations manually unless permissions or tooling genuinely block the action.
 - Read this file and `docs/AI_HANDOFF.md` before changing code. Update the handoff at the end of every substantial session.
 
-## Mandatory time and scope limits
+## Operating modes and scope limits
+
+### Default bounded mode
 
 - Stop an implementation loop after **60 minutes or 8 remote CI runs**, whichever happens first.
 - At **30 minutes or 4 remote CI runs**, pause for an internal checkpoint: compare against the best known commit, confirm that the current hypothesis is still materially different, and report progress to the owner before continuing.
 - At the final limit, report the current result, the exact failing acceptance condition, the best known commit, and the next single hypothesis. Do not keep tuning silently.
+
+### Jolly Endurance Mode (`ジョリー長航続モード`)
+
+- This mode is activated only when the repository owner explicitly asks for `長時間モード`, `長航続モード`, or `Jolly Endurance Mode`. Record activation and the exact starting checkpoint in `docs/AI_HANDOFF.md` and, when useful, the parent roadmap issue.
+- While active, the default **60-minute / 8-run stop** and the requirement to pause for owner approval at **30 minutes / 4 runs** are suspended. Work may continue through multiple aircraft qualifications and multiple focused hypothesis cycles without waiting for another approval message.
+- Keep evidence checkpoints at least every **4 remote CI runs** or at each major merge, qualification milestone, terminal failure, or change of hypothesis. Update the handoff and leave a human-readable Issue/PR marker, then continue automatically when the next action is already determined.
+- There is no fixed total remote-run ceiling in this mode, but runs remain strictly serial: one immutable request, one active run, one recorded result. Never overlap self-hosted qualifications or create duplicate/no-op triggers.
+- A repeated failure does not force the whole mode to stop. After the same meaningful failure occurs twice, stop threshold tuning, return to the best known commit, reconstruct the evidence, and continue only with a materially different design or determinism hypothesis.
+- This mode removes duration and run-count limits only. It does **not** waive safety invariants, validation evidence, one-hypothesis-per-commit discipline, branch/PR discipline, or the 10-file / 800-line patch ceiling.
+- This mode applies to the current interactive work and resumable GitHub checkpoints; it does not imply background or asynchronous assistant execution. Before an interaction ends, record the exact commit, run, result, and next action so the mode can resume safely on the next turn.
+- Leave this mode when the owner explicitly stops it, the roadmap target is reached, access or runner capacity prevents meaningful progress, no materially different hypothesis remains, or a platform/tool boundary ends the current interaction.
+
+### Rules shared by both modes
+
 - One commit should test one behavioral hypothesis.
 - If a proposed change is likely to exceed **10 files or 800 added/changed lines**, stop and split the design before implementation.
 - Treat 10 files and 800 lines as hard ceilings, not targets. Prefer the smallest patch that can test the hypothesis.
-- If the same failure occurs twice, stop changing thresholds and revisit the design or test determinism.
+- If the same failure occurs twice in default mode, stop changing thresholds and revisit the design or test determinism.
 - If a previously passing metric regresses, return to the known-good commit before trying another behavior change.
 
 ## Branch and pull-request discipline
