@@ -17,11 +17,12 @@ Merged route milestones:
 - PR #63: dedicated Windows self-hosted generic `route` validation workflow;
 - PR #64: profile-driven compact route geometry and arbitrary-aircraft strict evidence, merged as `a91c610b970721e3508dca4c1460e75b262ec3d0`;
 - PR #65: route-workflow post-processing hardening, merged as `9ee8e899c74a49cf20313e5eb6f18eabe14bffb6`;
-- PR #73: disconnected `PatternRejoinBudget` feasibility foundation, merged as `c55b764b833b8fb70a995c3dcc57246cd3fb7e61`.
+- PR #73: disconnected `PatternRejoinBudget` feasibility foundation, merged as `c55b764b833b8fb70a995c3dcc57246cd3fb7e61`;
+- PR #70: owned-route clock accounting plus measured pattern-rejoin speed, squash-merged as `dd2dc9c7e9d3042b3dd4a0511a7ea5da935e5860` after exact-head Windows validation.
 
 The generic route plan derives four waypoints from measured `FlightProfile` role, cruise speed, live position, and live heading. Supported roles are fighter, bomber, attacker, and torpedo bomber. Unknown roles and malformed geometry inputs are rejected deterministically.
 
-`PatternRejoinBudget` is not connected to live flight control. It compares measured speed, remaining distance, and an existing timeout and reports ideal reach, required speed, block margin, and ratio. Its isolated Java contract passed for the Ju 87 evidence point: ideal reach `1687.833`, required speed `15.233333 BPS`, margin `316.833` blocks, ratio `0.231096`.
+`MissionRouteClockPolicy` allows owned `CRUISE_OUTBOUND` travel to satisfy the fixed 240-tick sample while the overall mission timeout remains frozen. `PatternRejoinSpeedPolicy` commands at least the measured `turnSpeedFloorBps` only during `RETURN_TO_PATTERN`. `PatternRejoinBudget` remains disconnected from live control and reports ideal reach, required speed, block margin, and margin ratio.
 
 ## Exact-physics qualification evidence
 
@@ -33,56 +34,38 @@ Fully qualified with terminal `PARKED`:
 - B-17 compact level-bomber route — Run `30115815404`;
 - P-51D generic profile-driven route — Run `30118532513`;
 - Spitfire generic turn-fighter route — Run `30120064170`;
-- B-29 generic bomber route — Run `30120521495`.
+- B-29 generic bomber route — Run `30120521495`;
+- Ju 87 generic attacker route — Run `30147903349`.
 
-Each completed generic qualification required ordered waypoint progression `3,2,1,0`, no ground contact during route ownership, release to the ordinary mission, return, landing, braking, final `PARKED`, passed summary, Gradle status 0, and no crash reports. B-29 performed a safe go-around before its successful final landing.
+Each completed generic qualification required ordered waypoint progression `3,2,1,0`, release to the ordinary mission, return, landing, braking, final `PARKED`, passed summary, Gradle status 0, and no crash reports. B-29 performed a safe go-around before its successful final landing. Ju 87 used two bounded native flare extensions below 20 blocks before normal touchdown.
 
-## Ju 87 investigation
+## Ju 87 resolution
 
-### Established evidence
+Earlier production Run `30122172937` completed the route but timed out during `RETURN_TO_PATTERN`. Isolated Runs `30123421732` and `30124721947` proved two independent contributors:
 
-Run `30122172937` used production route behavior and completed the ordered route, but ended `ABORTED:return_to_pattern_timeout`. RETURN_TO_PATTERN began about 1,567 blocks from downwind entry and ended about 275 blocks away under the unchanged 1,800-tick budget.
+- owned outbound route travel was not credited toward the fixed 240-tick outbound sample;
+- long pattern rejoin commanded the lower climb target instead of the measured turn-speed floor.
 
-Ju 87 measured profile values relevant to the investigation:
+PR #70 combined only those two established effects. Exact behavior head `361078f30f1dd348fa274050f89cdf413525d49e` passed Windows Run `30147903349`:
 
-- climb target: about 15.69 BPS;
-- turn-speed floor: about 18.75 BPS;
-- measured top speed: about 22.27 BPS.
+- build and deterministic simulation succeeded;
+- route advanced `3 -> 2 -> 1 -> 0`;
+- route completed at server tick `3969` and ordinary `CRUISE_OUTBOUND -> TURN_LEFT` followed at tick `3971`;
+- `RETURN_TO_PATTERN` commanded `18.75373230144395 BPS` and reached `DOWNWIND` inside the unchanged 1,800-tick timeout;
+- landing progressed through `DOWNWIND -> BASE -> FINAL -> FLARE -> TOUCHDOWN -> BRAKE -> PARKED`;
+- final reason was `complete_stop_stable_for_40_ticks`;
+- verifier passed with Gradle status 0, summary 1/1, and zero crash reports.
 
-### Isolated hypotheses
-
-PR #66 / Run `30123421732` proved that owned outbound route travel was not credited toward the ordinary 240-tick outbound sample. Its clock policy reduced rejoin start distance to about 1,371 blocks and ended about 78 blocks from downwind entry. It was insufficient alone and was closed without merge.
-
-PR #67 / Run `30124721947` proved that RETURN_TO_PATTERN could command the measured turn-speed floor, raising the target from about 15.69 BPS to about 18.75 BPS. Because that branch did not include PR #66's clock correction, rejoin again began about 1,567 blocks away and ended about 152 blocks short. It was insufficient alone and was closed without merge.
-
-### Current focused hypothesis — Draft PR #70
-
-Draft PR #70 combines only the two previously observed effects on a clean branch:
-
-- `MissionRouteClockPolicy` credits owned `CRUISE_OUTBOUND` travel toward the fixed 240-tick sample while freezing the overall mission timeout;
-- `PatternRejoinSpeedPolicy` commands at least measured `turnSpeedFloorBps` only during RETURN_TO_PATTERN;
-- a deterministic contract verifies that the measured Ju 87 target retains more than 20% ideal travel margin over the artifact-observed 1,371-block clock-fixed rejoin distance inside the unchanged 1,800-tick timeout;
-- both mixin injection points use `require = 1`;
-- no timeout, route geometry, waypoint radius, landing-pattern geometry, terrain, collision, stall, combat, weapon, player-control, or separation threshold changes.
-
-Current exact behavior head:
-
-`361078f30f1dd348fa274050f89cdf413525d49e`
-
-The validation request remains present on `main` in `.github/local-route-validation-request.txt`, committed as `62607f75c95685dc98ab69f16af041225ab12f14`, but intentionally still points to the previous PR head `bdce17573f0da5e1b90bf5566115013ec4d2734c` while the Windows runner is unavailable or unassigned.
-
-At this checkpoint no new route-validation start commit, status update, check, or Run ID exists after the request. The previous status file still records completed failed Run `30124721947`. Do not edit the request file, retrigger, or create a no-op commit while this remains true.
+No timeout, route geometry, waypoint radius, landing-pattern geometry, terrain, collision, stall, combat, weapon, player-control, or separation threshold changed.
 
 ## Repository state
 
 - Parent roadmap: Issue #7 is the only open issue.
-- Draft PR #70 is the only open pull request.
-- PR #73 is merged as `c55b764b833b8fb70a995c3dcc57246cd3fb7e61`.
-- Current request commit: `62607f75c95685dc98ab69f16af041225ab12f14`.
-- Current PR #70 behavior head: `361078f30f1dd348fa274050f89cdf413525d49e`.
-- Request file still points to superseded head `bdce17573f0da5e1b90bf5566115013ec4d2734c` and must not be updated until runner availability is demonstrated.
-- Latest completed route status remains Run `30124721947`: build success, GameTest failure, artifact success.
-- No new Windows run has accepted the PR #70 request yet.
+- PR #70 is merged as `dd2dc9c7e9d3042b3dd4a0511a7ea5da935e5860`.
+- No behavior pull request is currently open.
+- Latest completed route status is Run `30147903349`: build success, GameTest success, artifact success.
+- Diagnostic artifact: `ww-local-route-30147903349`.
+- The Windows self-hosted runner accepted and completed the exact-head request successfully.
 
 ## Preserved invariants
 
@@ -95,9 +78,9 @@ At this checkpoint no new route-validation start commit, status update, check, o
 
 ## Next exact action
 
-1. Read `.github/local-route-validation-status.json` and recent commits before touching the request.
-2. If no new Run ID exists and the runner remains unavailable, do not retrigger; perform only GitHub-side review or disconnected deterministic work.
-3. Once a fresh runner start or other direct evidence proves the self-hosted runner is online, update `.github/local-route-validation-request.txt` exactly once to `ref=361078f30f1dd348fa274050f89cdf413525d49e`, `aircraft=warfare_wings:ju87`.
-4. Follow that single exact-head Run. Require both deterministic policy batches, the combined-budget contract, route `3,2,1,0`, immediate ordinary mission release, RETURN_TO_PATTERN target near 18.7537 BPS, downwind/base/final transitions, landing, final `PARKED`, summary 1/1, Gradle status 0, and no crash report.
-5. If the run fails, fetch logs and artifact once, identify the first meaningful acceptance failure, and record one materially different next hypothesis without changing thresholds blindly.
-6. Only after exact-head success, rebuild the validated blobs from the latest `main` if metadata drift makes PR #70 stale, then mark ready and squash merge.
+1. Qualify the remaining attacker aircraft without behavior changes, one exact-head run at a time.
+2. First target `warfare_wings:sbd` on the latest `main` using scenario `route`.
+3. Require build success, deterministic contracts, route `3,2,1,0`, ordinary mission release, return, landing, final `PARKED`, summary 1/1, Gradle status 0, and no crash report.
+4. If SBD passes, record the artifact-backed evidence and repeat once for `warfare_wings:d4y`.
+5. If either fails, fetch its logs and artifact once, identify the first meaningful acceptance failure, and open one focused draft PR only if a code change is necessary. Do not change timeouts, geometry, radii, or safety thresholds blindly.
+6. After SBD and D4Y qualify, enumerate the remaining unqualified base aircraft by role and continue the same no-change-first qualification sequence.
