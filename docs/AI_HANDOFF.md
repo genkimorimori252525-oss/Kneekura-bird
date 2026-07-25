@@ -100,7 +100,9 @@ ForgeGradle contacts `maven.minecraftforge.net` while applying its plugin. A dro
 
 Qualified with terminal `PARKED`:
 
-- A6M `30106085402`; G4M `30113770224`; IL-2 `30115029120`; B-17 `30115815404`; P-51D `30118532513`; Spitfire `30120064170`; B-29 `30120521495`; Ju 87 `30147903349`; SBD `30148395384`; D4Y `30148766789`; Yak-3 `30149217195`; Bf 109 `30151410943`; F4U `30151812704`; **F6F `30175097134`**; **Ki-61 `30175707465`**.
+- A6M `30106085402`; G4M `30113770224`; IL-2 `30115029120`; B-17 `30115815404`; P-51D `30118532513`; Spitfire `30120064170`; B-29 `30120521495`; Ju 87 `30147903349`; SBD `30148395384`; D4Y `30148766789`; Yak-3 `30149217195`; Bf 109 `30151410943`; F4U `30151812704`; F6F `30175097134`; Ki-61 `30175707465`; Ki-84 `30175848558`; MC.202 `30176031935`; MiG-3 `30176210630`; P-40E `30176388410`; P-47N `30176568969`; G10N1 `30176753857`; G10N2 `30176938024`; He 111 `30177119529`; Fw 190 `30177411289`.
+
+**Coverage is 24 of 24.** Role split complete: 14 fighter / 5 bomber / 4 attacker / 1 torpedo_bomber. Fw 190 needed one retry after a transient Forge maven TLS failure (`30175598909`); the identical behaviour ref then qualified it cleanly.
 
 F4U run `30151812704` is recorded `failure` by GitHub because of the concurrency cancellation described above, while its status file records build, gametest and artifact all `success`. Treat it as qualified; the run-level verdict is an artifact of the cancel bug.
 
@@ -108,9 +110,9 @@ Each qualification requires ordered waypoint progression `3,2,1,0`, release to t
 
 ## Remaining route qualifications
 
-Behavior ref in use: `4092d096f17e7aac34e19696b8a63f62f96b6c53`.
+None. Behavior ref used throughout: `4092d096f17e7aac34e19696b8a63f62f96b6c53`.
 
-Outstanding: `fw190` (transient build failure, needs retry), `ki84`, `mc202`, `mig3`, `p40e`, `p47n`, then bombers `g10n1`, `g10n2`, `he111`.
+The navigate / return / land half of Issue #7 is complete and reproducible. The role and doctrine half is untouched.
 
 ## Base-aircraft inventory, settled
 
@@ -138,10 +140,23 @@ The historical "26" is 24 plus `immersive_aircraft:biplane` and `immersive_aircr
 
 The owner's local branch `agent/p47-local-validation` (505 commits behind main, 33 unpushed commits) was deliberately left untouched; all work happened in worktrees created off `origin/main`.
 
+## Blocked: the CI branch cannot be pushed
+
+`agent/selfhosted-concurrency-safety` is committed locally but rejected by GitHub:
+
+> refusing to allow an OAuth App to create or update workflow `.github/workflows/deploy-jolly-runner-hub.yml` without `workflow` scope
+
+The token carries `delete_repo, gist, read:org, repo`. One owner action unblocks it:
+
+```
+gh auth refresh -h github.com -s workflow
+```
+
+Until that happens stage-1 checks cannot execute, so PRs #80-#83 must stay Draft under the AGENTS.md rule against merging while required checks are unexecutable.
+
 ## Next exact actions
 
-1. Finish the outstanding route qualifications to reach 24/24, retrying `fw190`.
-2. Push `agent/selfhosted-concurrency-safety` **only while no qualification is running** — it edits `deploy-jolly-runner-hub.yml` and both stage-1 workflows, all of which start self-hosted jobs on push.
+1. Grant the `workflow` scope, push `agent/selfhosted-concurrency-safety`, and confirm the migrated stage-1 workflow runs on the self-hosted runner.
 3. With stage-1 executable again, take PRs #80, #81 and the CI branch out of Draft, let the self-hosted checks run, and merge in that order.
 4. Delete the dead `EnergyFighterReengagementAdapter`, then extract a single `MobPilotGate` and route every production writer plus both mixin injection points through it, with a GameTest asserting zero AI writes for a player-piloted aircraft.
 5. Convert `ControlAuthorityArbiter` into a real arbiter across five bounded PRs before starting bomber, attacker or torpedo doctrine work.
