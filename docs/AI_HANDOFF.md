@@ -47,7 +47,7 @@ Operational interpretation:
 7. Follow the same run through build, exact-physics GameTest, diagnostics upload, and finish persistence. On failure, fetch logs and artifact once and stop before selecting a materially different hypothesis.
 8. A successful workflow step alone is insufficient for qualification; verify route order, ordinary mission release, return, landing, final `PARKED`, summary 1/1, Gradle status 0, and crash count 0 from the artifact/verifier evidence.
 
-The most recent three requests—Ju 87 Run `30147903349`, SBD Run `30148395384`, and D4Y Run `30148766789`—were accepted and completed successfully by this runner. Therefore the self-hosted path is currently proven operational; future sessions must not describe it as unavailable solely because a fresh request has not yet received its start-status commit.
+The recent requests for Ju 87 Run `30147903349`, SBD Run `30148395384`, D4Y Run `30148766789`, and Yak-3 Run `30149217195` were accepted and completed successfully by this runner. Therefore the self-hosted path is currently proven operational; future sessions must not describe it as unavailable solely because a fresh request has not yet received its start-status commit.
 
 ## Exact-physics qualification evidence
 
@@ -62,11 +62,12 @@ Fully qualified with terminal `PARKED`:
 - B-29 generic bomber route — Run `30120521495`;
 - Ju 87 generic attacker route — Run `30147903349`;
 - SBD generic attacker route — Run `30148395384`;
-- D4Y generic attacker route — Run `30148766789`.
+- D4Y generic attacker route — Run `30148766789`;
+- Yak-3 generic turn-fighter route — Run `30149217195`.
 
-Current coverage is 10 of 24 base aircraft. All four attackers — Ju 87, SBD, IL-2, and D4Y — now have exact-physics generic-route evidence.
+Current coverage is 11 of 24 base aircraft. All four attackers — Ju 87, SBD, IL-2, and D4Y — and all three turn fighters — A6M, Spitfire, and Yak-3 — now have exact-physics generic-route evidence.
 
-Each completed qualification required ordered waypoint progression `3,2,1,0`, release to the ordinary mission, return, landing, braking, final `PARKED`, passed summary, Gradle status 0, and no crash reports. B-29 performed a safe go-around before its successful final landing. Ju 87, SBD, and D4Y each used two bounded native flare extensions below 20 blocks before normal touchdown.
+Each completed qualification required ordered waypoint progression `3,2,1,0`, release to the ordinary mission, return, landing, braking, final `PARKED`, passed summary, Gradle status 0, and no crash reports. B-29 performed a safe go-around before its successful final landing. Ju 87, SBD, D4Y, and Yak-3 each used two bounded native flare extensions below 20 blocks before normal touchdown.
 
 ## Ju 87 resolution and attacker follow-through
 
@@ -90,14 +91,34 @@ The merged behavior then qualified the remaining attackers without further code 
 
 D4Y retained the ordinary outbound clock until tick 3574 because its compact route completed before the held counter reached the fixed release threshold; this is expected and does not replay the 240-tick sample from zero.
 
+## Yak-3 turn-fighter qualification
+
+Yak-3 used behavior head `e1174b4947acba0dedec30b964e87d43a8d3570a` and passed Windows Run `30149217195` without behavior changes:
+
+- route ownership began at server tick `645`;
+- remaining waypoints advanced `3,2,1,0` at ticks `685`, `732`, `785`, and `811`;
+- ordinary `CRUISE_OUTBOUND -> TURN_LEFT` occurred at tick `885`, using the fixed outbound sample without replaying it from zero;
+- `RETURN_TO_PATTERN` began at tick `1738`, followed by `DOWNWIND` at `2870`, `BASE` at `2988`, and `FINAL` at `3069`;
+- two bounded native flare extensions occurred at ticks `3442` and `3663`, followed by `TOUCHDOWN` at `3669`, `BRAKE` at `3679`, and `PARKED` at `3728`;
+- final reason was `complete_stop_stable_for_40_ticks`;
+- verifier passed with elapsed `3723` ticks, Gradle status 0, summary 1/1, and zero crash reports.
+
 No timeout, route geometry, waypoint radius, landing-pattern geometry, terrain, collision, stall, combat, weapon, player-control, or separation threshold changed.
 
 ## Remaining base-aircraft route qualifications
 
-Unqualified fighters:
+Unqualified energy fighters:
 
-- turn fighter: `warfare_wings:yak3`;
-- energy fighters: `warfare_wings:bf109`, `warfare_wings:f4u`, `warfare_wings:f6f`, `warfare_wings:fw190`, `warfare_wings:ki61`, `warfare_wings:ki84`, `warfare_wings:mc202`, `warfare_wings:mig3`, `warfare_wings:p40e`, `warfare_wings:p47n`.
+- `warfare_wings:bf109`;
+- `warfare_wings:f4u`;
+- `warfare_wings:f6f`;
+- `warfare_wings:fw190`;
+- `warfare_wings:ki61`;
+- `warfare_wings:ki84`;
+- `warfare_wings:mc202`;
+- `warfare_wings:mig3`;
+- `warfare_wings:p40e`;
+- `warfare_wings:p47n`.
 
 Unqualified bombers:
 
@@ -110,10 +131,10 @@ Unqualified bombers:
 - Parent roadmap: Issue #7 is the only open issue.
 - PR #70 is merged as `dd2dc9c7e9d3042b3dd4a0511a7ea5da935e5860`.
 - No behavior pull request is currently open.
-- Latest completed route status is D4Y Run `30148766789`: build success, GameTest success, artifact success.
-- Diagnostic artifact: `ww-local-route-30148766789`.
-- Three consecutive exact-head requests completed successfully in the preceding qualification session: Ju 87, SBD, and D4Y.
-- Durable self-hosted-runner rules are now also recorded in `/AGENTS.md`.
+- Latest completed route status is Yak-3 Run `30149217195`: build success, GameTest success, artifact success.
+- Diagnostic artifact: `ww-local-route-30149217195`.
+- All three turn fighters have route evidence.
+- Durable self-hosted-runner rules are recorded in `/AGENTS.md` and this handoff.
 
 ## Preserved invariants
 
@@ -126,7 +147,7 @@ Unqualified bombers:
 
 ## Next exact action
 
-1. Qualify `warfare_wings:yak3` on the current `main` using scenario `route`, without behavior changes.
+1. Qualify `warfare_wings:bf109` on the current `main` using scenario `route`, without behavior changes.
 2. Require build success, deterministic contracts, route `3,2,1,0`, ordinary mission release, return, landing, final `PARKED`, summary 1/1, Gradle status 0, and no crash report.
-3. If Yak-3 passes, all three turn fighters A6M, Spitfire, and Yak-3 have route evidence. Record the artifact-backed evidence and continue with `warfare_wings:bf109` on the then-current `main`.
+3. If Bf 109 passes, record the artifact-backed evidence and continue with `warfare_wings:f4u` on the then-current `main`.
 4. If any aircraft fails, fetch its logs and artifact once, identify the first meaningful acceptance failure, and open one focused draft PR only if a code change is necessary. Do not change timeouts, geometry, radii, or safety thresholds blindly.
