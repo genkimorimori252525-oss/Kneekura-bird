@@ -1,16 +1,12 @@
 {
-  "run_id": 30176753857,
-  "status": "completed",
-  "conclusion": "success",
+  "run_id": 30176938024,
+  "status": "in_progress",
+  "conclusion": null,
   "event": "workflow_dispatch",
   "branch": "main",
-  "event_sha": "dfcc56dfdcf00159998b17a5f58903f9e9705848",
+  "event_sha": "50898d16dd212037d785ab753658b768452b1433",
   "requested_ref": "4092d096f17e7aac34e19696b8a63f62f96b6c53",
-  "requested_sha": "4092d096f17e7aac34e19696b8a63f62f96b6c53",
-  "aircraft": "warfare_wings:g10n1",
+  "aircraft": "warfare_wings:g10n2",
   "scenario": "route",
-  "build_outcome": "success",
-  "gametest_outcome": "success",
-  "artifact_outcome": "success",
-  "updated_at": "2026-07-25T22:05:44.182Z"
+  "updated_at": "2026-07-25T22:07:11.289Z"
 }
