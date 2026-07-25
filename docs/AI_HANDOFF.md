@@ -8,123 +8,76 @@ Follow `/AGENTS.md` before changing code. Live GitHub state overrides older note
 
 `Jolly Endurance Mode` / `ジョリー長航続モード` is active by explicit owner instruction.
 
-Activation baseline:
-
-- mode-definition commit: `fa729e2824bbc9adcc52d0ce41da7828503705ce`;
-- last fully qualified aircraft: Yak-3, Run `30149217195`;
-- current qualification request commit: `bb9665eb6b0bc0c4e22a777127c1013335de9aec`;
-- requested immutable behavior head: `bc790bca60267a7339103c6ed5d29b95eae3ceac`;
-- requested aircraft: `warfare_wings:bf109`;
-- status at activation still showed the completed Yak-3 run, so the Bf 109 request must not be duplicated while awaiting a fresh start record.
-
-While this mode remains active, the default 60-minute / 8-run stop and 30-minute / 4-run approval pause are suspended. Continue serial aircraft qualification and focused hypothesis work without waiting for another owner message. Preserve a durable checkpoint every four remote runs or at every merge, major qualification milestone, terminal failure, or hypothesis change. Duration limits are lifted; safety, evidence, one-request-at-a-time operation, one-hypothesis-per-commit discipline, and patch-size limits remain authoritative. This is resumable interactive work, not background execution; record the exact state before every interaction ends.
+This mode removes the default duration and remote-run stop limits only. Safety invariants, one immutable request at a time, one behavioral hypothesis per commit, evidence checkpoints, and the 10-file / 800-line patch ceiling remain authoritative. This is resumable interactive work, not background execution.
 
 ## Current production baseline
 
 Production owned-route guidance remains below player-control, emergency, terrain, collision, and combat authority. No weapon, timeout, waypoint-radius, landing-geometry, or minimum-separation rule has been relaxed.
 
-Merged route milestones:
+Merged route milestones include:
 
 - PR #53: live owned-route guidance integrated into the single final aircraft-input path;
-- PR #58: G4M legacy metadata recovery and `torpedo_bomber` common-flight admission;
+- PR #58: G4M metadata recovery and `torpedo_bomber` common-flight admission;
 - PR #59: IL-2 attacker representative route proof;
 - PR #60: B-17 level-bomber compact route proof;
-- PR #63: dedicated Windows self-hosted generic `route` validation workflow;
-- PR #64: profile-driven compact route geometry and arbitrary-aircraft strict evidence, merged as `a91c610b970721e3508dca4c1460e75b262ec3d0`;
-- PR #65: route-workflow post-processing hardening, merged as `9ee8e899c74a49cf20313e5eb6f18eabe14bffb6`;
-- PR #73: disconnected `PatternRejoinBudget` feasibility foundation, merged as `c55b764b833b8fb70a995c3dcc57246cd3fb7e61`;
-- PR #70: owned-route clock accounting plus measured pattern-rejoin speed, squash-merged as `dd2dc9c7e9d3042b3dd4a0511a7ea5da935e5860` after exact-head Windows validation.
+- PR #63: Windows self-hosted generic route workflow;
+- PR #64: profile-driven compact route geometry and arbitrary-aircraft strict evidence;
+- PR #65: route-workflow post-processing hardening;
+- PR #73: disconnected `PatternRejoinBudget` feasibility foundation;
+- PR #70: owned-route clock accounting plus measured pattern-rejoin speed, merged after exact-head Windows validation;
+- PR #76: truthful JollyRunnerHub GitHub-connection state classification, merged as `9dce7f08fee66255b7979d986f2b713c00b6c5b5`.
 
-The generic route plan derives four waypoints from measured `FlightProfile` role, cruise speed, live position, and live heading. Supported roles are fighter, bomber, attacker, and torpedo bomber. Unknown roles and malformed geometry inputs are rejected deterministically.
+`MissionRouteClockPolicy` allows owned `CRUISE_OUTBOUND` travel to satisfy the fixed 240-tick sample while the overall mission timeout remains frozen. `PatternRejoinSpeedPolicy` commands at least measured `turnSpeedFloorBps` only during `RETURN_TO_PATTERN`. `PatternRejoinBudget` remains disconnected from live control.
 
-`MissionRouteClockPolicy` allows owned `CRUISE_OUTBOUND` travel to satisfy the fixed 240-tick sample while the overall mission timeout remains frozen. `PatternRejoinSpeedPolicy` commands at least the measured `turnSpeedFloorBps` only during `RETURN_TO_PATTERN`. `PatternRejoinBudget` remains disconnected from live control and reports ideal reach, required speed, block margin, and margin ratio.
-
-## Windows self-hosted runner reference
+## Windows self-hosted runner operation
 
 - Runner name: `ジョリー`.
 - Owner PC runner root: `C:\actions-runner`.
 - Owner-facing manager: desktop `JollyRunnerHub.exe`.
-- Expected UI when locally connected: `Runner: 接続中`; the validation count may remain zero until GitHub assigns a job.
 - Required workflow labels: `[self-hosted, Windows, X64]`.
-- Generic route workflow: `.github/workflows/ww-local-route-validation.yml`.
+- Route workflow: `.github/workflows/ww-local-route-validation.yml`.
 - Request file: `.github/local-route-validation-request.txt`.
 - Status file: `.github/local-route-validation-status.json`.
-- Diagnostics artifact name: `ww-local-route-<run_id>`.
 
-Operational interpretation:
+PR #76 corrected an operational ambiguity: a live `Runner.Listener.exe` process alone no longer displays as proof of GitHub job readiness. The Hub now classifies log-backed states such as starting, connected-starting, listening, running-job, post-job confirmation, and reconnecting. Qualification acceptance still requires a new matching `run_id` and `status: in_progress` in the repository status file.
 
-1. `JollyRunnerHub.exe` showing connected means the runner process is online; it does not itself prove that GitHub accepted the current request.
-2. A request is accepted only when the status file changes to a new `run_id` with `status: in_progress`, matching `event_sha`, requested ref, and aircraft.
-3. Before writing a request, read the request file, status file, recent commits, and this handoff. If the status is already `in_progress`, do not touch the request.
-4. Trigger exactly once by writing an immutable 40-character behavior commit and one aircraft ID. Never use a no-op commit or duplicate update merely because assignment is delayed.
-5. The status file can temporarily remain on the previous completed run after a new request commit. This assignment delay is not evidence that the runner is offline.
-6. `Set up Gradle 8.8` may remain in progress for several minutes on this Windows runner. Do not cancel or duplicate an otherwise live job because that step is slow.
-7. Follow the same run through build, exact-physics GameTest, diagnostics upload, and finish persistence. On failure, fetch logs and artifact once and stop before selecting a materially different hypothesis.
-8. A successful workflow step alone is insufficient for qualification; verify route order, ordinary mission release, return, landing, final `PARKED`, summary 1/1, Gradle status 0, and crash count 0 from the artifact/verifier evidence.
+PR #76 exact head `4326c0d8aeaaa1f979a8aedad67104cc87df6810` passed Windows Run `30151239678`. The successful job completed PowerShell 5.1 syntax validation, deterministic classifier samples, runtime injection, generated-script syntax validation, launcher compilation, hidden WinForms startup smoke testing, and portable artifact upload. No aircraft behavior, route request, timeout, geometry, landing, combat, weapon, terrain, collision, player-control, or acceptance rule changed.
 
-The recent requests for Ju 87 Run `30147903349`, SBD Run `30148395384`, D4Y Run `30148766789`, and Yak-3 Run `30149217195` were accepted and completed successfully by this runner. Therefore the self-hosted path is proven operational; future sessions must not describe it as unavailable solely because a fresh request has not yet received its start-status commit.
-
-## Exact-physics qualification evidence
+## Exact-physics route qualification evidence
 
 Fully qualified with terminal `PARKED`:
 
-- A6M terrain-precedence proof — Run `30106085402`;
-- G4M compact torpedo-bomber route — Run `30113770224`;
-- IL-2 compact attacker route — Run `30115029120`;
-- B-17 compact level-bomber route — Run `30115815404`;
-- P-51D generic profile-driven route — Run `30118532513`;
-- Spitfire generic turn-fighter route — Run `30120064170`;
-- B-29 generic bomber route — Run `30120521495`;
-- Ju 87 generic attacker route — Run `30147903349`;
-- SBD generic attacker route — Run `30148395384`;
-- D4Y generic attacker route — Run `30148766789`;
-- Yak-3 generic turn-fighter route — Run `30149217195`.
+- A6M — Run `30106085402`;
+- G4M — Run `30113770224`;
+- IL-2 — Run `30115029120`;
+- B-17 — Run `30115815404`;
+- P-51D — Run `30118532513`;
+- Spitfire — Run `30120064170`;
+- B-29 — Run `30120521495`;
+- Ju 87 — Run `30147903349`;
+- SBD — Run `30148395384`;
+- D4Y — Run `30148766789`;
+- Yak-3 — Run `30149217195`.
 
-Current coverage is 11 of 24 base aircraft. All four attackers — Ju 87, SBD, IL-2, and D4Y — and all three turn fighters — A6M, Spitfire, and Yak-3 — now have exact-physics generic-route evidence.
+Current coverage is 11 of 24 base aircraft. All four attackers and all three turn fighters have exact-physics generic-route evidence.
 
-Each completed qualification required ordered waypoint progression `3,2,1,0`, release to the ordinary mission, return, landing, braking, final `PARKED`, passed summary, Gradle status 0, and no crash reports. B-29 performed a safe go-around before its successful final landing. Ju 87, SBD, D4Y, and Yak-3 each used two bounded native flare extensions below 20 blocks before normal touchdown.
+Each qualification requires ordered waypoint progression `3,2,1,0`, release to the ordinary mission, return, landing, braking, final `PARKED`, summary 1/1, Gradle status 0, and no crash report.
 
-## Ju 87 resolution and attacker follow-through
+## Current live request
 
-Earlier production Run `30122172937` completed the route but timed out during `RETURN_TO_PATTERN`. Isolated Runs `30123421732` and `30124721947` proved two independent contributors:
+The current request remains:
 
-- owned outbound route travel was not credited toward the fixed 240-tick outbound sample;
-- long pattern rejoin commanded the lower climb target instead of the measured turn-speed floor.
+- request commit: `bb9665eb6b0bc0c4e22a777127c1013335de9aec`;
+- immutable behavior ref: `bc790bca60267a7339103c6ed5d29b95eae3ceac`;
+- aircraft: `warfare_wings:bf109`.
 
-PR #70 combined only those two established effects. Exact behavior head `361078f30f1dd348fa274050f89cdf413525d49e` passed Windows Run `30147903349`:
-
-- route advanced `3 -> 2 -> 1 -> 0`;
-- route completed at server tick `3969` and ordinary `CRUISE_OUTBOUND -> TURN_LEFT` followed at tick `3971`;
-- `RETURN_TO_PATTERN` commanded `18.75373230144395 BPS` and reached `DOWNWIND` inside the unchanged 1,800-tick timeout;
-- landing progressed through `DOWNWIND -> BASE -> FINAL -> FLARE -> TOUCHDOWN -> BRAKE -> PARKED`;
-- verifier passed with Gradle status 0, summary 1/1, and zero crash reports.
-
-The merged behavior then qualified the remaining attackers without further code changes:
-
-- SBD Run `30148395384`: route completed at tick `3804`, ordinary mission resumed at `3806`, final `PARKED`, elapsed `4789` ticks, summary 1/1, crash 0;
-- D4Y Run `30148766789`: route completed at tick `3515`, ordinary mission resumed at `3574`, final `PARKED`, elapsed `3938` ticks, summary 1/1, crash 0.
-
-D4Y retained the ordinary outbound clock until tick 3574 because its compact route completed before the held counter reached the fixed release threshold; this is expected and does not replay the 240-tick sample from zero.
-
-## Yak-3 turn-fighter qualification
-
-Yak-3 used behavior head `e1174b4947acba0dedec30b964e87d43a8d3570a` and passed Windows Run `30149217195` without behavior changes:
-
-- route ownership began at server tick `645`;
-- remaining waypoints advanced `3,2,1,0` at ticks `685`, `732`, `785`, and `811`;
-- ordinary `CRUISE_OUTBOUND -> TURN_LEFT` occurred at tick `885`, using the fixed outbound sample without replaying it from zero;
-- `RETURN_TO_PATTERN` began at tick `1738`, followed by `DOWNWIND` at `2870`, `BASE` at `2988`, and `FINAL` at `3069`;
-- two bounded native flare extensions occurred at ticks `3442` and `3663`, followed by `TOUCHDOWN` at `3669`, `BRAKE` at `3679`, and `PARKED` at `3728`;
-- final reason was `complete_stop_stable_for_40_ticks`;
-- verifier passed with elapsed `3723` ticks, Gradle status 0, summary 1/1, and zero crash reports.
-
-No timeout, route geometry, waypoint radius, landing-pattern geometry, terrain, collision, stall, combat, weapon, player-control, or separation threshold changed.
+At this checkpoint `.github/local-route-validation-status.json` still records completed Yak-3 Run `30149217195`. There is no repository-side Bf 109 start record yet. Do not rewrite, duplicate, or no-op-trigger the Bf 109 request while this remains true.
 
 ## Remaining base-aircraft route qualifications
 
-Unqualified energy fighters, in current execution order:
+Energy fighters, in current execution order:
 
-- `warfare_wings:bf109` — request already committed and awaiting acceptance;
+- `warfare_wings:bf109` — already requested, awaiting matching start record;
 - `warfare_wings:f4u`;
 - `warfare_wings:f6f`;
 - `warfare_wings:fw190`;
@@ -135,7 +88,7 @@ Unqualified energy fighters, in current execution order:
 - `warfare_wings:p40e`;
 - `warfare_wings:p47n`.
 
-Unqualified bombers:
+Bombers:
 
 - `warfare_wings:g10n1`;
 - `warfare_wings:g10n2`;
@@ -144,13 +97,10 @@ Unqualified bombers:
 ## Repository state
 
 - Parent roadmap: Issue #7 is the only open issue.
-- PR #70 is merged as `dd2dc9c7e9d3042b3dd4a0511a7ea5da935e5860`.
+- PR #76 is merged as `9dce7f08fee66255b7979d986f2b713c00b6c5b5`.
 - No behavior pull request is currently open.
-- Latest completed route status is Yak-3 Run `30149217195`: build success, GameTest success, artifact success.
-- Diagnostic artifact: `ww-local-route-30149217195`.
-- All three turn fighters have route evidence.
-- `ジョリー長航続モード` is active.
-- Bf 109 request commit `bb9665eb6b0bc0c4e22a777127c1013335de9aec` points to behavior head `bc790bca60267a7339103c6ed5d29b95eae3ceac`; do not duplicate it while the status file still shows the previous Yak-3 completion.
+- Latest completed route status remains Yak-3 Run `30149217195`.
+- `ジョリー長航続モード` remains active.
 
 ## Preserved invariants
 
@@ -163,8 +113,8 @@ Unqualified bombers:
 
 ## Next exact action
 
-1. Read `.github/local-route-validation-status.json` and recent commits for acceptance of Bf 109 request commit `bb9665eb6b0bc0c4e22a777127c1013335de9aec`.
-2. Once a fresh Bf 109 Run ID appears, follow that single run through build, exact-physics route, return, landing, diagnostics, and finish persistence.
-3. If Bf 109 passes, record artifact-backed evidence and immediately continue with `warfare_wings:f4u` on the then-current `main` without another approval pause.
-4. Continue the listed energy fighters serially. At four completed remote runs, write a durable checkpoint and continue under `ジョリー長航続モード`.
-5. On any failure, fetch logs and artifact once, identify the first meaningful acceptance failure, and open one focused draft PR only if a code change is necessary. Do not change timeouts, geometry, radii, or safety thresholds blindly.
+1. Read `.github/local-route-validation-status.json`, the request file, and recent commits.
+2. If no matching Bf 109 `in_progress` or completed Run ID exists, do not alter or retrigger the request.
+3. Once a matching fresh Bf 109 Run ID appears, follow only that run through build, exact-physics route, return, landing, diagnostics, and finish persistence.
+4. On success, record artifact-backed evidence and continue serially with `warfare_wings:f4u` from the then-current `main`.
+5. On failure, fetch logs and artifact once, identify the first meaningful acceptance failure, and create one focused Draft PR only when a code change is necessary. Do not weaken timeouts, geometry, radii, firing gates, or safety thresholds.
