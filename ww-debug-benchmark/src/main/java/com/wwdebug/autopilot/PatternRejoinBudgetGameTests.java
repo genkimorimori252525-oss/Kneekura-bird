@@ -30,8 +30,17 @@ public final class PatternRejoinBudgetGameTests {
     @GameTest(template = "empty", timeoutTicks = 20, batch = "pattern_rejoin_budget_contract")
     public static void remainingEnergyFightersRetainConservativeRejoinMargin(GameTestHelper helper) {
         String[] aircraft = {"f6f", "fw190", "ki61", "ki84", "mc202", "mig3", "p40e", "p47n"};
+        // Canonical values copied at full precision from
+        // data/wwdebug_benchmark/ai/validated_fighter_profiles-20260720-141003.json.
         double[] measuredTurnFloors = {
-                32.002, 35.628, 34.317, 24.931, 30.281, 33.197, 30.281, 37.358
+                32.00224409589987,
+                35.62843362275763,
+                34.317417466113874,
+                24.931250116781943,
+                30.2810989231778,
+                33.19718658350574,
+                30.2810989231778,
+                37.357554760673516
         };
 
         for (int index = 0; index < aircraft.length; index++) {
