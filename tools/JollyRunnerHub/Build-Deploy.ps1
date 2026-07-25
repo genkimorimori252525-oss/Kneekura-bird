@@ -145,14 +145,8 @@ $runnerRuntimeFunctions = $connectionStateText.TrimEnd() + [Environment]::NewLin
     [Environment]::NewLine + $runnerAdapter.TrimEnd()
 $runtimeScriptText = $runtimeScriptText.Replace($runnerAdapterTarget,$runnerRuntimeFunctions)
 
-$runnerStatusTarget = @'
-        if (Runner-Running $script:Profile) {
-            $runnerStatus.Value.Text = '接続中'
-            $runnerStatus.Value.ForeColor = [Drawing.Color]::FromArgb(105,228,154)
-        } else {
-            $runnerStatus.Value.Text = '停止中'
-            $runnerStatus.Value.ForeColor = [Drawing.Color]::FromArgb(255,137,141)
-        }
+$runnerStatusPattern = @'
+(?ms)^[ \t]*if \(Runner-Running \$script:Profile\) \{\r?\n[ \t]*\$runnerStatus\.Value\.Text = '[^']*'\r?\n[ \t]*\$runnerStatus\.Value\.ForeColor = \[Drawing\.Color\]::FromArgb\(105,228,154\)\r?\n[ \t]*\} else \{\r?\n[ \t]*\$runnerStatus\.Value\.Text = '[^']*'\r?\n[ \t]*\$runnerStatus\.Value\.ForeColor = \[Drawing\.Color\]::FromArgb\(255,137,141\)\r?\n[ \t]*\}
 '@
 $runnerStatusReplacement = @'
         $runnerConnection = Read-RunnerConnectionState $script:Profile
@@ -164,12 +158,17 @@ $runnerStatusReplacement = @'
             default { $runnerStatus.Value.ForeColor = [Drawing.Color]::FromArgb(255,137,141) }
         }
 '@
-if (-not $runtimeScriptText.Contains($runnerStatusTarget.TrimEnd())) {
+$runnerStatusRegex = New-Object System.Text.RegularExpressions.Regex(
+    $runnerStatusPattern.Trim(),
+    [System.Text.RegularExpressions.RegexOptions]::Multiline -bor
+        [System.Text.RegularExpressions.RegexOptions]::Singleline)
+if (-not $runnerStatusRegex.IsMatch($runtimeScriptText)) {
     throw 'Runner Hub connection patch target was not found: status timer.'
 }
-$runtimeScriptText = $runtimeScriptText.Replace(
-    $runnerStatusTarget.TrimEnd(),
-    $runnerStatusReplacement.TrimEnd())
+$runtimeScriptText = $runnerStatusRegex.Replace(
+    $runtimeScriptText,
+    $runnerStatusReplacement.TrimEnd(),
+    1)
 
 Set-Content -LiteralPath $runtimeSourcePath -Value $runtimeScriptText -Encoding UTF8
 
