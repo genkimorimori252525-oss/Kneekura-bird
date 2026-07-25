@@ -60,9 +60,10 @@ Fully qualified with terminal `PARKED`:
 - SBD — Run `30148395384`;
 - D4Y — Run `30148766789`;
 - Yak-3 — Run `30149217195`;
-- Bf 109 — Run `30151410943`.
+- Bf 109 — Run `30151410943`;
+- F4U — Run `30151812704`.
 
-Current coverage is 12 of 24 base aircraft. All four attackers, all three turn fighters, and Bf 109 plus P-51D from the energy-fighter group have exact-physics generic-route evidence.
+Current coverage is 13 of 24 base aircraft. All four attackers, all three turn fighters, and Bf 109, P-51D, and F4U from the energy-fighter group have exact-physics generic-route evidence.
 
 Each qualification requires ordered waypoint progression `3,2,1,0`, release to the ordinary mission, return, landing, braking, final `PARKED`, summary 1/1, Gradle status 0, and no crash report.
 
@@ -88,8 +89,7 @@ No timeout, route geometry, waypoint radius, landing-pattern geometry, terrain, 
 
 Energy fighters, in current execution order:
 
-- `warfare_wings:f4u`;
-- `warfare_wings:f6f`;
+- `warfare_wings:f6f` (request committed; matching start record not yet observed);
 - `warfare_wings:fw190`;
 - `warfare_wings:ki61`;
 - `warfare_wings:ki84`;
@@ -113,10 +113,11 @@ Preflight and comparison evidence is preserved in:
 ## Repository state
 
 - Parent roadmap: Issue #7 is the only open issue.
-- PR #76 is merged as `9dce7f08fee66255b7979d986f2b713c00b6c5b5`.
-- No behavior pull request is currently open.
-- Latest completed route status is Bf 109 Run `30151410943`.
-- Diagnostic artifact: `ww-local-route-30151410943`.
+- No pull request was open at the start of this checkpoint.
+- Latest completed route status is F4U Run `30151812704`, with build, GameTest, and artifact success.
+- F6F request commit is `0c716db4d56a0f349f028adad350c471c5f81545`.
+- F6F request uses immutable behavior ref `4092d096f17e7aac34e19696b8a63f62f96b6c53`.
+- No matching F6F `in_progress` start record was present when this checkpoint was written; do not duplicate or rewrite the request during assignment delay.
 - `ジョリー長航続モード` remains active.
 
 ## Preserved invariants
@@ -130,7 +131,9 @@ Preflight and comparison evidence is preserved in:
 
 ## Next exact action
 
-1. Qualify `warfare_wings:f4u` on the then-current `main` using scenario `route`, without behavior changes.
-2. Require build success, deterministic contracts, route `3,2,1,0`, ordinary mission release, return, landing, final `PARKED`, summary 1/1, Gradle status 0, and no crash report.
-3. On success, record artifact-backed evidence and continue serially with `warfare_wings:f6f` without another approval pause.
-4. On failure, fetch logs and artifact once, identify the first meaningful acceptance failure, and create one focused Draft PR only when a code change is necessary. Do not weaken timeouts, geometry, radii, firing gates, or safety thresholds.
+1. Re-read `.github/local-route-validation-status.json`, `.github/local-route-validation-request.txt`, and recent commits.
+2. If a new matching F6F start exists for request commit `0c716db4d56a0f349f028adad350c471c5f81545` and behavior ref `4092d096f17e7aac34e19696b8a63f62f96b6c53`, follow only that Run through build, exact-physics GameTest, verifier, artifact, and finish-status persistence.
+3. Require route `3,2,1,0`, ordinary mission release, return, landing, final `PARKED`, summary 1/1, Gradle status 0, and no crash report.
+4. If no matching start exists, do not retrigger or create a no-op commit; leave the existing request untouched and continue only with disconnected GitHub-side work.
+5. On success, record artifact-backed evidence and continue serially with `warfare_wings:fw190`.
+6. On failure, fetch logs and artifact once, identify the first meaningful acceptance failure, and create one focused Draft PR only when a code change is necessary. Do not weaken timeouts, geometry, radii, firing gates, or safety thresholds.
