@@ -35,9 +35,10 @@ Fully qualified with terminal `PARKED`:
 - P-51D generic profile-driven route — Run `30118532513`;
 - Spitfire generic turn-fighter route — Run `30120064170`;
 - B-29 generic bomber route — Run `30120521495`;
-- Ju 87 generic attacker route — Run `30147903349`.
+- Ju 87 generic attacker route — Run `30147903349`;
+- SBD generic attacker route — Run `30148395384`.
 
-Each completed generic qualification required ordered waypoint progression `3,2,1,0`, release to the ordinary mission, return, landing, braking, final `PARKED`, passed summary, Gradle status 0, and no crash reports. B-29 performed a safe go-around before its successful final landing. Ju 87 used two bounded native flare extensions below 20 blocks before normal touchdown.
+Each completed generic qualification required ordered waypoint progression `3,2,1,0`, release to the ordinary mission, return, landing, braking, final `PARKED`, passed summary, Gradle status 0, and no crash reports. B-29 performed a safe go-around before its successful final landing. Ju 87 and SBD each used two bounded native flare extensions below 20 blocks before normal touchdown.
 
 ## Ju 87 resolution
 
@@ -56,6 +57,14 @@ PR #70 combined only those two established effects. Exact behavior head `361078f
 - final reason was `complete_stop_stable_for_40_ticks`;
 - verifier passed with Gradle status 0, summary 1/1, and zero crash reports.
 
+SBD then qualified without further behavior changes on Run `30148395384`:
+
+- route advanced `3 -> 2 -> 1 -> 0` and completed at server tick `3804`;
+- ordinary `CRUISE_OUTBOUND -> TURN_LEFT` followed at tick `3806`;
+- return and landing progressed through `RETURN_TO_PATTERN -> DOWNWIND -> BASE -> FINAL -> FLARE -> TOUCHDOWN -> BRAKE -> PARKED`;
+- final reason was `complete_stop_stable_for_40_ticks`, elapsed `4789` ticks;
+- verifier passed with Gradle status 0, summary 1/1, and zero crash reports.
+
 No timeout, route geometry, waypoint radius, landing-pattern geometry, terrain, collision, stall, combat, weapon, player-control, or separation threshold changed.
 
 ## Repository state
@@ -63,9 +72,9 @@ No timeout, route geometry, waypoint radius, landing-pattern geometry, terrain, 
 - Parent roadmap: Issue #7 is the only open issue.
 - PR #70 is merged as `dd2dc9c7e9d3042b3dd4a0511a7ea5da935e5860`.
 - No behavior pull request is currently open.
-- Latest completed route status is Run `30147903349`: build success, GameTest success, artifact success.
-- Diagnostic artifact: `ww-local-route-30147903349`.
-- The Windows self-hosted runner accepted and completed the exact-head request successfully.
+- Latest completed route status is SBD Run `30148395384`: build success, GameTest success, artifact success.
+- Diagnostic artifact: `ww-local-route-30148395384`.
+- The Windows self-hosted runner is online and completed two consecutive exact-head requests successfully.
 
 ## Preserved invariants
 
@@ -78,9 +87,7 @@ No timeout, route geometry, waypoint radius, landing-pattern geometry, terrain, 
 
 ## Next exact action
 
-1. Qualify the remaining attacker aircraft without behavior changes, one exact-head run at a time.
-2. First target `warfare_wings:sbd` on the latest `main` using scenario `route`.
-3. Require build success, deterministic contracts, route `3,2,1,0`, ordinary mission release, return, landing, final `PARKED`, summary 1/1, Gradle status 0, and no crash report.
-4. If SBD passes, record the artifact-backed evidence and repeat once for `warfare_wings:d4y`.
-5. If either fails, fetch its logs and artifact once, identify the first meaningful acceptance failure, and open one focused draft PR only if a code change is necessary. Do not change timeouts, geometry, radii, or safety thresholds blindly.
-6. After SBD and D4Y qualify, enumerate the remaining unqualified base aircraft by role and continue the same no-change-first qualification sequence.
+1. Qualify `warfare_wings:d4y` on the latest `main` using scenario `route`, without behavior changes.
+2. Require build success, deterministic contracts, route `3,2,1,0`, ordinary mission release, return, landing, final `PARKED`, summary 1/1, Gradle status 0, and no crash report.
+3. If D4Y fails, fetch its logs and artifact once, identify the first meaningful acceptance failure, and open one focused draft PR only if a code change is necessary. Do not change timeouts, geometry, radii, or safety thresholds blindly.
+4. If D4Y passes, the four attacker aircraft Ju 87, SBD, IL-2, and D4Y all have exact-physics generic-route evidence. Enumerate the remaining unqualified base aircraft by role and continue the same no-change-first qualification sequence.
