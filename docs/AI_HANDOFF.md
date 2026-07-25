@@ -24,6 +24,31 @@ The generic route plan derives four waypoints from measured `FlightProfile` role
 
 `MissionRouteClockPolicy` allows owned `CRUISE_OUTBOUND` travel to satisfy the fixed 240-tick sample while the overall mission timeout remains frozen. `PatternRejoinSpeedPolicy` commands at least the measured `turnSpeedFloorBps` only during `RETURN_TO_PATTERN`. `PatternRejoinBudget` remains disconnected from live control and reports ideal reach, required speed, block margin, and margin ratio.
 
+## Windows self-hosted runner reference
+
+- Runner name: `ジョリー`.
+- Owner PC runner root: `C:\actions-runner`.
+- Owner-facing manager: desktop `JollyRunnerHub.exe`.
+- Expected UI when locally connected: `Runner: 接続中`; the validation count may remain zero until GitHub assigns a job.
+- Required workflow labels: `[self-hosted, Windows, X64]`.
+- Generic route workflow: `.github/workflows/ww-local-route-validation.yml`.
+- Request file: `.github/local-route-validation-request.txt`.
+- Status file: `.github/local-route-validation-status.json`.
+- Diagnostics artifact name: `ww-local-route-<run_id>`.
+
+Operational interpretation:
+
+1. `JollyRunnerHub.exe` showing connected means the runner process is online; it does not itself prove that GitHub accepted the current request.
+2. A request is accepted only when the status file changes to a new `run_id` with `status: in_progress`, matching `event_sha`, requested ref, and aircraft.
+3. Before writing a request, read the request file, status file, recent commits, and this handoff. If the status is already `in_progress`, do not touch the request.
+4. Trigger exactly once by writing an immutable 40-character behavior commit and one aircraft ID. Never use a no-op commit or duplicate update merely because assignment is delayed.
+5. The status file can temporarily remain on the previous completed run after a new request commit. This assignment delay is not evidence that the runner is offline.
+6. `Set up Gradle 8.8` may remain in progress for several minutes on this Windows runner. Do not cancel or duplicate an otherwise live job because that step is slow.
+7. Follow the same run through build, exact-physics GameTest, diagnostics upload, and finish persistence. On failure, fetch logs and artifact once and stop before selecting a materially different hypothesis.
+8. A successful workflow step alone is insufficient for qualification; verify route order, ordinary mission release, return, landing, final `PARKED`, summary 1/1, Gradle status 0, and crash count 0 from the artifact/verifier evidence.
+
+The most recent three requests—Ju 87 Run `30147903349`, SBD Run `30148395384`, and D4Y Run `30148766789`—were accepted and completed successfully by this runner. Therefore the self-hosted path is currently proven operational; future sessions must not describe it as unavailable solely because a fresh request has not yet received its start-status commit.
+
 ## Exact-physics qualification evidence
 
 Fully qualified with terminal `PARKED`:
@@ -87,7 +112,8 @@ Unqualified bombers:
 - No behavior pull request is currently open.
 - Latest completed route status is D4Y Run `30148766789`: build success, GameTest success, artifact success.
 - Diagnostic artifact: `ww-local-route-30148766789`.
-- Three consecutive exact-head requests completed successfully in this session: Ju 87, SBD, and D4Y.
+- Three consecutive exact-head requests completed successfully in the preceding qualification session: Ju 87, SBD, and D4Y.
+- Durable self-hosted-runner rules are now also recorded in `/AGENTS.md`.
 
 ## Preserved invariants
 
@@ -100,8 +126,7 @@ Unqualified bombers:
 
 ## Next exact action
 
-1. Pause new remote runs at this checkpoint; three exact-physics runs and one behavior merge completed successfully.
-2. On resume, qualify `warfare_wings:yak3` on the then-current `main` using scenario `route`, without behavior changes.
-3. Require build success, deterministic contracts, route `3,2,1,0`, ordinary mission release, return, landing, final `PARKED`, summary 1/1, Gradle status 0, and no crash report.
-4. If Yak-3 passes, all three turn fighters A6M, Spitfire, and Yak-3 have route evidence. Continue with energy fighters one exact-head request at a time, beginning with `warfare_wings:bf109`.
-5. If any aircraft fails, fetch its logs and artifact once, identify the first meaningful acceptance failure, and open one focused draft PR only if a code change is necessary. Do not change timeouts, geometry, radii, or safety thresholds blindly.
+1. Qualify `warfare_wings:yak3` on the current `main` using scenario `route`, without behavior changes.
+2. Require build success, deterministic contracts, route `3,2,1,0`, ordinary mission release, return, landing, final `PARKED`, summary 1/1, Gradle status 0, and no crash report.
+3. If Yak-3 passes, all three turn fighters A6M, Spitfire, and Yak-3 have route evidence. Record the artifact-backed evidence and continue with `warfare_wings:bf109` on the then-current `main`.
+4. If any aircraft fails, fetch its logs and artifact once, identify the first meaningful acceptance failure, and open one focused draft PR only if a code change is necessary. Do not change timeouts, geometry, radii, or safety thresholds blindly.
