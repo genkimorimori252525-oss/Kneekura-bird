@@ -1,16 +1,12 @@
 {
-  "run_id": 30148766789,
-  "status": "completed",
-  "conclusion": "success",
+  "run_id": 30149217195,
+  "status": "in_progress",
+  "conclusion": null,
   "event": "push",
   "branch": "main",
-  "event_sha": "3914e4482dab946ec9dc4907c31ee628b73c803c",
-  "requested_ref": "e6f4f8c71456903346d80a4363627c4451c701bd",
-  "requested_sha": "e6f4f8c71456903346d80a4363627c4451c701bd",
-  "aircraft": "warfare_wings:d4y",
+  "event_sha": "f3edaddd2453d2912946c1195ba9b3214b364227",
+  "requested_ref": "e1174b4947acba0dedec30b964e87d43a8d3570a",
+  "aircraft": "warfare_wings:yak3",
   "scenario": "route",
-  "build_outcome": "success",
-  "gametest_outcome": "success",
-  "artifact_outcome": "success",
-  "updated_at": "2026-07-25T07:15:22.811Z"
+  "updated_at": "2026-07-25T07:24:40.721Z"
 }
