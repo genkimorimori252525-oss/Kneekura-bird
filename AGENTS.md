@@ -50,6 +50,27 @@ Do not use the expensive headless GameTest as the first diagnostic tool for ever
 - Add explicit telemetry or deterministic assertions for scenario start, ownership, completion, release, and remaining mission-time budget whenever those facts are not already observable.
 - Keep harness corrections isolated to test-only code. They must not weaken production firing gates, terrain avoidance, collision avoidance, player-control exclusion, or any acceptance criterion.
 
+## Windows self-hosted runner operation
+
+- The repository has a Windows self-hosted runner named `ジョリー`, normally rooted at `C:\actions-runner` and managed on the owner's PC through the desktop application `JollyRunnerHub.exe`.
+- Route validation jobs require the labels `[self-hosted, Windows, X64]` and are defined in `.github/workflows/ww-local-route-validation.yml`.
+- `JollyRunnerHub.exe` showing `Runner: 接続中` proves the local runner process is connected, but GitHub assignment is confirmed only when `.github/local-route-validation-status.json` records a new `run_id`, `status: in_progress`, the expected `event_sha`, requested ref, and aircraft.
+- Before touching a validation request, read `.github/local-route-validation-status.json`, `.github/local-route-validation-request.txt`, recent commits, and the current handoff. Never assume an earlier request is still queued merely because the request file exists.
+- Trigger one route qualification by changing `.github/local-route-validation-request.txt` exactly once to the immutable behavior commit and aircraft under test. Do not create no-op commits, duplicate requests, or edit the request while its run is in progress.
+- The request file format is:
+
+  ```text
+  # human-readable purpose
+  ref=<40-character behavior commit>
+  aircraft=warfare_wings:<entity_id>
+  ```
+
+- A newly pushed request may take a short time before the start-status commit appears. Do not call the runner offline merely because the previous completed status remains visible during this assignment delay.
+- `gradle/actions/setup-gradle@v4` may remain `in_progress` for several minutes on this runner. If the job is still alive, do not cancel or duplicate it solely because this setup step is slow.
+- Follow one run through build, exact-physics GameTest, diagnostics upload, and finish-status persistence. A route qualification is accepted only when build and GameTest succeed, the verifier records the required route/mission/landing evidence, final state is `PARKED`, summary is 1/1, Gradle status is 0, and no crash report exists.
+- On terminal failure, stop waiting immediately, fetch the job logs and artifact once, identify the first meaningful acceptance failure, record a human-readable checkpoint, and issue another run only for a materially different hypothesis or justified determinism check.
+- The runner is an execution resource, not evidence by itself. Never claim a validation happened merely because the owner's PC and runner process are on.
+
 ## CI monitoring and owner reporting
 
 - CI polling must be bounded. Check an in-progress workflow only a small number of times, then return a visible status checkpoint instead of silently repeating sleep-and-poll cycles.
