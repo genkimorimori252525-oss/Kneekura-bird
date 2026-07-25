@@ -1,12 +1,16 @@
 {
   "run_id": 30175707465,
-  "status": "in_progress",
-  "conclusion": null,
+  "status": "completed",
+  "conclusion": "success",
   "event": "workflow_dispatch",
   "branch": "main",
   "event_sha": "7286fdad3a25d6db9a1eb3ca2b38d2138eaf88fb",
   "requested_ref": "4092d096f17e7aac34e19696b8a63f62f96b6c53",
+  "requested_sha": "4092d096f17e7aac34e19696b8a63f62f96b6c53",
   "aircraft": "warfare_wings:ki61",
   "scenario": "route",
-  "updated_at": "2026-07-25T21:29:30.499Z"
+  "build_outcome": "success",
+  "gametest_outcome": "success",
+  "artifact_outcome": "success",
+  "updated_at": "2026-07-25T21:32:29.149Z"
 }
