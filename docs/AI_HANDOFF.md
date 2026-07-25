@@ -16,9 +16,12 @@ Merged route milestones:
 - PR #60: B-17 level-bomber compact route proof;
 - PR #63: dedicated Windows self-hosted generic `route` validation workflow;
 - PR #64: profile-driven compact route geometry and arbitrary-aircraft strict evidence, merged as `a91c610b970721e3508dca4c1460e75b262ec3d0`;
-- PR #65: route-workflow post-processing hardening, merged as `9ee8e899c74a49cf20313e5eb6f18eabe14bffb6`.
+- PR #65: route-workflow post-processing hardening, merged as `9ee8e899c74a49cf20313e5eb6f18eabe14bffb6`;
+- PR #73: disconnected `PatternRejoinBudget` feasibility foundation, merged as `c55b764b833b8fb70a995c3dcc57246cd3fb7e61`.
 
 The generic route plan derives four waypoints from measured `FlightProfile` role, cruise speed, live position, and live heading. Supported roles are fighter, bomber, attacker, and torpedo bomber. Unknown roles and malformed geometry inputs are rejected deterministically.
+
+`PatternRejoinBudget` is not connected to live flight control. It compares measured speed, remaining distance, and an existing timeout and reports ideal reach, required speed, block margin, and ratio. Its isolated Java contract passed for the Ju 87 evidence point: ideal reach `1687.833`, required speed `15.233333 BPS`, margin `316.833` blocks, ratio `0.231096`.
 
 ## Exact-physics qualification evidence
 
@@ -74,6 +77,7 @@ At this checkpoint no new route-validation start commit, status update, check, o
 
 - Parent roadmap: Issue #7 is the only open issue.
 - Draft PR #70 is the only open pull request.
+- PR #73 is merged as `c55b764b833b8fb70a995c3dcc57246cd3fb7e61`.
 - Current request commit: `62607f75c95685dc98ab69f16af041225ab12f14`.
 - Current PR #70 behavior head: `361078f30f1dd348fa274050f89cdf413525d49e`.
 - Request file still points to superseded head `bdce17573f0da5e1b90bf5566115013ec4d2734c` and must not be updated until runner availability is demonstrated.
