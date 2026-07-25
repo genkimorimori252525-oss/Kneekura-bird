@@ -10,11 +10,13 @@ Follow `/AGENTS.md` before changing code. Live GitHub state overrides older note
 
 This mode removes the default duration and remote-run stop limits only. Safety invariants, one immutable request at a time, one behavioral hypothesis per commit, evidence checkpoints, and the 10-file / 800-line patch ceiling remain authoritative. This is resumable interactive work, not background execution.
 
+The first four-run endurance checkpoint focused on truthful Runner Hub state reporting. Runs `30150918047`, `30151020291`, and `30151136845` exposed three distinct Windows PowerShell 5.1 compatibility defects; exact-head Run `30151239678` passed the classifier samples, source/runtime syntax, launcher build, and hidden WinForms startup smoke test. PR #76 was then merged and main deployment Run `30151334839` succeeded.
+
 ## Current production baseline
 
 Production owned-route guidance remains below player-control, emergency, terrain, collision, and combat authority. No weapon, timeout, waypoint-radius, landing-geometry, or minimum-separation rule has been relaxed.
 
-Merged route milestones include:
+Merged route and tooling milestones include:
 
 - PR #53: live owned-route guidance integrated into the single final aircraft-input path;
 - PR #58: G4M metadata recovery and `torpedo_bomber` common-flight admission;
@@ -39,9 +41,9 @@ Merged route milestones include:
 - Request file: `.github/local-route-validation-request.txt`.
 - Status file: `.github/local-route-validation-status.json`.
 
-PR #76 corrected an operational ambiguity: a live `Runner.Listener.exe` process alone no longer displays as proof of GitHub job readiness. The Hub now classifies log-backed states such as starting, connected-starting, listening, running-job, post-job confirmation, and reconnecting. Qualification acceptance still requires a new matching `run_id` and `status: in_progress` in the repository status file.
+PR #76 corrected the old process-only `接続中` ambiguity. The Hub now distinguishes stopped, starting, connected-starting, GitHub listening, GitHub job execution, post-job confirmation, and reconnecting from the listener process plus Hub/Actions Runner logs. Qualification acceptance still requires a new matching `run_id` and `status: in_progress` in the repository status file.
 
-PR #76 exact head `4326c0d8aeaaa1f979a8aedad67104cc87df6810` passed Windows Run `30151239678`. The successful job completed PowerShell 5.1 syntax validation, deterministic classifier samples, runtime injection, generated-script syntax validation, launcher compilation, hidden WinForms startup smoke testing, and portable artifact upload. No aircraft behavior, route request, timeout, geometry, landing, combat, weapon, terrain, collision, player-control, or acceptance rule changed.
+PR #76 exact head `4326c0d8aeaaa1f979a8aedad67104cc87df6810` passed Windows Run `30151239678`. Main deployment Run `30151334839` then installed or staged the updated desktop executable from merge `9dce7f08fee66255b7979d986f2b713c00b6c5b5`.
 
 ## Exact-physics route qualification evidence
 
@@ -57,27 +59,35 @@ Fully qualified with terminal `PARKED`:
 - Ju 87 — Run `30147903349`;
 - SBD — Run `30148395384`;
 - D4Y — Run `30148766789`;
-- Yak-3 — Run `30149217195`.
+- Yak-3 — Run `30149217195`;
+- Bf 109 — Run `30151410943`.
 
-Current coverage is 11 of 24 base aircraft. All four attackers and all three turn fighters have exact-physics generic-route evidence.
+Current coverage is 12 of 24 base aircraft. All four attackers, all three turn fighters, and Bf 109 plus P-51D from the energy-fighter group have exact-physics generic-route evidence.
 
 Each qualification requires ordered waypoint progression `3,2,1,0`, release to the ordinary mission, return, landing, braking, final `PARKED`, summary 1/1, Gradle status 0, and no crash report.
 
-## Current live request
+## Bf 109 energy-fighter qualification
 
-The current request remains:
+The original Bf 109 request produced no start record even while the same runner completed four Hub PR runs and one main deployment. After that absence was recorded on Issue #7, a single justified recovery request commit `e2cc3cec67533d045c0e7fb72e9657ab5ce76d26` reused immutable behavior head `bc790bca60267a7339103c6ed5d29b95eae3ceac`.
 
-- request commit: `bb9665eb6b0bc0c4e22a777127c1013335de9aec`;
-- immutable behavior ref: `bc790bca60267a7339103c6ed5d29b95eae3ceac`;
-- aircraft: `warfare_wings:bf109`.
+Windows Run `30151410943` passed without behavior changes:
 
-At this checkpoint `.github/local-route-validation-status.json` still records completed Yak-3 Run `30149217195`. There is no repository-side Bf 109 start record yet. Do not rewrite, duplicate, or no-op-trigger the Bf 109 request while this remains true.
+- ordered route remaining `3,2,1,0` at server ticks `678,724,777,803`;
+- route completion at `803` and ordinary `CRUISE_OUTBOUND -> TURN_LEFT` at `879`;
+- `RETURN_TO_PATTERN` at `1769`, commanding measured `34.607300034367945 BPS` from phase tick 1;
+- `DOWNWIND` at `2918` after about `1664.23` horizontal / `1664.67` three-dimensional blocks over `1149` server ticks;
+- `BASE` at `3034`, `FINAL` at `3118`, and `FLARE` at `3275`;
+- bounded native flare extensions at `3496` and `3717`, at about `10.50` and `0.081` AGL, followed by normal ground contact;
+- `TOUCHDOWN` at `3722`, `BRAKE` at `3732`, and `PARKED` at `3781`;
+- final speed `0.0`, final reason `complete_stop_stable_for_40_ticks`;
+- verifier passed with `3776` frames, Gradle status `0`, summary `1/1`, and zero crash reports.
+
+No timeout, route geometry, waypoint radius, landing-pattern geometry, terrain, collision, stall, combat, weapon, player-control, or separation threshold changed.
 
 ## Remaining base-aircraft route qualifications
 
 Energy fighters, in current execution order:
 
-- `warfare_wings:bf109` — already requested, awaiting matching start record;
 - `warfare_wings:f4u`;
 - `warfare_wings:f6f`;
 - `warfare_wings:fw190`;
@@ -94,12 +104,19 @@ Bombers:
 - `warfare_wings:g10n2`;
 - `warfare_wings:he111`.
 
+Preflight and comparison evidence is preserved in:
+
+- `docs/validation/2026-07-25/energy-fighter-route-preflight.md`;
+- `docs/validation/2026-07-25/bomber-route-preflight.md`;
+- `docs/validation/2026-07-25/route-qualification-signatures.md`.
+
 ## Repository state
 
 - Parent roadmap: Issue #7 is the only open issue.
 - PR #76 is merged as `9dce7f08fee66255b7979d986f2b713c00b6c5b5`.
 - No behavior pull request is currently open.
-- Latest completed route status remains Yak-3 Run `30149217195`.
+- Latest completed route status is Bf 109 Run `30151410943`.
+- Diagnostic artifact: `ww-local-route-30151410943`.
 - `ジョリー長航続モード` remains active.
 
 ## Preserved invariants
@@ -113,8 +130,7 @@ Bombers:
 
 ## Next exact action
 
-1. Read `.github/local-route-validation-status.json`, the request file, and recent commits.
-2. If no matching Bf 109 `in_progress` or completed Run ID exists, do not alter or retrigger the request.
-3. Once a matching fresh Bf 109 Run ID appears, follow only that run through build, exact-physics route, return, landing, diagnostics, and finish persistence.
-4. On success, record artifact-backed evidence and continue serially with `warfare_wings:f4u` from the then-current `main`.
-5. On failure, fetch logs and artifact once, identify the first meaningful acceptance failure, and create one focused Draft PR only when a code change is necessary. Do not weaken timeouts, geometry, radii, firing gates, or safety thresholds.
+1. Qualify `warfare_wings:f4u` on the then-current `main` using scenario `route`, without behavior changes.
+2. Require build success, deterministic contracts, route `3,2,1,0`, ordinary mission release, return, landing, final `PARKED`, summary 1/1, Gradle status 0, and no crash report.
+3. On success, record artifact-backed evidence and continue serially with `warfare_wings:f6f` without another approval pause.
+4. On failure, fetch logs and artifact once, identify the first meaningful acceptance failure, and create one focused Draft PR only when a code change is necessary. Do not weaken timeouts, geometry, radii, firing gates, or safety thresholds.
