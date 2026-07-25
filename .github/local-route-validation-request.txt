@@ -1,3 +1,3 @@
-# Bf 109 recovery qualification after original request produced no start record
-ref=bc790bca60267a7339103c6ed5d29b95eae3ceac
-aircraft=warfare_wings:bf109
+# F4U generic energy-fighter route qualification
+ref=4092d096f17e7aac34e19696b8a63f62f96b6c53
+aircraft=warfare_wings:f4u
