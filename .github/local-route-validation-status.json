@@ -1,12 +1,16 @@
 {
   "run_id": 30149574147,
-  "status": "in_progress",
-  "conclusion": null,
+  "status": "completed",
+  "conclusion": "success",
   "event": "push",
   "branch": "agent/qualify-bf109-route",
   "event_sha": "c4d9e9d023431628e09a4b4c40365d7c746ffccf",
   "requested_ref": "4713bc9f82b0b758f7dbae600fb13e911d1973c1",
+  "requested_sha": "4713bc9f82b0b758f7dbae600fb13e911d1973c1",
   "aircraft": "warfare_wings:bf109",
   "scenario": "route",
-  "updated_at": "2026-07-25T07:38:28.880Z"
+  "build_outcome": "success",
+  "gametest_outcome": "success",
+  "artifact_outcome": "success",
+  "updated_at": "2026-07-25T07:48:47.917Z"
 }
