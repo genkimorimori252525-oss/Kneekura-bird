@@ -70,7 +70,8 @@ Do not use the expensive headless GameTest as the first diagnostic tool for ever
 
 - The repository has a Windows self-hosted runner named `ジョリー`, normally rooted at `C:\actions-runner` and managed on the owner's PC through the desktop application `JollyRunnerHub.exe`.
 - Route validation jobs require the labels `[self-hosted, Windows, X64]` and are defined in `.github/workflows/ww-local-route-validation.yml`.
-- `JollyRunnerHub.exe` showing `Runner: 接続中` proves the local runner process is connected, but GitHub assignment is confirmed only when `.github/local-route-validation-status.json` records a new `run_id`, `status: in_progress`, the expected `event_sha`, requested ref, and aircraft.
+- Current JollyRunnerHub builds classify log-backed states including stopped, starting, connected-starting, GitHub listening, GitHub job execution, post-job confirmation, and reconnecting. A process-only state is not proof of GitHub readiness, and even a Hub `listening` or `running` label is operational display evidence rather than qualification acceptance.
+- GitHub assignment is confirmed only when `.github/local-route-validation-status.json` records a new `run_id`, `status: in_progress`, the expected `event_sha`, requested ref, and aircraft.
 - Before touching a validation request, read `.github/local-route-validation-status.json`, `.github/local-route-validation-request.txt`, recent commits, and the current handoff. Never assume an earlier request is still queued merely because the request file exists.
 - Trigger one route qualification by changing `.github/local-route-validation-request.txt` exactly once to the immutable behavior commit and aircraft under test. Do not create no-op commits, duplicate requests, or edit the request while its run is in progress.
 - The request file format is:
