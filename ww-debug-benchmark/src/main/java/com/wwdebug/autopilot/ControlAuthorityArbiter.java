@@ -2,7 +2,6 @@ package com.wwdebug.autopilot;
 
 import com.wwdebug.benchmark.BenchmarkManager;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.player.Player;
 
 /**
  * Single entry point for aircraft control ownership.
@@ -40,7 +39,7 @@ public final class ControlAuthorityArbiter {
             return Authority.NONE;
         }
 
-        if (aircraft.getControllingPassenger() instanceof Player) {
+        if (MobPilotGate.isPlayerControlled(aircraft)) {
             clearAutomatedControl(aircraft);
             return Authority.PLAYER_CONTROLLED;
         }
