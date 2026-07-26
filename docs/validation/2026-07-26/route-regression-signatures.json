@@ -1,0 +1,283 @@
+{
+  "_comment": "Route qualification signatures for all 24 base aircraft. Exact fields must match; tick counts are compared within tolerance_ticks_percent. See docs/validation/2026-07-26/route-regression-signatures.md.",
+  "recorded_utc": "2026-07-25T22:30:00Z",
+  "behavior_ref": "4092d096f17e7aac34e19696b8a63f62f96b6c53",
+  "exact_match_fields": [
+    "role",
+    "passed",
+    "reason",
+    "final_phase",
+    "last_transition_reason"
+  ],
+  "tolerance_fields": [
+    "elapsed_ticks",
+    "mission_ticks"
+  ],
+  "tolerance_ticks_percent": 15,
+  "signatures": {
+    "warfare_wings:a6m": {
+      "role": "fighter",
+      "doctrine": "turn_fighter",
+      "qualification_run_id": 30106085402,
+      "passed": true,
+      "reason": "completed_full_mission",
+      "final_phase": "PARKED",
+      "last_transition_reason": "complete_stop_stable_for_40_ticks",
+      "elapsed_ticks": 5360,
+      "mission_ticks": 4783
+    },
+    "warfare_wings:b17": {
+      "role": "bomber",
+      "doctrine": "unknown",
+      "qualification_run_id": 30115815404,
+      "passed": true,
+      "reason": "completed_full_mission",
+      "final_phase": "PARKED",
+      "last_transition_reason": "complete_stop_stable_for_40_ticks",
+      "elapsed_ticks": 6636,
+      "mission_ticks": 6343
+    },
+    "warfare_wings:b29": {
+      "role": "bomber",
+      "doctrine": "unknown",
+      "qualification_run_id": 30120521495,
+      "passed": true,
+      "reason": "completed_full_mission",
+      "final_phase": "PARKED",
+      "last_transition_reason": "complete_stop_stable_for_40_ticks",
+      "elapsed_ticks": 6042,
+      "mission_ticks": 5826
+    },
+    "warfare_wings:bf109": {
+      "role": "fighter",
+      "doctrine": "energy_fighter",
+      "qualification_run_id": 30151410943,
+      "passed": true,
+      "reason": "completed_full_mission",
+      "final_phase": "PARKED",
+      "last_transition_reason": "complete_stop_stable_for_40_ticks",
+      "elapsed_ticks": 3776,
+      "mission_ticks": 3612
+    },
+    "warfare_wings:d4y": {
+      "role": "attacker",
+      "doctrine": "unknown",
+      "qualification_run_id": 30148766789,
+      "passed": true,
+      "reason": "completed_full_mission",
+      "final_phase": "PARKED",
+      "last_transition_reason": "complete_stop_stable_for_40_ticks",
+      "elapsed_ticks": 3938,
+      "mission_ticks": 3757
+    },
+    "warfare_wings:f4u": {
+      "role": "fighter",
+      "doctrine": "energy_fighter",
+      "qualification_run_id": 30151812704,
+      "passed": true,
+      "reason": "completed_full_mission",
+      "final_phase": "PARKED",
+      "last_transition_reason": "complete_stop_stable_for_40_ticks",
+      "elapsed_ticks": 3723,
+      "mission_ticks": 3567
+    },
+    "warfare_wings:f6f": {
+      "role": "fighter",
+      "doctrine": "energy_fighter",
+      "qualification_run_id": 30175097134,
+      "passed": true,
+      "reason": "completed_full_mission",
+      "final_phase": "PARKED",
+      "last_transition_reason": "complete_stop_stable_for_40_ticks",
+      "elapsed_ticks": 3838,
+      "mission_ticks": 3667
+    },
+    "warfare_wings:fw190": {
+      "role": "fighter",
+      "doctrine": "energy_fighter",
+      "qualification_run_id": 30177411289,
+      "passed": true,
+      "reason": "completed_full_mission",
+      "final_phase": "PARKED",
+      "last_transition_reason": "complete_stop_stable_for_40_ticks",
+      "elapsed_ticks": 3701,
+      "mission_ticks": 3544
+    },
+    "warfare_wings:g10n1": {
+      "role": "bomber",
+      "doctrine": "unknown",
+      "qualification_run_id": 30176753857,
+      "passed": true,
+      "reason": "completed_full_mission",
+      "final_phase": "PARKED",
+      "last_transition_reason": "complete_stop_stable_for_40_ticks",
+      "elapsed_ticks": 5217,
+      "mission_ticks": 5034
+    },
+    "warfare_wings:g10n2": {
+      "role": "bomber",
+      "doctrine": "unknown",
+      "qualification_run_id": 30176938024,
+      "passed": true,
+      "reason": "completed_full_mission",
+      "final_phase": "PARKED",
+      "last_transition_reason": "complete_stop_stable_for_40_ticks",
+      "elapsed_ticks": 5049,
+      "mission_ticks": 4869
+    },
+    "warfare_wings:g4m": {
+      "role": "torpedo_bomber",
+      "doctrine": "unknown",
+      "qualification_run_id": 30113770224,
+      "passed": true,
+      "reason": "completed_full_mission",
+      "final_phase": "PARKED",
+      "last_transition_reason": "complete_stop_stable_for_40_ticks",
+      "elapsed_ticks": 4956,
+      "mission_ticks": 4684
+    },
+    "warfare_wings:he111": {
+      "role": "bomber",
+      "doctrine": "unknown",
+      "qualification_run_id": 30177119529,
+      "passed": true,
+      "reason": "completed_full_mission",
+      "final_phase": "PARKED",
+      "last_transition_reason": "complete_stop_stable_for_40_ticks",
+      "elapsed_ticks": 4962,
+      "mission_ticks": 4767
+    },
+    "warfare_wings:il2": {
+      "role": "attacker",
+      "doctrine": "unknown",
+      "qualification_run_id": 30115029120,
+      "passed": true,
+      "reason": "completed_full_mission",
+      "final_phase": "PARKED",
+      "last_transition_reason": "complete_stop_stable_for_40_ticks",
+      "elapsed_ticks": 4748,
+      "mission_ticks": 4477
+    },
+    "warfare_wings:ju87": {
+      "role": "attacker",
+      "doctrine": "unknown",
+      "qualification_run_id": 30147903349,
+      "passed": true,
+      "reason": "completed_full_mission",
+      "final_phase": "PARKED",
+      "last_transition_reason": "complete_stop_stable_for_40_ticks",
+      "elapsed_ticks": 5468,
+      "mission_ticks": 5158
+    },
+    "warfare_wings:ki61": {
+      "role": "fighter",
+      "doctrine": "energy_fighter",
+      "qualification_run_id": 30175707465,
+      "passed": true,
+      "reason": "completed_full_mission",
+      "final_phase": "PARKED",
+      "last_transition_reason": "complete_stop_stable_for_40_ticks",
+      "elapsed_ticks": 3848,
+      "mission_ticks": 3678
+    },
+    "warfare_wings:ki84": {
+      "role": "fighter",
+      "doctrine": "energy_fighter",
+      "qualification_run_id": 30175848558,
+      "passed": true,
+      "reason": "completed_full_mission",
+      "final_phase": "PARKED",
+      "last_transition_reason": "complete_stop_stable_for_40_ticks",
+      "elapsed_ticks": 3969,
+      "mission_ticks": 3775
+    },
+    "warfare_wings:mc202": {
+      "role": "fighter",
+      "doctrine": "energy_fighter",
+      "qualification_run_id": 30176031935,
+      "passed": true,
+      "reason": "completed_full_mission",
+      "final_phase": "PARKED",
+      "last_transition_reason": "complete_stop_stable_for_40_ticks",
+      "elapsed_ticks": 4042,
+      "mission_ticks": 3855
+    },
+    "warfare_wings:mig3": {
+      "role": "fighter",
+      "doctrine": "energy_fighter",
+      "qualification_run_id": 30176210630,
+      "passed": true,
+      "reason": "completed_full_mission",
+      "final_phase": "PARKED",
+      "last_transition_reason": "complete_stop_stable_for_40_ticks",
+      "elapsed_ticks": 3927,
+      "mission_ticks": 3757
+    },
+    "warfare_wings:p40e": {
+      "role": "fighter",
+      "doctrine": "energy_fighter",
+      "qualification_run_id": 30176388410,
+      "passed": true,
+      "reason": "completed_full_mission",
+      "final_phase": "PARKED",
+      "last_transition_reason": "complete_stop_stable_for_40_ticks",
+      "elapsed_ticks": 4062,
+      "mission_ticks": 3876
+    },
+    "warfare_wings:p47n": {
+      "role": "fighter",
+      "doctrine": "energy_fighter",
+      "qualification_run_id": 30176568969,
+      "passed": true,
+      "reason": "completed_full_mission",
+      "final_phase": "PARKED",
+      "last_transition_reason": "complete_stop_stable_for_40_ticks",
+      "elapsed_ticks": 3786,
+      "mission_ticks": 3635
+    },
+    "warfare_wings:p51d": {
+      "role": "fighter",
+      "doctrine": "energy_fighter",
+      "qualification_run_id": 30118532513,
+      "passed": true,
+      "reason": "completed_full_mission",
+      "final_phase": "PARKED",
+      "last_transition_reason": "complete_stop_stable_for_40_ticks",
+      "elapsed_ticks": 4078,
+      "mission_ticks": 3921
+    },
+    "warfare_wings:sbd": {
+      "role": "attacker",
+      "doctrine": "unknown",
+      "qualification_run_id": 30148395384,
+      "passed": true,
+      "reason": "completed_full_mission",
+      "final_phase": "PARKED",
+      "last_transition_reason": "complete_stop_stable_for_40_ticks",
+      "elapsed_ticks": 4789,
+      "mission_ticks": 4530
+    },
+    "warfare_wings:spitfire": {
+      "role": "fighter",
+      "doctrine": "turn_fighter",
+      "qualification_run_id": 30120064170,
+      "passed": true,
+      "reason": "completed_full_mission",
+      "final_phase": "PARKED",
+      "last_transition_reason": "complete_stop_stable_for_40_ticks",
+      "elapsed_ticks": 3990,
+      "mission_ticks": 3821
+    },
+    "warfare_wings:yak3": {
+      "role": "fighter",
+      "doctrine": "turn_fighter",
+      "qualification_run_id": 30149217195,
+      "passed": true,
+      "reason": "completed_full_mission",
+      "final_phase": "PARKED",
+      "last_transition_reason": "complete_stop_stable_for_40_ticks",
+      "elapsed_ticks": 3723,
+      "mission_ticks": 3557
+    }
+  }
+}

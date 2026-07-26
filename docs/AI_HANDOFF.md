@@ -1,6 +1,6 @@
 # AI development handoff
 
-Last updated: 2026-07-25 (Asia/Tokyo)
+Last updated: 2026-07-26 (Asia/Tokyo)
 
 Follow `/AGENTS.md` before changing code. Live GitHub state overrides older notes.
 
@@ -10,130 +10,153 @@ Follow `/AGENTS.md` before changing code. Live GitHub state overrides older note
 
 This mode removes the default duration and remote-run stop limits only. Safety invariants, one immutable request at a time, one behavioral hypothesis per commit, evidence checkpoints, and the 10-file / 800-line patch ceiling remain authoritative. This is resumable interactive work, not background execution.
 
-The first four-run endurance checkpoint focused on truthful Runner Hub state reporting. Runs `30150918047`, `30151020291`, and `30151136845` exposed three distinct Windows PowerShell 5.1 compatibility defects; exact-head Run `30151239678` passed the classifier samples, source/runtime syntax, launcher build, and hidden WinForms startup smoke test. PR #76 was then merged and main deployment Run `30151334839` succeeded.
+## Correction to every previous qualification record
 
-## Current production baseline
+Until PR #81 the Gradle build **rewrote its own source on every run**. Six `JavaCompile` `doFirst` actions across `build.gradle`, `settings.gradle` and `coupled-handoff-validation.gradle` patched `ww-debug-benchmark/src/main/java/com/wwdebug/autopilot/EnergyFighterApexYawAdapter.java` before compilation, changing five constants and injecting a 14-constant capture-entry-lag subsystem plus `updateTargetTurnRate` and `turnAwareLeadDirection`:
 
-Production owned-route guidance remains below player-control, emergency, terrain, collision, and combat authority. No weapon, timeout, waypoint-radius, landing-geometry, or minimum-separation rule has been relaxed.
+```
+START_MIN_DISTANCE           82.0 -> 110.0
+START_MIN_AGL                90.0 ->  80.0
+CLIMB_TARGET_PITCH_DEG      -22.0 -> -10.0
+PIVOT_COMPLETE_HEADING_DEG   65.0 ->  80.0
+MAX_PIVOT_TICKS                96 ->   140
+```
 
-Merged route and tooling milestones include:
+**Consequence:** every "qualified at commit X" statement in earlier revisions of this file was inaccurate — the behavior that was tested did not exist at X. The *behavior* evidence remains valid, so re-qualification is not required, but no earlier commit attribution should be trusted as reproducible.
 
-- PR #53: live owned-route guidance integrated into the single final aircraft-input path;
-- PR #58: G4M metadata recovery and `torpedo_bomber` common-flight admission;
-- PR #59: IL-2 attacker representative route proof;
-- PR #60: B-17 level-bomber compact route proof;
-- PR #63: Windows self-hosted generic route workflow;
-- PR #64: profile-driven compact route geometry and arbitrary-aircraft strict evidence;
-- PR #65: route-workflow post-processing hardening;
-- PR #73: disconnected `PatternRejoinBudget` feasibility foundation;
-- PR #70: owned-route clock accounting plus measured pattern-rejoin speed, merged after exact-head Windows validation;
-- PR #76: truthful JollyRunnerHub GitHub-connection state classification, merged as `9dce7f08fee66255b7979d986f2b713c00b6c5b5`.
+PR #81 bakes the applied values into the source and deletes all six transforms. Equivalence is verified rather than asserted: compiling before and after produces byte-identical classes, `md5` of every `build/classes/java/main/**/*.class` is `9372e5c780dc98895d32d82053af2b2c` on both sides, and two consecutive `--rerun-tasks build` runs leave `git status --porcelain` empty.
 
-`MissionRouteClockPolicy` allows owned `CRUISE_OUTBOUND` travel to satisfy the fixed 240-tick sample while the overall mission timeout remains frozen. `PatternRejoinSpeedPolicy` commands at least measured `turnSpeedFloorBps` only during `RETURN_TO_PATTERN`. `PatternRejoinBudget` remains disconnected from live control.
+## Hosted CI is blocked at account level
 
-## Windows self-hosted runner operation
+`WW Debug Benchmark build` and `WW Headless Flight GameTest` were rejected before creating any step, with the check-run annotation:
 
-- Runner name: `ジョリー`.
-- Owner PC runner root: `C:\actions-runner`.
-- Owner-facing manager: desktop `JollyRunnerHub.exe`.
-- Required workflow labels: `[self-hosted, Windows, X64]`.
-- Route workflow: `.github/workflows/ww-local-route-validation.yml`.
-- Request file: `.github/local-route-validation-request.txt`.
-- Status file: `.github/local-route-validation-status.json`.
+> The job was not started because recent account payments have failed or your spending limit needs to be increased.
 
-PR #76 corrected the old process-only `接続中` ambiguity. The Hub now distinguishes stopped, starting, connected-starting, GitHub listening, GitHub job execution, post-job confirmation, and reconnecting from the listener process plus Hub/Actions Runner logs. Qualification acceptance still requires a new matching `run_id` and `status: in_progress` in the repository status file.
+This is neither minutes exhaustion nor a code defect. Per AGENTS.md, behavior changes must not be merged while required checks are unexecuted for this reason. The owner elected to move stage-1 validation onto the self-hosted runner permanently; that migration is the unlock and is on branch `agent/selfhosted-concurrency-safety`.
 
-PR #76 exact head `4326c0d8aeaaa1f979a8aedad67104cc87df6810` passed Windows Run `30151239678`. Main deployment Run `30151334839` then installed or staged the updated desktop executable from merge `9dce7f08fee66255b7979d986f2b713c00b6c5b5`.
+A local Gradle loop works today at zero Actions cost and completes a full build in ~18-25 s:
+
+```
+JAVA_HOME = C:\Program Files\Java\jdk-17
+gradle    = C:\Users\genki\.gradle\wrapper\dists\gradle-8.8-bin\dl7vupf4psengwqhwktix4v1\gradle-8.8\bin\gradle
+cwd       = <worktree>/ww-debug-benchmark
+gradle --no-daemon --console=plain build
+gradle --no-daemon --console=plain prepareFlightGameTestRuntime
+```
+
+There is no Gradle wrapper in this repository; invoke the cached distribution directly. A fresh worktree also needs the two gitignored runtime jars copied into `ww-debug-benchmark/flight-test-mods/`.
+
+**Do not run a local Gradle build while the self-hosted runner is executing a qualification.** Both share `GRADLE_USER_HOME` (`C:\Users\genki\.gradle`) and can corrupt each other's ForgeGradle caches.
+
+## Measured flight profiles are now version controlled
+
+`AutopilotProfileRegistry.locateProfileFile` resolves `<config>/warfare_wings/flight_profiles.json` first, and `prepareFlightGameTestRuntime` stages the tracked fixture into exactly that path. The fixture previously held **fighters only (14 keys)**, and `AutonomousFlightManager:55-65` refuses to open a session without a measured profile.
+
+Seven accepted qualifications (G4M, IL-2, B-17, B-29, Ju 87, SBD, D4Y) therefore depended on profiles that existed only inside expiring CI artifacts. All ten missing profiles were recovered from the originating run artifacts and committed in PR #80 as `validated_flight_profiles-24aircraft.json`; the bomber session measured all five bombers together and the attacker sessions all four attackers, so `g10n1`, `g10n2` and `he111` were recovered as well.
+
+Integrity: each profile appeared in 4-8 independent artifact copies with **0 conflicting value sets** and **0 missing required fields**; role split is **14 fighter / 5 bomber / 4 attacker / 1 torpedo_bomber**. Per-aircraft provenance is in `docs/validation/2026-07-26/measured-profile-provenance.md`.
+
+## Self-hosted runner operation
+
+- Runner name `ジョリー`, id 22, root `C:\actions-runner`, manager `JollyRunnerHub.exe`.
+- Required labels `[self-hosted, Windows, X64]`.
+- Route workflow `.github/workflows/ww-local-route-validation.yml`.
+- Request file `.github/local-route-validation-request.txt`, status file `.github/local-route-validation-status.json`.
+
+### Dispatch without a no-op commit
+
+`ww-local-route-validation.yml` accepts `workflow_dispatch` with `ref` and `aircraft` inputs, restricted to the repository owner. Use it instead of editing the request file; it avoids the no-op commits AGENTS.md prohibits:
+
+```
+gh workflow run ww-local-route-validation.yml --ref main \
+  -f ref=<40-char behavior commit> -f aircraft=warfare_wings:<id>
+```
+
+### Always prove runner liveness before dispatching
+
+Run `30154656783` (F6F) sat **queued 3h49m24s** and was finalised by GitHub with an internal error. Job `89670629423` shows `runner_id: 0`, `runner_name: ""`, `steps: []` and no log archive. `C:\actions-runner\_diag` shows the listener logged BrokerServer socket failures at `09:24:56Z`, last wrote at `09:44:33Z`, and produced **no Worker log after `08:50:47Z`** — the job was assigned at `10:32:57Z` into an already-dead listener.
+
+`timeout-minutes: 110` is an *execution* timeout that arms at "Set up job", so it never applied, and because the only writer of the in-progress record runs on the runner, an undispatched job leaves zero repository trace.
+
+Before every dispatch:
+
+```
+gh api repos/:owner/:repo/actions/runners -q '.runners[] | "\(.name) \(.status) busy=\(.busy)"'
+```
+
+After dispatch, confirm `runner_id != 0` on the job. **A run whose `runner_id` stays 0 is orphaned, not slow.**
+
+### Concurrency was cancelling qualifications
+
+Three physics workflows shared group `ww-local-self-hosted-validation` with `cancel-in-progress: true`, and `deploy-jolly-runner-hub.yml` targeted the same single runner with no group at all while firing on push and pull_request. That is why F4U job `89663345137` is recorded `cancelled` despite 14 green substantive steps with Post steps 26 and 27 stuck in_progress/pending.
+
+Fixed on `agent/selfhosted-concurrency-safety`: physics uses `ww-selfhosted-physics` with `cancel-in-progress: false`; the Hub deploy and both stage-1 workflows have their own groups.
+
+### Transient Forge maven failures
+
+ForgeGradle contacts `maven.minecraftforge.net` while applying its plugin. A dropped TLS handshake fails the build in ~20 s with `SSLHandshakeException` / `SSL peer shut down incorrectly`. Because the build step carries `continue-on-error`, this surfaces only as the terminal "Fail after preserving route diagnostics" step and reads as an aircraft failure. Run `30175598909` (fw190) was lost exactly this way; the next dispatch built fine. A bounded single retry keyed on transient signatures is on the same branch.
 
 ## Exact-physics route qualification evidence
 
-Fully qualified with terminal `PARKED`:
+Qualified with terminal `PARKED`:
 
-- A6M — Run `30106085402`;
-- G4M — Run `30113770224`;
-- IL-2 — Run `30115029120`;
-- B-17 — Run `30115815404`;
-- P-51D — Run `30118532513`;
-- Spitfire — Run `30120064170`;
-- B-29 — Run `30120521495`;
-- Ju 87 — Run `30147903349`;
-- SBD — Run `30148395384`;
-- D4Y — Run `30148766789`;
-- Yak-3 — Run `30149217195`;
-- Bf 109 — Run `30151410943`;
-- F4U — Run `30151812704`.
+- A6M `30106085402`; G4M `30113770224`; IL-2 `30115029120`; B-17 `30115815404`; P-51D `30118532513`; Spitfire `30120064170`; B-29 `30120521495`; Ju 87 `30147903349`; SBD `30148395384`; D4Y `30148766789`; Yak-3 `30149217195`; Bf 109 `30151410943`; F4U `30151812704`; F6F `30175097134`; Ki-61 `30175707465`; Ki-84 `30175848558`; MC.202 `30176031935`; MiG-3 `30176210630`; P-40E `30176388410`; P-47N `30176568969`; G10N1 `30176753857`; G10N2 `30176938024`; He 111 `30177119529`; Fw 190 `30177411289`.
 
-Current coverage is 13 of 24 base aircraft. All four attackers, all three turn fighters, and Bf 109, P-51D, and F4U from the energy-fighter group have exact-physics generic-route evidence.
+**Coverage is 24 of 24.** Role split complete: 14 fighter / 5 bomber / 4 attacker / 1 torpedo_bomber. Fw 190 needed one retry after a transient Forge maven TLS failure (`30175598909`); the identical behaviour ref then qualified it cleanly.
+
+F4U run `30151812704` is recorded `failure` by GitHub because of the concurrency cancellation described above, while its status file records build, gametest and artifact all `success`. Treat it as qualified; the run-level verdict is an artifact of the cancel bug.
 
 Each qualification requires ordered waypoint progression `3,2,1,0`, release to the ordinary mission, return, landing, braking, final `PARKED`, summary 1/1, Gradle status 0, and no crash report.
 
-## Bf 109 energy-fighter qualification
+## Remaining route qualifications
 
-The original Bf 109 request produced no start record even while the same runner completed four Hub PR runs and one main deployment. After that absence was recorded on Issue #7, a single justified recovery request commit `e2cc3cec67533d045c0e7fb72e9657ab5ce76d26` reused immutable behavior head `bc790bca60267a7339103c6ed5d29b95eae3ceac`.
+None. Behavior ref used throughout: `4092d096f17e7aac34e19696b8a63f62f96b6c53`.
 
-Windows Run `30151410943` passed without behavior changes:
+The navigate / return / land half of Issue #7 is complete and reproducible. The role and doctrine half is untouched.
 
-- ordered route remaining `3,2,1,0` at server ticks `678,724,777,803`;
-- route completion at `803` and ordinary `CRUISE_OUTBOUND -> TURN_LEFT` at `879`;
-- `RETURN_TO_PATTERN` at `1769`, commanding measured `34.607300034367945 BPS` from phase tick 1;
-- `DOWNWIND` at `2918` after about `1664.23` horizontal / `1664.67` three-dimensional blocks over `1149` server ticks;
-- `BASE` at `3034`, `FINAL` at `3118`, and `FLARE` at `3275`;
-- bounded native flare extensions at `3496` and `3717`, at about `10.50` and `0.081` AGL, followed by normal ground contact;
-- `TOUCHDOWN` at `3722`, `BRAKE` at `3732`, and `PARKED` at `3781`;
-- final speed `0.0`, final reason `complete_stop_stable_for_40_ticks`;
-- verifier passed with `3776` frames, Gradle status `0`, summary `1/1`, and zero crash reports.
+## Base-aircraft inventory, settled
 
-No timeout, route geometry, waypoint radius, landing-pattern geometry, terrain, collision, stall, combat, weapon, player-control, or separation threshold changed.
+**24 base aircraft** (`data/warfare_wings/aircraft/*.json` excluding `_scheme` files), **90 aircraft EntityTypes** (24 base + 66 livery variants), role split **14 fighter / 5 bomber / 4 attacker / 1 torpedo_bomber**.
 
-## Remaining base-aircraft route qualifications
+The historical "26" is 24 plus `immersive_aircraft:biplane` and `immersive_aircraft:bamboo_hopper`, because `BenchmarkManager.discover()` (`BenchmarkManager.java:160`) iterates the whole `ENTITY_TYPE` registry with no namespace filter. There is no 25th Warfare Wings aircraft; `mig21` exists as an unregistered `.bbmodel` and texture only.
 
-Energy fighters, in current execution order:
+## Known architectural defects, evidence-backed
 
-- `warfare_wings:f6f` (request committed; matching start record not yet observed);
-- `warfare_wings:fw190`;
-- `warfare_wings:ki61`;
-- `warfare_wings:ki84`;
-- `warfare_wings:mc202`;
-- `warfare_wings:mig3`;
-- `warfare_wings:p40e`;
-- `warfare_wings:p47n`.
+1. `ControlAuthorityArbiter` is a **sequencer, not an arbiter**: `ControlAuthorityArbiter.java:48-53` calls four subsystems unconditionally in fixed order and infers the winner afterwards. Its own Javadoc at `:10-13` concedes lower-priority controllers may apply output first. This must be converted before any bomber, attacker or torpedo doctrine is layered on top.
+2. Player exclusion — the top requirement of Issue #7 — is enforced by **13 copy-pasted `instanceof Player` checks across 11 production classes**, with no single gate.
+3. `MissionOrder` is a data shell: `MissionOrder.type()` has **zero behavioral readers**; every payload field is read only by `MissionOrderCodec` for NBT.
+4. Doctrine is behaviorally implemented for **2 of the 6** doctrines Issue #7 requires; `AirCombatDoctrineTuning.resolve` switches only on `turn_fighter` and `energy_fighter`. The 5 bombers plus G4M carry a semantically empty `escort`.
+5. `EnergyFighterReengagementAdapter.java` is **603 lines of dead code** — verified zero references outside its own class declaration and private constructor.
+6. Reruns can produce **false passes**: nothing purges `run-gametest/world|logs|crash-reports` between runs and the Python verifiers select telemetry by newest mtime. A purge step was added to the migrated headless workflow; the route workflow still needs one.
+7. Target priorities 2 and 3 (pilot lost, aircraft destroyed, critical damage) have **no implementation** — there is no health or damage logic anywhere in the autopilot package, although `MissionOrder.AbortCondition` already declares the constants.
 
-Bombers:
+## Open pull requests
 
-- `warfare_wings:g10n1`;
-- `warfare_wings:g10n2`;
-- `warfare_wings:he111`.
+| Branch | PR | Contents |
+| --- | --- | --- |
+| `agent/commit-measured-profiles-all24` | #80 | 24-aircraft measured profile fixture and provenance |
+| `agent/deterministic-build-source` | #81 | bakes applied values, deletes all six source transforms |
+| `agent/selfhosted-concurrency-safety` | — | concurrency groups, stage-1 self-hosted migration, transient-build retry |
 
-Preflight and comparison evidence is preserved in:
+The owner's local branch `agent/p47-local-validation` (505 commits behind main, 33 unpushed commits) was deliberately left untouched; all work happened in worktrees created off `origin/main`.
 
-- `docs/validation/2026-07-25/energy-fighter-route-preflight.md`;
-- `docs/validation/2026-07-25/bomber-route-preflight.md`;
-- `docs/validation/2026-07-25/route-qualification-signatures.md`.
+## Blocked: the CI branch cannot be pushed
 
-## Repository state
+`agent/selfhosted-concurrency-safety` is committed locally but rejected by GitHub:
 
-- Parent roadmap: Issue #7 is the only open issue.
-- No pull request was open at the start of this checkpoint.
-- Latest completed route status is F4U Run `30151812704`, with build, GameTest, and artifact success.
-- F6F request commit is `0c716db4d56a0f349f028adad350c471c5f81545`.
-- F6F request uses immutable behavior ref `4092d096f17e7aac34e19696b8a63f62f96b6c53`.
-- No matching F6F `in_progress` start record was present when this checkpoint was written; do not duplicate or rewrite the request during assignment delay.
-- `ジョリー長航続モード` remains active.
+> refusing to allow an OAuth App to create or update workflow `.github/workflows/deploy-jolly-runner-hub.yml` without `workflow` scope
 
-## Preserved invariants
+The token carries `delete_repo, gist, read:org, repo`. One owner action unblocks it:
 
-- player-controlled aircraft receive no AI input;
-- terrain, collision, combat, and emergency control remain above route guidance;
-- there is one final aircraft-input write;
-- noncombat route orders do not grant weapon authority;
-- fixed-gun, line-of-sight, range, friendly-fire, and minimum 8-block separation rules are unchanged;
-- no return timeout, waypoint radius, landing geometry, or safety threshold was relaxed.
+```
+gh auth refresh -h github.com -s workflow
+```
 
-## Next exact action
+Until that happens stage-1 checks cannot execute, so PRs #80-#83 must stay Draft under the AGENTS.md rule against merging while required checks are unexecutable.
 
-1. Re-read `.github/local-route-validation-status.json`, `.github/local-route-validation-request.txt`, and recent commits.
-2. If a new matching F6F start exists for request commit `0c716db4d56a0f349f028adad350c471c5f81545` and behavior ref `4092d096f17e7aac34e19696b8a63f62f96b6c53`, follow only that Run through build, exact-physics GameTest, verifier, artifact, and finish-status persistence.
-3. Require route `3,2,1,0`, ordinary mission release, return, landing, final `PARKED`, summary 1/1, Gradle status 0, and no crash report.
-4. If no matching start exists, do not retrigger or create a no-op commit; leave the existing request untouched and continue only with disconnected GitHub-side work.
-5. On success, record artifact-backed evidence and continue serially with `warfare_wings:fw190`.
-6. On failure, fetch logs and artifact once, identify the first meaningful acceptance failure, and create one focused Draft PR only when a code change is necessary. Do not weaken timeouts, geometry, radii, firing gates, or safety thresholds.
+## Next exact actions
+
+1. Grant the `workflow` scope, push `agent/selfhosted-concurrency-safety`, and confirm the migrated stage-1 workflow runs on the self-hosted runner.
+3. With stage-1 executable again, take PRs #80, #81 and the CI branch out of Draft, let the self-hosted checks run, and merge in that order.
+4. Delete the dead `EnergyFighterReengagementAdapter`, then extract a single `MobPilotGate` and route every production writer plus both mixin injection points through it, with a GameTest asserting zero AI writes for a player-piloted aircraft.
+5. Convert `ControlAuthorityArbiter` into a real arbiter across five bounded PRs before starting bomber, attacker or torpedo doctrine work.
