@@ -27,8 +27,8 @@ permissions:
   issues: write
 
 concurrency:
-  group: ww-local-self-hosted-validation
-  cancel-in-progress: true
+  group: ww-selfhosted-physics
+  cancel-in-progress: false
 
 jobs:
   validate:

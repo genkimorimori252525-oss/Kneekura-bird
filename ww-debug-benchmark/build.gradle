@@ -18,7 +18,7 @@ java.toolchain.languageVersion = JavaLanguageVersion.of(17)
 def gameTestRunDirectory = project.file('run-gametest')
 def flightTestModsDirectory = project.file('flight-test-mods')
 def validatedFlightProfileFixture = project.file(
-        'src/main/resources/data/wwdebug_benchmark/ai/validated_fighter_profiles-20260720-141003.json')
+        'src/main/resources/data/wwdebug_benchmark/ai/validated_flight_profiles-24aircraft.json')
 def generatedGameTestResources = layout.buildDirectory.dir('generated/gametest-resources')
 
 sourceSets.main.resources.srcDir(generatedGameTestResources)
