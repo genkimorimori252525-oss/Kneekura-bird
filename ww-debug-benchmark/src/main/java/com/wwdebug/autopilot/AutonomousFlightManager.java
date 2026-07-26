@@ -7,7 +7,6 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.Mob;
-import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
 
 import java.lang.reflect.Field;
@@ -40,8 +39,7 @@ public final class AutonomousFlightManager {
             return;
         }
 
-        Entity pilot = aircraft.getControllingPassenger();
-        if (pilot instanceof Player || !(pilot instanceof Mob)) {
+        if (!MobPilotGate.isMobPiloted(aircraft)) {
             stopSession(aircraft, "controlling_passenger_is_not_a_mob");
             return;
         }
@@ -373,8 +371,7 @@ public final class AutonomousFlightManager {
                 stopSession(aircraft, "aircraft_removed_or_server_changed");
                 continue;
             }
-            Entity pilot = aircraft.getControllingPassenger();
-            if (pilot instanceof Player || !(pilot instanceof Mob)) {
+            if (!MobPilotGate.isMobPiloted(aircraft)) {
                 stopSession(aircraft, "mob_pilot_dismounted_or_player_took_control");
             }
         }

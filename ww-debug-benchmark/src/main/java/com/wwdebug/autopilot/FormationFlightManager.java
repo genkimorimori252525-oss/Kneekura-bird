@@ -4,8 +4,6 @@ import com.wwdebug.benchmark.ReflectiveAircraft;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.Mob;
-import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
@@ -48,10 +46,9 @@ public final class FormationFlightManager {
             clear(aircraft.getUUID());
             return;
         }
-        Entity pilot = aircraft.getControllingPassenger();
         Optional<AutonomousFlightManager.SessionStatus> status =
                 AutonomousFlightManager.status(aircraft.getUUID());
-        if (pilot instanceof Player || !(pilot instanceof Mob) || status.isEmpty()) {
+        if (!MobPilotGate.isMobPiloted(aircraft) || status.isEmpty()) {
             clear(aircraft.getUUID());
             return;
         }
