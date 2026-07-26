@@ -1,6 +1,7 @@
 package com.wwdebug.autopilot;
 
 import com.wwdebug.benchmark.BenchmarkManager;
+import com.wwdebug.benchmark.ReflectiveAircraft;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
 
@@ -122,10 +123,18 @@ public final class ControlAuthorityArbiter {
         MutualDogfightMissionHoldAdapter.apply(aircraft);
         FormationFlightManager.applyControl(aircraft);
 
-        Authority combatAuthority = FighterCombatFacade.applyControl(
-                aircraft, AirspaceSafetyProbe.collisionRisk(aircraft));
-        if (combatAuthority != Authority.NONE) {
-            return combatAuthority;
+        boolean collisionRisk = AirspaceSafetyProbe.collisionRisk(aircraft);
+        ControlOutcome combat = FighterCombatFacade.applyControl(aircraft, collisionRisk);
+        if (combat.claimed()) {
+            // A converted layer leaves its write to us; an unconverted one has already performed it.
+            combat.pendingWrite().ifPresent(proposal -> write(aircraft, proposal));
+            return combat.authority();
+        }
+        if (collisionRisk) {
+            // Combat stood down so the avoidance manoeuvre FormationFlightManager wrote earlier in
+            // this tick survives. Reporting it here, rather than inside the facade, keeps the
+            // facade honest about never having flown the aircraft.
+            return Authority.COLLISION_AVOIDANCE;
         }
         if (TerrainAvoidancePlanner.active(aircraft)) {
             return Authority.TERRAIN_AVOIDANCE;
@@ -197,6 +206,19 @@ public final class ControlAuthorityArbiter {
             }
         }
         return Optional.ofNullable(winner);
+    }
+
+    /**
+     * The arbiter's single write.
+     *
+     * <p>Every converted layer's control reaches the aircraft through here and nowhere else. When
+     * the last of the seven writers is converted this becomes the only call to
+     * {@code ReflectiveAircraft.applyControl} on the production path, and the "exactly one write
+     * per aircraft per tick" invariant becomes checkable rather than asserted.</p>
+     */
+    private static void write(Entity aircraft, ControlProposal proposal) {
+        ReflectiveAircraft.applyControl(aircraft, proposal.x(), proposal.y(), proposal.z(),
+                proposal.engineTarget());
     }
 
     private static void clearAutomatedControl(Entity aircraft) {
