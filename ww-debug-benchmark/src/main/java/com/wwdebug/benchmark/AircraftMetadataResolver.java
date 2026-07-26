@@ -3,6 +3,7 @@ package com.wwdebug.benchmark;
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.wwdebug.autopilot.AutopilotDoctrine;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.packs.resources.Resource;
 import net.minecraft.server.packs.resources.ResourceManager;
@@ -43,13 +44,35 @@ public final class AircraftMetadataResolver {
             resolvedRole = category.id();
         }
 
+        // Role recovers from the category above, but doctrine and faction had no such path: the
+        // published 1.1.4 jar ships no ai block in any of its 90 aircraft files, so both arrive
+        // "unknown" and every aircraft outside the hand-authored fighter fixture reached the
+        // autopilot doctrine-less. Consult the shipped classification whenever the runtime value
+        // is not one we can act on, which covers a missing value and a stale label alike.
+        String resolvedFaction = parsed.faction();
+        String resolvedDoctrine = parsed.doctrine();
+        boolean doctrineUsable = AutopilotDoctrine.fromId(resolvedDoctrine).isRecognised();
+        if (!doctrineUsable || isUnknown(resolvedFaction)) {
+            Optional<AircraftClassification.Entry> classified =
+                    AircraftClassification.forBaseEntityId(resources, baseEntityId.toString());
+            if (classified.isPresent()) {
+                AircraftClassification.Entry entry = classified.get();
+                if (!doctrineUsable && entry.doctrine() != null) {
+                    resolvedDoctrine = entry.doctrine();
+                }
+                if (isUnknown(resolvedFaction) && entry.faction() != null) {
+                    resolvedFaction = entry.faction();
+                }
+            }
+        }
+
         return new AircraftMetadata(
                 entityId,
                 parsed.dataId() == null ? exactDataId : parsed.dataId(),
                 baseEntityId.toString(),
                 resolvedRole,
-                parsed.faction(),
-                parsed.doctrine(),
+                resolvedFaction,
+                resolvedDoctrine,
                 category,
                 parsed.properties()
         );

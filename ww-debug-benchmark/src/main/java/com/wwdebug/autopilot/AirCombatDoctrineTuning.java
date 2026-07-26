@@ -7,14 +7,14 @@ import java.util.EnumMap;
  * Emergency terrain and collision responses remain outside these weights and always retain priority.
  */
 final class AirCombatDoctrineTuning {
-    private static final Tuning TURN_FIGHTER = tuning(
+    private static final Tuning TURN_FIGHTER_TUNING = tuning(
             "turn_fighter",
             weights(0.94, 1.16, 1.10, 0.78, 0.70, 0.86, 1.0),
             durations(22, 26, 15, 24, 28, 24, 50),
             durations(6, 6, 13, 15, 15, 9, 20),
             10.0
     );
-    private static final Tuning ENERGY_FIGHTER = tuning(
+    private static final Tuning ENERGY_FIGHTER_TUNING = tuning(
             "energy_fighter",
             // EXTEND enters REPOSITION explicitly after opening the range. Keep that committed setup,
             // but do not let high off-nose REPOSITION or ATTACK_APPROACH utility suppress the turn
@@ -27,7 +27,7 @@ final class AirCombatDoctrineTuning {
             durations(8, 10, 18, 10, 8, 8, 20),
             13.0
     );
-    private static final Tuning BALANCED = tuning(
+    private static final Tuning BALANCED_TUNING = tuning(
             "balanced_fighter",
             weights(1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0),
             durations(24, 20, 12, 28, 34, 30, 50),
@@ -39,13 +39,17 @@ final class AirCombatDoctrineTuning {
     }
 
     static Tuning resolve(String doctrine) {
-        if (doctrine == null) {
-            return BALANCED;
-        }
-        return switch (doctrine.trim().toLowerCase()) {
-            case "turn_fighter" -> TURN_FIGHTER;
-            case "energy_fighter" -> ENERGY_FIGHTER;
-            default -> BALANCED;
+        return resolve(AutopilotDoctrine.fromId(doctrine));
+    }
+
+    static Tuning resolve(AutopilotDoctrine doctrine) {
+        return switch (doctrine) {
+            case TURN_FIGHTER -> TURN_FIGHTER_TUNING;
+            case ENERGY_FIGHTER -> ENERGY_FIGHTER_TUNING;
+            // The non-fighter doctrines now resolve, but their manoeuvre tables are not written
+            // yet. They deliberately fly the balanced set, so making doctrine reach the runtime
+            // changes no aircraft's behaviour on its own — only what the telemetry can tell us.
+            case LEVEL_BOMBER, TORPEDO_ATTACK, ATTACKER, UNKNOWN -> BALANCED_TUNING;
         };
     }
 
