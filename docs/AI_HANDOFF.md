@@ -132,7 +132,15 @@ Numbering follows the earlier revision so closed items stay traceable.
 6. **Reruns can produce false passes.** Partly addressed: the migrated headless workflow purges `run-gametest/world|logs|crash-reports` before each scenario. `ww-local-route-validation.yml` still has no purge step.
 7. **Priorities 2 and 3 have no implementation.** Still open, and now the largest capability gap. There is no health or damage logic anywhere in the autopilot package, though `MissionOrder.AbortCondition` already declares `PILOT_LOST`, `AIRCRAFT_DESTROYED` and `CRITICAL_DAMAGE`.
 8. **`BenchmarkManager.applyControl` has no pilot check of its own.** It writes whenever `CONTROLS` holds an entry and relies entirely on the arbiter's gate above it. Not a live bypass -- the arbiter is its only caller -- but it is the one writer with no independent guard.
-9. **"One final aircraft-input write" is not literally true.** `ReflectiveAircraft.applyControl` has four call sites: `AutonomousFlightManager:104`, `BenchmarkManager:82`, `AirCombatManeuverManager:101` and `AutopilotValidationCheckpoint:147`. The last is GameTest scenario seeding, not per-tick control. The claim holds only in the sense that one writer wins each tick, by overwriting the others.
+9. **"One final aircraft-input write" is not literally true.** `ReflectiveAircraft.applyControl` has **ten** call sites, **seven of them per-tick production writers**. An earlier revision of this file said four; that count came from a truncated search and was wrong.
+
+   Production, in the order the arbiter reaches them: `BenchmarkManager:82`, `AutonomousFlightManager:104`, `FormationFlightManager:122` (collision avoidance) and `:212` (formation slot), then via `FighterCombatFacade` — `EnergyFighterApexYawAdapter:481`, `DefensiveAirCombatManager:77`, `AirCombatManeuverManager:101`.
+
+   Test-only: `AutopilotValidationCheckpoint:147` (scenario seeding), `MutualDogfightOpeningAdapter:72` and `MutualDogfightValidationManager:225` (disposable opponent).
+
+   So the claim holds only in the sense that the last writer of the tick overwrites the others. **Statement order is the priority mechanism** — which is exactly what the conversion has to remove, and why inserting a bomber or damage authority into that sequence is unsafe today.
+
+10. **Collision avoidance is split across two classes that must agree.** `FighterCombatFacade` uses `AirspaceSafetyProbe.collisionRisk` to *suppress* combat, while `FormationFlightManager` decides independently whether to *write* the avoidance manoeuvre. The arbiter reports `COLLISION_AVOIDANCE` from the first while the aircraft is flown by the second. PR #92 gives both one predicate; before it they held duplicate copies of the same five constants.
 
 ## Control ownership is now observable
 
