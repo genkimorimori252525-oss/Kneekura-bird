@@ -1,7 +1,13 @@
 name: WW Debug Benchmark build
 
 on:
+  # Branch pushes are deliberately not built. A PR branch fires both `push` and
+  # `pull_request`, which put two byte-identical builds of the same commit on the single
+  # self-hosted runner -- the second one only delays the next PR in the queue. Restricting
+  # push to main keeps the post-merge signal without paying for it twice per PR.
   push:
+    branches:
+      - main
     paths:
       - 'ww-debug-benchmark/**'
       - '.github/workflows/ww-debug-benchmark.yml'
