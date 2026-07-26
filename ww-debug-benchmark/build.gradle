@@ -18,7 +18,7 @@ java.toolchain.languageVersion = JavaLanguageVersion.of(17)
 def gameTestRunDirectory = project.file('run-gametest')
 def flightTestModsDirectory = project.file('flight-test-mods')
 def validatedFlightProfileFixture = project.file(
-        'src/main/resources/data/wwdebug_benchmark/ai/validated_fighter_profiles-20260720-141003.json')
+        'src/main/resources/data/wwdebug_benchmark/ai/validated_flight_profiles-24aircraft.json')
 def generatedGameTestResources = layout.buildDirectory.dir('generated/gametest-resources')
 
 sourceSets.main.resources.srcDir(generatedGameTestResources)
@@ -236,20 +236,4 @@ tasks.named('jar', Jar).configure {
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
-    doFirst {
-        File source = file('src/main/java/com/wwdebug/autopilot/EnergyFighterApexYawAdapter.java')
-        String text = source.getText('UTF-8').replace('\r\n', '\n')
-        String oldValue = '    private static final int MAX_PIVOT_TICKS = 96;'
-        String newValue = '    private static final int MAX_PIVOT_TICKS = 140;'
-        if (text.contains(newValue)) {
-            logger.lifecycle('Extended PIVOT window already applied in this workspace.')
-            return
-        }
-        int count = text.split(java.util.regex.Pattern.quote(oldValue), -1).length - 1
-        if (count != 1) {
-            throw new GradleException("Refusing PIVOT-window experiment: matches=${count}")
-        }
-        source.setText(text.replace(oldValue, newValue), 'UTF-8')
-        logger.lifecycle('Applied measured PIVOT-window extension from 96 to 140 ticks.')
-    }
 }
