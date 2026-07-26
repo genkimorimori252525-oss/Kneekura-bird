@@ -2,8 +2,6 @@ package com.wwdebug.autopilot;
 
 import com.wwdebug.benchmark.ReflectiveAircraft;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.Mob;
-import net.minecraft.world.entity.player.Player;
 
 import java.lang.reflect.Field;
 import java.util.Map;
@@ -48,8 +46,7 @@ public final class MutualDogfightMissionHoldAdapter {
             return;
         }
 
-        Entity pilot = aircraft.getControllingPassenger();
-        if (pilot instanceof Player || !(pilot instanceof Mob)) {
+        if (!MobPilotGate.isMobPiloted(aircraft)) {
             return;
         }
 
