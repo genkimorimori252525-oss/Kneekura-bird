@@ -116,6 +116,12 @@ Never weaken these merely to make a qualification pass:
 - no ground contact or aircraft collision during the combat window;
 - energy-fighter behavior must not escape indefinitely beyond the useful simulation area.
 
+## Handing over to another session
+
+`docs/CONTINUATION_BRIEF.md` is the operating brief for an agent picking this up cold: the exact
+next steps in order, the conversion invariant that will silently break things if ignored, runner
+discipline, and the traps already hit. Read it after this file and before `docs/AI_HANDOFF.md`.
+
 ## Current project handoff
 
 The detailed, updateable state is in `docs/AI_HANDOFF.md`. Treat old large draft PRs as research history, not automatically as the next coding baseline.
