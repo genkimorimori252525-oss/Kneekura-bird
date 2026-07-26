@@ -15,6 +15,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: ww-selfhosted-hub-deploy
+  cancel-in-progress: false
+
 jobs:
   validate-and-deploy:
     runs-on: [self-hosted, Windows, X64]

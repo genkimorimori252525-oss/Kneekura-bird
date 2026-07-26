@@ -9,32 +9,56 @@ on:
     paths:
       - 'ww-debug-benchmark/**'
       - '.github/workflows/ww-debug-benchmark.yml'
+  workflow_dispatch:
+
+# Stage-1 builds are cheap (~25 s) but share the single self-hosted runner with the
+# physics qualifications. A superseded build of the same ref may be cancelled; a running
+# qualification must never be, so stage 1 uses its own group and never the physics group.
+concurrency:
+  group: ww-selfhosted-stage1-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 45
     defaults:
       run:
+        shell: powershell
         working-directory: ww-debug-benchmark
     steps:
       - uses: actions/checkout@v4
+        with:
+          clean: true
+          persist-credentials: false
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
+
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.8'
+
       - name: Build benchmark mod and run deterministic flight simulation
         id: benchmark-build
         continue-on-error: true
-        run: gradle --no-daemon --console=plain build > build.log 2>&1
+        timeout-minutes: 30
+        run: |
+          cmd /d /s /c "gradle --no-daemon --console=plain build > build.log 2>&1"
+          $status = $LASTEXITCODE
+          if (Test-Path build.log) { Get-Content build.log -Tail 240 }
+          exit $status
+
       - name: Upload benchmark build log
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ww-debug-benchmark-build-log
           path: ww-debug-benchmark/build.log
+          if-no-files-found: warn
+
       - name: Upload deterministic flight simulation report
         if: always()
         uses: actions/upload-artifact@v4
@@ -42,14 +66,17 @@ jobs:
           name: ww-autonomous-flight-simulation
           path: ww-debug-benchmark/build/reports/flight-simulation/report.json
           if-no-files-found: warn
+
       - name: Upload benchmark jar
         if: steps.benchmark-build.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: ww-debug-benchmark
           path: ww-debug-benchmark/build/libs/*.jar
+          if-no-files-found: warn
+
       - name: Fail after preserving diagnostics
         if: steps.benchmark-build.outcome == 'failure'
         run: |
-          tail -n 220 build.log
+          if (Test-Path build.log) { Get-Content build.log -Tail 220 }
           exit 1
