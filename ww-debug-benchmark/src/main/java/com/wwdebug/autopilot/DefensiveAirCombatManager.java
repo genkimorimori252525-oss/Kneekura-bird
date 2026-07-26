@@ -34,12 +34,24 @@ public final class DefensiveAirCombatManager {
     private DefensiveAirCombatManager() {
     }
 
-    public static void applyControl(Entity aircraft) {
+    /**
+     * Decides whether this layer wants the tick, without writing to the aircraft.
+     *
+     * <p>Returns empty whenever the layer declines — the state cleanup, transition logging and
+     * status telemetry all still happen exactly as before, because those are this layer's own
+     * bookkeeping and are not the arbiter's business.</p>
+     *
+     * <p>Nothing above this layer can be active when it bids: terrain avoidance is rejected in the
+     * eligibility guard, and {@code FighterCombatFacade} does not reach this layer while
+     * {@code AirspaceSafetyProbe} reports separation risk. That is what makes converting this layer
+     * ahead of the ones above it safe.</p>
+     */
+    public static Optional<ControlProposal> applyControl(Entity aircraft) {
         if (aircraft.level().isClientSide || !(aircraft.level() instanceof ServerLevel level)
                 || !ReflectiveAircraft.isAirplane(aircraft)
                 || !ReflectiveAircraft.isControllable(aircraft)) {
             clear(aircraft.getUUID());
-            return;
+            return Optional.empty();
         }
         Mob pilot = MobPilotGate.pilotOf(aircraft).orElse(null);
         Optional<AutonomousFlightManager.SessionStatus> status =
@@ -49,19 +61,19 @@ public final class DefensiveAirCombatManager {
                 || aircraft.onGround() || TerrainAvoidancePlanner.active(aircraft)) {
             clearWithLog(level, aircraft, status.map(AutonomousFlightManager.SessionStatus::phase)
                     .orElse(FlightPhase.ABORTED), "defensive_control_not_eligible");
-            return;
+            return Optional.empty();
         }
 
         FlightProfile profile = AutopilotProfileRegistry.resolve(level.getServer(), aircraft).orElse(null);
         if (profile == null) {
             clear(aircraft.getUUID());
-            return;
+            return Optional.empty();
         }
         FlightSnapshot snapshot = FlightSnapshot.capture(aircraft);
         Optional<Threat> threat = findThreat(level, aircraft, pilot, snapshot);
         if (threat.isEmpty()) {
             clearWithLog(level, aircraft, status.get().phase(), "no_active_rear_threat");
-            return;
+            return Optional.empty();
         }
 
         State state = STATES.computeIfAbsent(aircraft.getUUID(), ignored -> new State());
@@ -74,8 +86,6 @@ public final class DefensiveAirCombatManager {
         state.threatAircraftUuid = threat.get().attacker().getUUID();
 
         FlightControlOutput output = controlFor(state, aircraft, snapshot, profile, threat.get());
-        ReflectiveAircraft.applyControl(aircraft, -output.x(), output.y(), output.z(),
-                output.engineTarget());
         AutopilotLogManager.writeControlAdapter(level.getServer(), aircraft, status.get().phase(),
                 description(state, threat.get()), snapshot, baseline(snapshot), output);
         if (state.statusTicks++ % 10 == 0) {
@@ -83,6 +93,8 @@ public final class DefensiveAirCombatManager {
                     "defensive_air_combat_status", description(state, threat.get()),
                     status.get().phase());
         }
+        return Optional.of(ControlProposal.fromGuidance(
+                ControlAuthorityArbiter.Authority.DEFENSIVE_COMBAT, output));
     }
 
     public static boolean active(Entity aircraft) {
