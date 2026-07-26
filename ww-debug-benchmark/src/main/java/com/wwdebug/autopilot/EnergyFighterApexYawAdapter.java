@@ -7,7 +7,6 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
-import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.Map;
@@ -87,12 +86,12 @@ public final class EnergyFighterApexYawAdapter {
             return false;
         }
 
-        Entity pilotEntity = aircraft.getControllingPassenger();
+        Mob pilot = MobPilotGate.pilotOf(aircraft).orElse(null);
         Optional<AutonomousFlightManager.SessionStatus> session =
                 AutonomousFlightManager.status(aircraft.getUUID());
         FlightProfile profile = AutopilotProfileRegistry.resolve(level.getServer(), aircraft)
                 .orElse(null);
-        if (pilotEntity instanceof Player || !(pilotEntity instanceof Mob pilot)
+        if (pilot == null
                 || session.isEmpty() || profile == null || aircraft.onGround()
                 || !eligiblePhase(session.get().phase())
                 || !"energy_fighter".equalsIgnoreCase(profile.doctrine())
