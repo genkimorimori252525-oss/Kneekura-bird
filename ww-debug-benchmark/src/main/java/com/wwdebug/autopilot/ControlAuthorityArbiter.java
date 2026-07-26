@@ -4,7 +4,9 @@ import com.wwdebug.benchmark.BenchmarkManager;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
 
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -28,15 +30,12 @@ public final class ControlAuthorityArbiter {
      * <p>{@link #priority()} is the authoritative ordering; declaration order is unchanged and
      * carries no meaning. Nothing may compare authority with {@code ordinal()}.</p>
      *
-     * <p>Four documented levels have no constant because nothing implements them yet:</p>
+     * <p>Three documented levels still have no constant because nothing implements them:</p>
      * <ul>
      *   <li>level 2, pilot lost or aircraft destroyed;</li>
      *   <li>level 3, critical damage;</li>
      *   <li>level 6, weapon-release safety, currently enforced inside
-     *       {@code CombatWeaponManager} rather than as an authority;</li>
-     *   <li>level 9, formation keeping — {@code FormationFlightManager} writes control, but the
-     *       arbiter reports {@link #BASE_AUTONOMY} while it does, which is a misreport this
-     *       numbering leaves room to fix.</li>
+     *       {@code CombatWeaponManager} rather than as an authority.</li>
      * </ul>
      *
      * <p>The gaps in the numbers are deliberate so those levels can be inserted later without
@@ -45,8 +44,25 @@ public final class ControlAuthorityArbiter {
     public enum Authority {
         /** No layer owns the tick. */
         NONE(0),
+        /**
+         * Below ordinary navigation — the benchmark harness's stored control input.
+         *
+         * <p>{@code BenchmarkManager} writes first of all seven writers, so anything else that
+         * writes this tick overwrites it. Ranking it below {@link #BASE_AUTONOMY} preserves that
+         * outcome once selection replaces write order.</p>
+         */
+        BENCHMARK_CONTROL(5),
         /** Level 10 — ordinary navigation. */
         BASE_AUTONOMY(10),
+        /**
+         * Level 9 — formation station keeping.
+         *
+         * <p>{@code FormationFlightManager} writes after {@code AutonomousFlightManager} and is
+         * overwritten by combat, which places it between the two. Until now the arbiter reported
+         * {@link #BASE_AUTONOMY} while formation was flying the aircraft; that misreport is what
+         * this constant fixes.</p>
+         */
+        FORMATION(20),
         /** Level 8 — role mission. Peer of {@link #ENERGY_FIGHTER_REENGAGEMENT}. */
         OFFENSIVE_COMBAT(40),
         /** Level 8 — role mission. Peer of {@link #OFFENSIVE_COMBAT}. */
@@ -155,6 +171,32 @@ public final class ControlAuthorityArbiter {
                         + ":to_priority=" + authority.priority()
                         + ":escalation=" + authority.outranks(from),
                 phase);
+    }
+
+    /**
+     * Picks the winning bid from a tick's proposals.
+     *
+     * <p>Nothing calls this yet: the seven writers are converted one at a time, and this is the
+     * target they are converted onto. It is kept separate and pure so the selection rule can be
+     * tested against the priority stack without booting a server.</p>
+     *
+     * <p><strong>Ties keep the incumbent.</strong> The only peers today are
+     * {@link Authority#OFFENSIVE_COMBAT} and {@link Authority#ENERGY_FIGHTER_REENGAGEMENT}. They
+     * must not swap ownership on submission order alone — order-dependent ownership is precisely
+     * what this conversion exists to remove. First bid wins; a peer arriving later does not
+     * displace it.</p>
+     */
+    public static Optional<ControlProposal> select(List<ControlProposal> proposals) {
+        if (proposals == null || proposals.isEmpty()) {
+            return Optional.empty();
+        }
+        ControlProposal winner = null;
+        for (ControlProposal proposal : proposals) {
+            if (proposal != null && proposal.outranks(winner)) {
+                winner = proposal;
+            }
+        }
+        return Optional.ofNullable(winner);
     }
 
     private static void clearAutomatedControl(Entity aircraft) {
