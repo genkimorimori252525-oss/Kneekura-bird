@@ -3,8 +3,6 @@ package com.wwdebug.autopilot;
 import com.wwdebug.benchmark.ReflectiveAircraft;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.Mob;
-import net.minecraft.world.entity.player.Player;
 
 import java.util.Map;
 import java.util.Optional;
@@ -25,8 +23,7 @@ public final class CombatAwarenessManager {
             clear(aircraft.getUUID());
             return;
         }
-        Entity pilot = aircraft.getControllingPassenger();
-        if (pilot instanceof Player || !(pilot instanceof Mob)) {
+        if (!MobPilotGate.isMobPiloted(aircraft)) {
             clear(aircraft.getUUID());
             return;
         }

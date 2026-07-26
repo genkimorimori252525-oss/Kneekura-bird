@@ -50,8 +50,7 @@ public final class CombatWeaponManager {
             clear(aircraft.getUUID());
             return;
         }
-        Entity controlling = aircraft.getControllingPassenger();
-        if (controlling instanceof Player || !(controlling instanceof Mob)
+        if (!MobPilotGate.isMobPiloted(aircraft)
                 || AutonomousFlightManager.status(aircraft.getUUID()).isEmpty()) {
             clear(aircraft.getUUID());
             return;

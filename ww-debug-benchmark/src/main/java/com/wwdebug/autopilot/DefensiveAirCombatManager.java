@@ -6,7 +6,6 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
-import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
@@ -42,10 +41,10 @@ public final class DefensiveAirCombatManager {
             clear(aircraft.getUUID());
             return;
         }
-        Entity pilotEntity = aircraft.getControllingPassenger();
+        Mob pilot = MobPilotGate.pilotOf(aircraft).orElse(null);
         Optional<AutonomousFlightManager.SessionStatus> status =
                 AutonomousFlightManager.status(aircraft.getUUID());
-        if (pilotEntity instanceof Player || !(pilotEntity instanceof Mob pilot)
+        if (pilot == null
                 || status.isEmpty() || !eligiblePhase(status.get().phase())
                 || aircraft.onGround() || TerrainAvoidancePlanner.active(aircraft)) {
             clearWithLog(level, aircraft, status.map(AutonomousFlightManager.SessionStatus::phase)
