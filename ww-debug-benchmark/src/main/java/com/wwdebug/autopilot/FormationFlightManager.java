@@ -26,11 +26,6 @@ public final class FormationFlightManager {
     private static final String GROUP_PREFIX = "wwformation:group:";
     private static final String SLOT_PREFIX = "wwformation:slot:";
     private static final String LEADER_TAG = "wwformation:leader";
-    private static final double SEARCH_HORIZONTAL = 110.0;
-    private static final double SEARCH_VERTICAL = 48.0;
-    private static final double HARD_CURRENT_SEPARATION = 9.0;
-    private static final double HARD_PREDICTED_SEPARATION = 13.0;
-    private static final double PREDICTION_TICKS = 60.0;
     private static final ConcurrentHashMap<UUID, CollisionAvoidanceState> ACTIVE_COLLISION =
             new ConcurrentHashMap<>();
     private static final Set<UUID> ACTIVE_FORMATION = ConcurrentHashMap.newKeySet();
@@ -276,25 +271,19 @@ public final class FormationFlightManager {
     }
 
     private static CollisionThreat collisionThreat(Entity aircraft, Entity other) {
-        Vec3 relativePosition = other.position().subtract(aircraft.position());
-        Vec3 relativeVelocity = other.getDeltaMovement().subtract(aircraft.getDeltaMovement());
-        double velocitySquared = relativeVelocity.lengthSqr();
-        double closestTicks = velocitySquared < 1.0e-8 ? 0.0
-                : Mth.clamp(-relativePosition.dot(relativeVelocity) / velocitySquared,
-                0.0, PREDICTION_TICKS);
-        double current = relativePosition.length();
-        double predicted = relativePosition.add(relativeVelocity.scale(closestTicks)).length();
-        boolean dangerous = current < HARD_CURRENT_SEPARATION
-                || (closestTicks > 0.0 && predicted < HARD_PREDICTED_SEPARATION);
-        double urgency = Math.min(current, predicted) + closestTicks * 0.03;
-        return new CollisionThreat(other, current, predicted, closestTicks, dangerous, urgency);
+        // The geometry and the danger floors come from AirspaceSafetyProbe so that the layer which
+        // WRITES avoidance and the predicate the arbiter REPORTS avoidance from cannot disagree.
+        // Urgency stays here: it only orders competing threats and has no safety meaning.
+        AirspaceSafetyProbe.Prediction prediction = AirspaceSafetyProbe.predict(aircraft, other);
+        double urgency = Math.min(prediction.currentSeparation(), prediction.predictedSeparation())
+                + prediction.closestTicks() * 0.03;
+        return new CollisionThreat(other, prediction.currentSeparation(),
+                prediction.predictedSeparation(), prediction.closestTicks(),
+                prediction.dangerous(), urgency);
     }
 
     private static List<Entity> nearbyAircraft(ServerLevel level, Entity aircraft) {
-        AABB area = aircraft.getBoundingBox().inflate(
-                SEARCH_HORIZONTAL, SEARCH_VERTICAL, SEARCH_HORIZONTAL);
-        return level.getEntities(aircraft, area,
-                other -> !other.isRemoved() && ReflectiveAircraft.isAirplane(other));
+        return AirspaceSafetyProbe.nearbyAircraft(level, aircraft);
     }
 
     private static List<Entity> formationMembers(ServerLevel level, Entity aircraft, String group) {
