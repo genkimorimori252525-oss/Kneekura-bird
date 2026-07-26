@@ -1,0 +1,59 @@
+{
+  "_comment": [
+    "Doctrine and faction classification for every base aircraft, used when the runtime",
+    "aircraft data carries no recognisable ai block.",
+    "",
+    "The published warfare_wings 1.1.4 jar ships 90 aircraft JSON files and NONE of them",
+    "contains an 'ai' object: AircraftMetadataResolver therefore falls through to",
+    "string(ai, 'doctrine', 'unknown') and every aircraft outside the hand-authored fighter",
+    "fixture is born doctrine='unknown'. Role already survives that gap because resolve()",
+    "backfills it from BenchmarkCategory; doctrine had no equivalent path until this file.",
+    "",
+    "This table is not invented. It is the mod author's own ai block, read from",
+    "data/warfare_wings/aircraft/*.json in this repository, where it has been present since",
+    "the initial import. Two corrections were applied on top of it, recorded below."
+  ],
+  "_provenance": {
+    "source": "data/warfare_wings/aircraft/<id>.json -> ai { role, faction, doctrine }",
+    "source_first_seen": "6880aea6 Initial import",
+    "runtime_gap": "warfare_wings-1.1.4-1.20.1-forge.jar: 90 aircraft JSON entries, 0 with an ai block",
+    "corrections": [
+      "The authored data marks all six heavy aircraft 'escort'. Escort is a mission type, not a",
+      "combat doctrine for the aircraft being escorted, and it collapses two distinct behaviours",
+      "into one label. B-17, B-29, G10N1, G10N2 and He 111 are reclassified 'level_bomber';",
+      "G4M, whose authored role is already torpedo_bomber, is reclassified 'torpedo_attack'.",
+      "The 14 fighters and 4 attackers are used exactly as authored."
+    ]
+  },
+  "_contract": [
+    "Every base aircraft id below must resolve to a doctrine that AutopilotDoctrine recognises.",
+    "AircraftClassificationGameTests enforces that, and also pins the 3 turn_fighter / 11",
+    "energy_fighter split so a future edit cannot silently downgrade the qualified fighters."
+  ],
+  "aircraft": {
+    "warfare_wings:a6m": { "faction": "ijn", "doctrine": "turn_fighter" },
+    "warfare_wings:b17": { "faction": "usaaf", "doctrine": "level_bomber" },
+    "warfare_wings:b29": { "faction": "usaaf", "doctrine": "level_bomber" },
+    "warfare_wings:bf109": { "faction": "luftwaffe", "doctrine": "energy_fighter" },
+    "warfare_wings:d4y": { "faction": "ijn", "doctrine": "attacker" },
+    "warfare_wings:f4u": { "faction": "usn", "doctrine": "energy_fighter" },
+    "warfare_wings:f6f": { "faction": "usn", "doctrine": "energy_fighter" },
+    "warfare_wings:fw190": { "faction": "luftwaffe", "doctrine": "energy_fighter" },
+    "warfare_wings:g10n1": { "faction": "ijn", "doctrine": "level_bomber" },
+    "warfare_wings:g10n2": { "faction": "ijn", "doctrine": "level_bomber" },
+    "warfare_wings:g4m": { "faction": "ijn", "doctrine": "torpedo_attack" },
+    "warfare_wings:he111": { "faction": "luftwaffe", "doctrine": "level_bomber" },
+    "warfare_wings:il2": { "faction": "vvs", "doctrine": "attacker" },
+    "warfare_wings:ju87": { "faction": "luftwaffe", "doctrine": "attacker" },
+    "warfare_wings:ki61": { "faction": "ija", "doctrine": "energy_fighter" },
+    "warfare_wings:ki84": { "faction": "ija", "doctrine": "energy_fighter" },
+    "warfare_wings:mc202": { "faction": "regia_aeronautica", "doctrine": "energy_fighter" },
+    "warfare_wings:mig3": { "faction": "vvs", "doctrine": "energy_fighter" },
+    "warfare_wings:p40e": { "faction": "usaaf", "doctrine": "energy_fighter" },
+    "warfare_wings:p47n": { "faction": "usaaf", "doctrine": "energy_fighter" },
+    "warfare_wings:p51d": { "faction": "usaaf", "doctrine": "energy_fighter" },
+    "warfare_wings:sbd": { "faction": "usn", "doctrine": "attacker" },
+    "warfare_wings:spitfire": { "faction": "raf", "doctrine": "turn_fighter" },
+    "warfare_wings:yak3": { "faction": "vvs", "doctrine": "turn_fighter" }
+  }
+}
