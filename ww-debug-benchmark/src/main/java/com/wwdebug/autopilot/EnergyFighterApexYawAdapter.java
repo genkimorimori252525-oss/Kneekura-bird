@@ -24,30 +24,45 @@ import java.util.concurrent.ConcurrentHashMap;
  * gates remain authoritative.</p>
  */
 public final class EnergyFighterApexYawAdapter {
-    private static final double START_MIN_DISTANCE = 82.0;
+    private static final double START_MIN_DISTANCE = 110.0;
     private static final double START_MAX_DISTANCE = 155.0;
     private static final double START_MAX_CLOSURE_BPS = 4.0;
     private static final double START_MIN_RAW_ANGLE_DEG = 70.0;
     private static final double START_MIN_ENERGY_RATIO = 1.0;
-    private static final double START_MIN_AGL = 90.0;
+    private static final double START_MIN_AGL = 80.0;
 
-    private static final double CLIMB_TARGET_PITCH_DEG = -22.0;
+    private static final double CLIMB_TARGET_PITCH_DEG = -10.0;
     private static final double YAW_TRIGGER_PITCH_DEG = -2.0;
     private static final int MIN_CLIMB_TICKS = 8;
     private static final int MAX_CLIMB_TICKS = 54;
 
-    private static final double PIVOT_COMPLETE_HEADING_DEG = 65.0;
+    private static final double PIVOT_COMPLETE_HEADING_DEG = 80.0;
     private static final int MIN_PIVOT_TICKS = 8;
-    private static final int MAX_PIVOT_TICKS = 96;
+    private static final int MAX_PIVOT_TICKS = 140;
     private static final double PIVOT_INPUT_DIVISOR = 22.0;
     private static final double YAW_RATE_DAMPING = 0.05;
 
     private static final double LEAD_TICKS = 8.0;
+    private static final double CAPTURE_PROJECTILE_SPEED_BPS = 94.0;
+    private static final double CAPTURE_MAX_LEAD_TICKS = 65.0;
+    private static final double CAPTURE_TARGET_TURN_RATE_SMOOTHING = 0.25;
+    private static final double CAPTURE_MAX_TARGET_TURN_RATE_DEG_PER_TICK = 2.5;
     private static final double CAPTURE_PITCH_DIVISOR = 10.0;
     private static final double CAPTURE_PITCH_RATE_DAMPING = 0.10;
     private static final int MAX_CAPTURE_TICKS = 190;
     private static final int MAX_TOTAL_TICKS = 390;
     private static final int COOLDOWN_TICKS = 120;
+
+    private static final double CAPTURE_ENTRY_LAG_MAX_HORIZONTAL_ERROR_DEG = 70.0;
+    private static final double CAPTURE_ENTRY_LAG_MIN_DISTANCE = 80.0;
+    private static final double CAPTURE_ENTRY_LAG_MAX_DISTANCE = 140.0;
+    private static final double CAPTURE_ENTRY_LAG_MIN_CLOSURE_BPS = 8.0;
+    private static final double CAPTURE_ENTRY_LAG_RELEASE_CLOSURE_BPS = 4.0;
+    private static final double CAPTURE_ENTRY_LAG_RELEASE_HORIZONTAL_ERROR_DEG = 55.0;
+    private static final double CAPTURE_ENTRY_LAG_CLIMB_PITCH_DEG = -22.0;
+    private static final double CAPTURE_ENTRY_LAG_TURN_INPUT = 0.94;
+    private static final int CAPTURE_ENTRY_LAG_MIN_TICKS = 10;
+    private static final int CAPTURE_ENTRY_LAG_MAX_TICKS = 60;
 
     private static final double ATTACK_MAX_RAW_ANGLE_DEG = 45.0;
     private static final double ATTACK_MAX_LEAD_ANGLE_DEG = 12.0;
@@ -95,6 +110,7 @@ public final class EnergyFighterApexYawAdapter {
         }
 
         FlightSnapshot snapshot = FlightSnapshot.capture(aircraft);
+        FlightSnapshot targetSnapshot = FlightSnapshot.capture(target.aircraft());
         Vec3 targetDirection = directionTo(aircraft, target.aircraft(), snapshot.forward());
         Vec3 leadDirection = leadDirection(aircraft, target.aircraft(), targetDirection, LEAD_TICKS);
         double rawAngle = angleDegrees(snapshot.forward(), targetDirection);
@@ -119,7 +135,8 @@ public final class EnergyFighterApexYawAdapter {
             state = new State(target.pilotUuid(),
                     ReflectiveArmament.estimatedShotsRemaining(aircraft), turnSign,
                     snapshot.position().y, snapshot.altitudeAboveGround(),
-                    snapshot.yawDeg(), snapshot.pitchDeg());
+                    snapshot.yawDeg(), snapshot.pitchDeg(),
+                    targetSnapshot.movementYawDeg());
             STATES.put(aircraft.getUUID(), state);
             DefensiveAirCombatManager.clear(aircraft.getUUID());
             AirCombatManeuverManager.clear(aircraft.getUUID());
@@ -146,6 +163,18 @@ public final class EnergyFighterApexYawAdapter {
         }
 
         DefensiveAirCombatManager.clear(aircraft.getUUID());
+
+        double targetTurnRateDegPerTick = updateTargetTurnRate(state, targetSnapshot);
+        state.captureLeadTicks = LEAD_TICKS;
+        if (state.stage == Stage.CAPTURE) {
+            state.captureLeadTicks = Mth.clamp(
+                    distance / CAPTURE_PROJECTILE_SPEED_BPS * 20.0,
+                    LEAD_TICKS, CAPTURE_MAX_LEAD_TICKS);
+            leadDirection = turnAwareLeadDirection(aircraft, target.aircraft(),
+                    targetSnapshot, targetDirection, state.captureLeadTicks,
+                    targetTurnRateDegPerTick);
+            leadAngle = angleDegrees(snapshot.forward(), leadDirection);
+        }
 
         double pitchRateDegPerTick = snapshot.pitchDeg() - state.lastPitchDeg;
         double yawRateDegPerTick = Mth.wrapDegrees(
@@ -194,6 +223,53 @@ public final class EnergyFighterApexYawAdapter {
         }
 
         if (state.stage == Stage.CAPTURE) {
+            double absoluteHorizontalError = Math.abs(horizontalLeadError);
+            state.bestCaptureHorizontalError = Math.min(
+                    state.bestCaptureHorizontalError, absoluteHorizontalError);
+            if (!state.captureEntryLagUsed && state.stageTicks == 0) {
+                boolean entryNeedsClosureGuard = target.lineOfSight()
+                        && absoluteHorizontalError
+                        <= CAPTURE_ENTRY_LAG_MAX_HORIZONTAL_ERROR_DEG
+                        && distance >= CAPTURE_ENTRY_LAG_MIN_DISTANCE
+                        && distance <= CAPTURE_ENTRY_LAG_MAX_DISTANCE
+                        && closure >= CAPTURE_ENTRY_LAG_MIN_CLOSURE_BPS;
+                state.captureEntryLagUsed = true;
+                if (entryNeedsClosureGuard) {
+                    state.captureEntryLagActive = true;
+                    state.captureEntryLagTicks = 0;
+                    state.captureEntryLagStartClosure = closure;
+                    state.captureEntryLagTurnInputSign = Math.copySign(
+                            1.0, horizontalLeadError);
+                    writeEvent(level, aircraft, session.get().phase(),
+                            "energy_coupled_capture_entry_lag_start",
+                            state, snapshot, distance, rawAngle, leadAngle, closure,
+                            threat.aimAngleDeg(),
+                            "preserve_pivot_turn_before_closure_accelerates");
+                }
+            } else if (state.captureEntryLagActive) {
+                state.captureEntryLagTicks++;
+                boolean geometryRecovered = state.captureEntryLagTicks
+                        >= CAPTURE_ENTRY_LAG_MIN_TICKS
+                        && closure <= CAPTURE_ENTRY_LAG_RELEASE_CLOSURE_BPS
+                        && absoluteHorizontalError
+                        <= CAPTURE_ENTRY_LAG_RELEASE_HORIZONTAL_ERROR_DEG;
+                if (geometryRecovered) {
+                    state.captureEntryLagActive = false;
+                    writeEvent(level, aircraft, session.get().phase(),
+                            "energy_coupled_capture_entry_lag_end",
+                            state, snapshot, distance, rawAngle, leadAngle, closure,
+                            threat.aimAngleDeg(), "closure_and_bearing_recovered");
+                } else if (state.captureEntryLagTicks
+                        >= CAPTURE_ENTRY_LAG_MAX_TICKS) {
+                    state.captureEntryLagActive = false;
+                    writeEvent(level, aircraft, session.get().phase(),
+                            "energy_coupled_capture_entry_lag_end",
+                            state, snapshot, distance, rawAngle, leadAngle, closure,
+                            threat.aimAngleDeg(),
+                            "lag_budget_exhausted_resume_vector_capture");
+                }
+            }
+
             boolean attackSector = target.lineOfSight()
                     && rawAngle <= ATTACK_MAX_RAW_ANGLE_DEG
                     && leadAngle <= ATTACK_MAX_LEAD_ANGLE_DEG
@@ -313,25 +389,37 @@ public final class EnergyFighterApexYawAdapter {
                                      double yawRate, double pitchRate, State state,
                                      double rawAngle, double leadAngle, double closure,
                                      FlightPhase phase) {
-        float x = (float) Mth.clamp(
+        float x = state.captureEntryLagActive
+                ? (float) (state.captureEntryLagTurnInputSign
+                * CAPTURE_ENTRY_LAG_TURN_INPUT)
+                : (float) Mth.clamp(
                 headingError / 18.0 - YAW_RATE_DAMPING * yawRate,
                 -0.94, 0.94);
         double desiredPitch = desiredPitchDegrees(leadDirection);
-        float z = (float) Mth.clamp(
+        double capturePitchCommand =
                 (desiredPitch - snapshot.pitchDeg()) / CAPTURE_PITCH_DIVISOR
-                        - CAPTURE_PITCH_RATE_DAMPING * pitchRate,
-                -0.88, 0.88);
+                        - CAPTURE_PITCH_RATE_DAMPING * pitchRate;
+        double maximumNoseDownInput =
+                (rawAngle > ATTACK_MAX_RAW_ANGLE_DEG
+                        || leadAngle > ATTACK_MAX_LEAD_ANGLE_DEG
+                        || closure > ATTACK_MAX_CLOSURE_BPS) ? 0.35 : 0.88;
+        float z = (float) Mth.clamp(
+                capturePitchCommand, -0.88, maximumNoseDownInput);
         double targetAltitude = target.getBoundingBox().getCenter().y + 4.0;
         double altitudeError = targetAltitude - snapshot.position().y;
         double targetSpeed = Math.max(profile.cruiseSpeedBps(),
                 target.getDeltaMovement().horizontalDistance() * 20.0 + 3.0);
-        float engine = snapshot.speedBps() < targetSpeed - 1.0 ? 1.0f
+        float engine = state.captureEntryLagActive ? 1.0f
+                : snapshot.speedBps() < targetSpeed - 1.0 ? 1.0f
                 : snapshot.speedBps() > targetSpeed + 3.0 ? 0.30f : 0.65f;
         FlightControlOutput output = new FlightControlOutput(x, 0.0f, z, engine,
                 leadDirection, targetAltitude, targetSpeed,
                 headingError, altitudeError, targetSpeed - snapshot.speedBps(),
                 snapshot.speedBps() < profile.stallGuardSpeedBps(), false,
-                "energy_coupled_capture", "damped_vector_capture_after_climbing_turn");
+                "energy_coupled_capture",
+                state.captureEntryLagActive
+                        ? "preserve_pivot_turn_for_lag_capture"
+                        : "damped_vector_capture_after_climbing_turn");
         applyAndLog(level, aircraft, snapshot, output, state,
                 rawAngle, leadAngle, closure, phase);
     }
@@ -411,7 +499,19 @@ public final class EnergyFighterApexYawAdapter {
                 + ":roll=" + round(snapshot.rollDeg())
                 + ":agl=" + round(snapshot.altitudeAboveGround())
                 + ":turn_sign=" + state.turnSign
-                + ":max_yaw_change=" + round(state.maxYawChangeDeg);
+                + ":max_yaw_change=" + round(state.maxYawChangeDeg)
+                + ":best_capture_horizontal_error="
+                + round(state.bestCaptureHorizontalError)
+                + ":capture_entry_lag_used=" + state.captureEntryLagUsed
+                + ":capture_entry_lag_active=" + state.captureEntryLagActive
+                + ":capture_entry_lag_ticks=" + state.captureEntryLagTicks
+                + ":capture_entry_lag_start_closure="
+                + round(state.captureEntryLagStartClosure)
+                + ":capture_entry_lag_turn_input_sign="
+                + state.captureEntryLagTurnInputSign
+                + ":target_turn_rate_deg_per_tick="
+                + round(state.smoothedTargetTurnRateDegPerTick)
+                + ":capture_lead_ticks=" + round(state.captureLeadTicks);
     }
 
     private static void writeEvent(ServerLevel level, Entity aircraft, FlightPhase phase,
@@ -484,6 +584,60 @@ public final class EnergyFighterApexYawAdapter {
         Vec3 leadPoint = target.getBoundingBox().getCenter()
                 .add(target.getDeltaMovement().scale(leadTicks));
         return safeNormalize(leadPoint.subtract(aircraft.getBoundingBox().getCenter()), fallback);
+    }
+
+    private static double updateTargetTurnRate(State state,
+                                               FlightSnapshot targetSnapshot) {
+        double movementYaw = targetSnapshot.movementYawDeg();
+        double measured = Mth.wrapDegrees(
+                (float) (movementYaw - state.lastTargetMovementYawDeg));
+        state.lastTargetMovementYawDeg = movementYaw;
+        measured = Mth.clamp(measured,
+                -CAPTURE_MAX_TARGET_TURN_RATE_DEG_PER_TICK,
+                CAPTURE_MAX_TARGET_TURN_RATE_DEG_PER_TICK);
+        if (state.targetTurnRateSamples == 0) {
+            state.smoothedTargetTurnRateDegPerTick = measured;
+        } else {
+            state.smoothedTargetTurnRateDegPerTick +=
+                    CAPTURE_TARGET_TURN_RATE_SMOOTHING
+                            * (measured - state.smoothedTargetTurnRateDegPerTick);
+        }
+        state.targetTurnRateSamples++;
+        return state.smoothedTargetTurnRateDegPerTick;
+    }
+
+    private static Vec3 turnAwareLeadDirection(Entity aircraft, Entity target,
+                                               FlightSnapshot targetSnapshot,
+                                               Vec3 fallback, double leadTicks,
+                                               double targetTurnRateDegPerTick) {
+        Vec3 velocity = target.getDeltaMovement();
+        double horizontalSpeed = velocity.horizontalDistance();
+        Vec3 displacement;
+        if (horizontalSpeed < 1.0e-6
+                || Math.abs(targetTurnRateDegPerTick) < 1.0e-3) {
+            displacement = velocity.scale(leadTicks);
+        } else {
+            int wholeTicks = (int) Math.floor(leadTicks);
+            double fractionalTick = leadTicks - wholeTicks;
+            double x = 0.0;
+            double z = 0.0;
+            for (int tick = 1; tick <= wholeTicks; tick++) {
+                double yawRadians = Math.toRadians(targetSnapshot.movementYawDeg()
+                        + targetTurnRateDegPerTick * tick);
+                x += -Math.sin(yawRadians) * horizontalSpeed;
+                z += Math.cos(yawRadians) * horizontalSpeed;
+            }
+            if (fractionalTick > 1.0e-6) {
+                double yawRadians = Math.toRadians(targetSnapshot.movementYawDeg()
+                        + targetTurnRateDegPerTick * leadTicks);
+                x += -Math.sin(yawRadians) * horizontalSpeed * fractionalTick;
+                z += Math.cos(yawRadians) * horizontalSpeed * fractionalTick;
+            }
+            displacement = new Vec3(x, velocity.y * leadTicks, z);
+        }
+        Vec3 leadPoint = target.getBoundingBox().getCenter().add(displacement);
+        return safeNormalize(leadPoint.subtract(aircraft.getBoundingBox().getCenter()),
+                fallback);
     }
 
     private static double relativeClosureBps(Entity defender, Entity attacker) {
@@ -598,13 +752,24 @@ public final class EnergyFighterApexYawAdapter {
         private double minimumAgl;
         private double lastYawDeg;
         private double lastPitchDeg;
+        private double lastTargetMovementYawDeg;
+        private double smoothedTargetTurnRateDegPerTick;
+        private double captureLeadTicks = LEAD_TICKS;
+        private double bestCaptureHorizontalError = Double.POSITIVE_INFINITY;
+        private double captureEntryLagStartClosure;
+        private double captureEntryLagTurnInputSign;
+        private int captureEntryLagTicks;
+        private int targetTurnRateSamples;
+        private boolean captureEntryLagUsed;
+        private boolean captureEntryLagActive;
         private int totalTicks;
         private int stageTicks;
         private int statusTicks;
 
         private State(UUID targetPilotUuid, int initialShots, double turnSign,
                       double startAltitude, double startAgl,
-                      double startYaw, double startPitch) {
+                      double startYaw, double startPitch,
+                      double targetMovementYaw) {
             this.targetPilotUuid = targetPilotUuid;
             this.initialShots = initialShots;
             this.turnSign = turnSign;
@@ -614,6 +779,7 @@ public final class EnergyFighterApexYawAdapter {
             this.minimumAgl = startAgl;
             this.lastYawDeg = startYaw;
             this.lastPitchDeg = startPitch;
+            this.lastTargetMovementYawDeg = targetMovementYaw;
         }
     }
 }

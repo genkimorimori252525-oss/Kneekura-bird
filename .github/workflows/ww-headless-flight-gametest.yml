@@ -185,8 +185,12 @@ jobs:
         run: |
           python tools/render_flight_diagnostics.py --root run-gametest --output "run-gametest/flight-diagnostics-$env:FLIGHT_TEST_SCENARIO.html" --scenario $env:FLIGHT_TEST_SCENARIO
 
+      # Diagnostics, not acceptance: this job passes or fails on the gametest step alone.
+      # Artifact upload from the self-hosted runner is network-dependent and has already
+      # failed an otherwise-green stage-1 build with ECONNRESET (run 30192528907).
       - name: Upload headless server log
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: ww-headless-flight-server-log-${{ env.FLIGHT_TEST_SCENARIO }}
@@ -198,6 +202,7 @@ jobs:
 
       - name: Upload measured profiles and autonomous-flight telemetry
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: ww-headless-flight-results-${{ env.FLIGHT_TEST_SCENARIO }}
