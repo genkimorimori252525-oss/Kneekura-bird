@@ -28,6 +28,35 @@ public final class PatternRejoinBudgetGameTests {
     }
 
     @GameTest(template = "empty", timeoutTicks = 20, batch = "pattern_rejoin_budget_contract")
+    public static void remainingEnergyFightersRetainConservativeRejoinMargin(GameTestHelper helper) {
+        String[] aircraft = {"f6f", "fw190", "ki61", "ki84", "mc202", "mig3", "p40e", "p47n"};
+        // Canonical values copied at full precision from
+        // data/wwdebug_benchmark/ai/validated_flight_profiles-24aircraft.json.
+        // Verified against that resource: all eight match to within 1e-9. If it is regenerated,
+        // re-check these rather than trusting them -- they are duplicated here, not read.
+        double[] measuredTurnFloors = {
+                32.00224409589987,
+                35.62843362275763,
+                34.317417466113874,
+                24.931250116781943,
+                30.2810989231778,
+                33.19718658350574,
+                30.2810989231778,
+                37.357554760673516
+        };
+
+        for (int index = 0; index < aircraft.length; index++) {
+            PatternRejoinBudget.Assessment budget = PatternRejoinBudget.atMeasuredTurnFloor(
+                    fighterProfile(aircraft[index], measuredTurnFloors[index]), 1567.0, 1800);
+            check(budget.canReachIdeally(), aircraft[index]
+                    + " measured turn floor must cover the conservative rejoin distance");
+            check(budget.hasMargin(0.40), aircraft[index]
+                    + " must retain at least 40% ideal margin without changing the timeout");
+        }
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty", timeoutTicks = 20, batch = "pattern_rejoin_budget_contract")
     public static void exactBoundaryAndShortfallAreReported(GameTestHelper helper) {
         PatternRejoinBudget.Assessment exact = PatternRejoinBudget.assess(900.0, 10.0, 1800, 20.0);
         check(exact.canReachIdeally(), "exact reach must count as feasible");
@@ -63,6 +92,20 @@ public final class PatternRejoinBudgetGameTests {
                 null,
                 null,
                 32.0);
+    }
+
+    private static FlightProfile fighterProfile(String aircraft, double turnSpeedFloor) {
+        return new FlightProfile(
+                new ResourceLocation("wwdebug", aircraft + "_budget"),
+                "fighter",
+                "energy_fighter",
+                10.0,
+                25.0,
+                20.0,
+                turnSpeedFloor,
+                null,
+                null,
+                40.0);
     }
 
     private static void expectInvalid(Runnable action) {
