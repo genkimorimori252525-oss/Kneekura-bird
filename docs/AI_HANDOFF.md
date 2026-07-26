@@ -120,43 +120,61 @@ The navigate / return / land half of Issue #7 is complete and reproducible. The 
 
 The historical "26" is 24 plus `immersive_aircraft:biplane` and `immersive_aircraft:bamboo_hopper`, because `BenchmarkManager.discover()` (`BenchmarkManager.java:160`) iterates the whole `ENTITY_TYPE` registry with no namespace filter. There is no 25th Warfare Wings aircraft; `mig21` exists as an unregistered `.bbmodel` and texture only.
 
-## Known architectural defects, evidence-backed
+## Known architectural defects
 
-1. `ControlAuthorityArbiter` is a **sequencer, not an arbiter**: `ControlAuthorityArbiter.java:48-53` calls four subsystems unconditionally in fixed order and infers the winner afterwards. Its own Javadoc at `:10-13` concedes lower-priority controllers may apply output first. This must be converted before any bomber, attacker or torpedo doctrine is layered on top.
-2. Player exclusion — the top requirement of Issue #7 — is enforced by **13 copy-pasted `instanceof Player` checks across 11 production classes**, with no single gate.
-3. `MissionOrder` is a data shell: `MissionOrder.type()` has **zero behavioral readers**; every payload field is read only by `MissionOrderCodec` for NBT.
-4. Doctrine is behaviorally implemented for **2 of the 6** doctrines Issue #7 requires; `AirCombatDoctrineTuning.resolve` switches only on `turn_fighter` and `energy_fighter`. The 5 bombers plus G4M carry a semantically empty `escort`.
-5. `EnergyFighterReengagementAdapter.java` is **603 lines of dead code** — verified zero references outside its own class declaration and private constructor.
-6. Reruns can produce **false passes**: nothing purges `run-gametest/world|logs|crash-reports` between runs and the Python verifiers select telemetry by newest mtime. A purge step was added to the migrated headless workflow; the route workflow still needs one.
-7. Target priorities 2 and 3 (pilot lost, aircraft destroyed, critical damage) have **no implementation** — there is no health or damage logic anywhere in the autopilot package, although `MissionOrder.AbortCondition` already declares the constants.
+Numbering follows the earlier revision so closed items stay traceable.
+
+1. **`ControlAuthorityArbiter` is a sequencer, not an arbiter.** Still open, and it gates all remaining role work. Every layer writes in fixed statement order and the winner is inferred afterwards by asking `active()`; priority exists only as the order of statements. PR #90 made the stack explicit (`Authority.priority()`, `outranks()`) and pinned it with `ControlAuthorityPriorityGameTests`, but deliberately did not change control flow.
+2. ~~Player exclusion copy-pasted across eleven sites.~~ **Closed** by PRs #88 and #89. Every live production pilot test goes through `MobPilotGate`. The only `instanceof Player` left in `com.wwdebug.autopilot` are the two friendly-fire checks at `CombatTargetSelector.java:104` and `CombatWeaponManager.java:273`, which are target exclusion and deliberately not routed through the gate.
+3. **`MissionOrder` is a data shell.** Still open. `MissionOrder.type()` has zero behavioural readers.
+4. **Doctrine covers 2 of the 6 kinds Issue #7 needs.** Partly addressed: PR #86 added `AutopilotDoctrine` and a 24-aircraft classification resource, so doctrine now reaches the runtime. The enum still lacks the dive-bomber / ground-attacker split -- `ATTACKER` is one bucket covering D4Y, Ju 87, SBD and IL-2.
+5. ~~`EnergyFighterReengagementAdapter`, 603 lines of dead code.~~ **Closed** by PR #83.
+6. **Reruns can produce false passes.** Partly addressed: the migrated headless workflow purges `run-gametest/world|logs|crash-reports` before each scenario. `ww-local-route-validation.yml` still has no purge step.
+7. **Priorities 2 and 3 have no implementation.** Still open, and now the largest capability gap. There is no health or damage logic anywhere in the autopilot package, though `MissionOrder.AbortCondition` already declares `PILOT_LOST`, `AIRCRAFT_DESTROYED` and `CRITICAL_DAMAGE`.
+8. **`BenchmarkManager.applyControl` has no pilot check of its own.** It writes whenever `CONTROLS` holds an entry and relies entirely on the arbiter's gate above it. Not a live bypass -- the arbiter is its only caller -- but it is the one writer with no independent guard.
+9. **"One final aircraft-input write" is not literally true.** `ReflectiveAircraft.applyControl` has four call sites: `AutonomousFlightManager:104`, `BenchmarkManager:82`, `AirCombatManeuverManager:101` and `AutopilotValidationCheckpoint:147`. The last is GameTest scenario seeding, not per-tick control. The claim holds only in the sense that one writer wins each tick, by overwriting the others.
+
+## Control ownership is now observable
+
+`applyControl` returns the tick's owner, and until PR #90 **nothing read it** -- `VehicleEntityBenchmarkMixin:20` calls it as a bare statement. Ownership is now written as a `control_authority_change` row on every handover, carrying both priorities and an `escalation` flag.
+
+Confirmed against real flight data from run `30197987667`: 17 handovers across the two aircraft, for example
+
+```
+A6M  t=156   BASE_AUTONOMY(10)  -> TERRAIN_AVOIDANCE(80)           escalation=true
+A6M  t=827   OFFENSIVE(40)      -> COLLISION_AVOIDANCE(70)         escalation=true
+P47N t=877   OFFENSIVE(40)      -> DEFENSIVE_COMBAT(50)            escalation=true
+P47N t=1464  DEFENSIVE(50)      -> ENERGY_FIGHTER_REENGAGEMENT(40) escalation=false
+```
+
+**Known limitation.** This records only the winner, so it cannot yet detect a true priority inversion -- a case where a higher-priority condition holds while a lower layer owns the tick. `escalation=false` merely means the previous higher-priority condition ended, which is normal. Detecting inversion needs the set of layers that *claimed* the tick, which only the proposal-based conversion can provide.
+
+## Stage 1 of Issue #7 is satisfied
+
+`dogfight_mutual` passed three consecutive times on three different heads -- runs `30183880865`, `30192528884`, `30193276288` -- with both aircraft firing, minimum separation 9.4 in all three, and zero ground frames. PR #6 never achieved this; its best was A6M 7 / P-47N 0.
+
+Caveat: the exchange is lopsided at A6M 8-9 shots against P-47N 1. Acceptance is met; converting more P-47N re-entries into firing solutions is a stage-2 doctrine-tuning item, not the geometry deadlock PR #6 was stuck on.
+
+## Regression baseline
+
+`docs/validation/2026-07-26/route-regression-signatures.json` holds one signature per base aircraft, extracted from that aircraft's own qualification artifact: exact match on role, verdict, reason, final phase and terminal reason; tolerance match on tick counts and geometry. Diff against this rather than re-arguing whether a change was harmless.
 
 ## Open pull requests
 
-| Branch | PR | Contents |
-| --- | --- | --- |
-| `agent/commit-measured-profiles-all24` | #80 | 24-aircraft measured profile fixture and provenance |
-| `agent/deterministic-build-source` | #81 | bakes applied values, deletes all six source transforms |
-| `agent/selfhosted-concurrency-safety` | — | concurrency groups, stage-1 self-hosted migration, transient-build retry |
+None. Everything opened this session is merged.
 
-The owner's local branch `agent/p47-local-validation` (505 commits behind main, 33 unpushed commits) was deliberately left untouched; all work happened in worktrees created off `origin/main`.
-
-## Blocked: the CI branch cannot be pushed
-
-`agent/selfhosted-concurrency-safety` is committed locally but rejected by GitHub:
-
-> refusing to allow an OAuth App to create or update workflow `.github/workflows/deploy-jolly-runner-hub.yml` without `workflow` scope
-
-The token carries `delete_repo, gist, read:org, repo`. One owner action unblocks it:
-
-```
-gh auth refresh -h github.com -s workflow
-```
-
-Until that happens stage-1 checks cannot execute, so PRs #80-#83 must stay Draft under the AGENTS.md rule against merging while required checks are unexecutable.
+The owner's local branch `agent/p47-local-validation` (505 commits behind main, 33 unpushed commits of P-47N research) is deliberately untouched. All work happened in worktrees created off `origin/main`. That branch's subject -- the P-47N mutual dogfight -- is resolved on main, so the branch is research history, not a baseline.
 
 ## Next exact actions
 
-1. Grant the `workflow` scope, push `agent/selfhosted-concurrency-safety`, and confirm the migrated stage-1 workflow runs on the self-hosted runner.
-3. With stage-1 executable again, take PRs #80, #81 and the CI branch out of Draft, let the self-hosted checks run, and merge in that order.
-4. Delete the dead `EnergyFighterReengagementAdapter`, then extract a single `MobPilotGate` and route every production writer plus both mixin injection points through it, with a GameTest asserting zero AI writes for a player-piloted aircraft.
-5. Convert `ControlAuthorityArbiter` into a real arbiter across five bounded PRs before starting bomber, attacker or torpedo doctrine work.
+1. Convert `ControlAuthorityArbiter` to proposals, in bounded PRs. Each controller returns an `Optional<ControlProposal>` carrying its `Authority` and `FlightControlOutput` instead of writing; the arbiter selects the highest priority and performs the single write. Verify with a GameTest asserting exactly one `ReflectiveAircraft.applyControl` per aircraft per tick, and by diffing the `control_authority_change` sequence against the pre-conversion baseline above.
+2. Add an `AircraftDamageAuthority` at levels 2-3, evaluating the already-declared `AbortCondition` constants. Do it after the conversion so it can be inserted by priority rather than by statement order, and before any bomber work.
+3. Give `MissionOrder.type()` its first behavioural consumer by routing `RETURN_TO_BASE` and `LAND` through the qualified landing chain.
+4. Split `ATTACKER` into dive-bomber and ground-attacker, and replace the empty `escort` on the five bombers and G4M.
+5. Only then start bomber, attacker and torpedo missions.
+
+Do not run a local Gradle build while the self-hosted runner has a job: both use the same `GRADLE_USER_HOME` and can corrupt each other's ForgeGradle caches. Check first:
+
+```
+gh api repos/:owner/:repo/actions/runners -q '.runners[]|"\(.name) \(.status) busy=\(.busy)"'
+```
