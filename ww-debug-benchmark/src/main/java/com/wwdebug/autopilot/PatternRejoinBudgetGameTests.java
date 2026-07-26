@@ -31,7 +31,9 @@ public final class PatternRejoinBudgetGameTests {
     public static void remainingEnergyFightersRetainConservativeRejoinMargin(GameTestHelper helper) {
         String[] aircraft = {"f6f", "fw190", "ki61", "ki84", "mc202", "mig3", "p40e", "p47n"};
         // Canonical values copied at full precision from
-        // data/wwdebug_benchmark/ai/validated_fighter_profiles-20260720-141003.json.
+        // data/wwdebug_benchmark/ai/validated_flight_profiles-24aircraft.json.
+        // Verified against that resource: all eight match to within 1e-9. If it is regenerated,
+        // re-check these rather than trusting them -- they are duplicated here, not read.
         double[] measuredTurnFloors = {
                 32.00224409589987,
                 35.62843362275763,
