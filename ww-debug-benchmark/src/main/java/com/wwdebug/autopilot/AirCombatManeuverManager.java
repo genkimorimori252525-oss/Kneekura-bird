@@ -32,11 +32,11 @@ public final class AirCombatManeuverManager {
     private AirCombatManeuverManager() {
     }
 
-    public static void applyControl(Entity aircraft) {
+    public static Optional<ControlProposal> applyControl(Entity aircraft) {
         if (aircraft.level().isClientSide || !(aircraft.level() instanceof ServerLevel level)
                 || !ReflectiveAircraft.isAirplane(aircraft) || !ReflectiveAircraft.isControllable(aircraft)) {
             clear(aircraft.getUUID());
-            return;
+            return Optional.empty();
         }
         Optional<AutonomousFlightManager.SessionStatus> status =
                 AutonomousFlightManager.status(aircraft.getUUID());
@@ -44,31 +44,31 @@ public final class AirCombatManeuverManager {
                 || !eligiblePhase(status.get().phase()) || aircraft.onGround()
                 || TerrainAvoidancePlanner.active(aircraft)) {
             clear(aircraft.getUUID());
-            return;
+            return Optional.empty();
         }
 
         Optional<CombatTargetSelector.Solution> selected =
                 CombatAwarenessManager.currentSolution(aircraft.getUUID());
         if (selected.isEmpty()) {
             clearAfterTargetLoss(level, aircraft, status.get().phase(), "no_combat_target");
-            return;
+            return Optional.empty();
         }
         CombatTargetSelector.Solution targetSolution = selected.get();
         Entity selectedEntity = level.getEntity(targetSolution.targetUuid());
         if (!(selectedEntity instanceof LivingEntity livingTarget) || !livingTarget.isAlive()) {
             clearAfterTargetLoss(level, aircraft, status.get().phase(), "combat_target_missing");
-            return;
+            return Optional.empty();
         }
         Entity pursuitTarget = pursuitTarget(livingTarget);
         if (!airTarget(livingTarget, pursuitTarget)) {
             clearAfterTargetLoss(level, aircraft, status.get().phase(), "target_is_not_airborne_combat_target");
-            return;
+            return Optional.empty();
         }
 
         FlightProfile profile = AutopilotProfileRegistry.resolve(level.getServer(), aircraft).orElse(null);
         if (profile == null) {
             clear(aircraft.getUUID());
-            return;
+            return Optional.empty();
         }
         AirCombatDoctrineTuning.Tuning tuning = AirCombatDoctrineTuning.resolve(profile.doctrine());
         State state = STATES.computeIfAbsent(aircraft.getUUID(), ignored -> new State());
@@ -82,7 +82,7 @@ public final class AirCombatManeuverManager {
         int shotsRemaining = ReflectiveArmament.estimatedShotsRemaining(aircraft);
         if (!hasMachineGun) {
             clearAfterTargetLoss(level, aircraft, status.get().phase(), "no_pilot_machine_gun");
-            return;
+            return Optional.empty();
         }
 
         AirCombatAction chosen = selectAction(state, context, shotsRemaining, tuning);
@@ -96,10 +96,8 @@ public final class AirCombatManeuverManager {
         FlightControlOutput output = controlFor(state.action, aircraft, pursuitTarget,
                 snapshot, profile, context);
         if (output == null) {
-            return;
+            return Optional.empty();
         }
-        ReflectiveAircraft.applyControl(aircraft, -output.x(), output.y(), output.z(),
-                output.engineTarget());
         AutopilotLogManager.writeControlAdapter(level.getServer(), aircraft, status.get().phase(),
                 tacticalDescription(state, context, shotsRemaining, tuning), snapshot,
                 baseline(snapshot), output);
@@ -109,6 +107,8 @@ public final class AirCombatManeuverManager {
                     "air_combat_status", tacticalDescription(state, context, shotsRemaining, tuning),
                     status.get().phase());
         }
+        return Optional.of(ControlProposal.fromGuidance(
+                ControlAuthorityArbiter.Authority.OFFENSIVE_COMBAT, output));
     }
 
     public static boolean active(Entity aircraft) {
