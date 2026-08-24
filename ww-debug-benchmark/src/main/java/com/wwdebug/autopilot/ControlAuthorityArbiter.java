@@ -121,7 +121,7 @@ public final class ControlAuthorityArbiter {
         BenchmarkManager.applyControl(aircraft);
         AutonomousFlightManager.applyControl(aircraft);
         MutualDogfightMissionHoldAdapter.apply(aircraft);
-        FormationFlightManager.applyControl(aircraft);
+        ControlOutcome formation = FormationFlightManager.applyControl(aircraft);
 
         boolean collisionRisk = AirspaceSafetyProbe.collisionRisk(aircraft);
         ControlOutcome combat = FighterCombatFacade.applyControl(aircraft, collisionRisk);
@@ -130,14 +130,17 @@ public final class ControlAuthorityArbiter {
             combat.pendingWrite().ifPresent(proposal -> write(aircraft, proposal));
             return combat.authority();
         }
-        if (collisionRisk) {
-            // Combat stood down so the avoidance manoeuvre FormationFlightManager wrote earlier in
-            // this tick survives. Reporting it here, rather than inside the facade, keeps the
-            // facade honest about never having flown the aircraft.
+        if (formation.authority() == Authority.COLLISION_AVOIDANCE || collisionRisk) {
+            // Collision avoidance is intentionally still a direct writer during the staged
+            // conversion. It ran before combat, and combat stands down while collision risk holds.
             return Authority.COLLISION_AVOIDANCE;
         }
         if (TerrainAvoidancePlanner.active(aircraft)) {
             return Authority.TERRAIN_AVOIDANCE;
+        }
+        if (formation.claimed()) {
+            formation.pendingWrite().ifPresent(proposal -> write(aircraft, proposal));
+            return formation.authority();
         }
         return AutonomousFlightManager.status(aircraft.getUUID()).isPresent()
                 ? Authority.BASE_AUTONOMY : Authority.NONE;

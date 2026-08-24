@@ -34,24 +34,24 @@ public final class FormationFlightManager {
     private FormationFlightManager() {
     }
 
-    public static void applyControl(Entity aircraft) {
+    public static ControlOutcome applyControl(Entity aircraft) {
         if (aircraft.level().isClientSide || !ReflectiveAircraft.isAirplane(aircraft)
                 || !ReflectiveAircraft.isControllable(aircraft)
                 || !(aircraft.level() instanceof ServerLevel level)) {
             clear(aircraft.getUUID());
-            return;
+            return ControlOutcome.none();
         }
         Optional<AutonomousFlightManager.SessionStatus> status =
                 AutonomousFlightManager.status(aircraft.getUUID());
         if (!MobPilotGate.isMobPiloted(aircraft) || status.isEmpty()) {
             clear(aircraft.getUUID());
-            return;
+            return ControlOutcome.none();
         }
         FlightPhase phase = status.get().phase();
         if (!eligiblePhase(phase) || aircraft.onGround()
                 || TerrainAvoidancePlanner.active(aircraft) || immediateTerrainAhead(aircraft)) {
             clearModes(level, aircraft, phase);
-            return;
+            return ControlOutcome.none();
         }
 
         FlightSnapshot snapshot = FlightSnapshot.capture(aircraft);
@@ -59,7 +59,7 @@ public final class FormationFlightManager {
                 .orElse(null);
         if (profile == null) {
             clear(aircraft.getUUID());
-            return;
+            return ControlOutcome.none();
         }
 
         List<Entity> nearby = nearbyAircraft(level, aircraft);
@@ -70,7 +70,8 @@ public final class FormationFlightManager {
         if (collision.isPresent()) {
             applyCollisionAvoidance(level, aircraft, phase, snapshot, profile, collision.get());
             ACTIVE_FORMATION.remove(aircraft.getUUID());
-            return;
+            return ControlOutcome.alreadyWrote(
+                    ControlAuthorityArbiter.Authority.COLLISION_AVOIDANCE);
         }
         if (ACTIVE_COLLISION.remove(aircraft.getUUID()) != null) {
             AutopilotLogManager.writeEvent(level.getServer(), aircraft,
@@ -80,19 +81,20 @@ public final class FormationFlightManager {
         String group = formationGroup(aircraft);
         if (group == null) {
             clearFormation(level, aircraft, phase, "no_formation_group");
-            return;
+            return ControlOutcome.none();
         }
         List<Entity> members = formationMembers(level, aircraft, group);
         if (members.size() < 2) {
             clearFormation(level, aircraft, phase, "formation_group_has_no_other_members");
-            return;
+            return ControlOutcome.none();
         }
         Entity leader = selectLeader(members);
         if (leader == aircraft) {
             clearFormation(level, aircraft, phase, "formation_leader_uses_mission_control");
-            return;
+            return ControlOutcome.none();
         }
-        applyFormationSlot(level, aircraft, phase, snapshot, profile, leader, members);
+        return ControlOutcome.proposed(
+                applyFormationSlot(level, aircraft, phase, snapshot, profile, leader, members));
     }
 
     private static void applyCollisionAvoidance(ServerLevel level, Entity aircraft, FlightPhase phase,
@@ -150,9 +152,10 @@ public final class FormationFlightManager {
         return desired.normalize();
     }
 
-    private static void applyFormationSlot(ServerLevel level, Entity aircraft, FlightPhase phase,
-                                           FlightSnapshot snapshot, FlightProfile profile,
-                                           Entity leader, List<Entity> members) {
+    private static ControlProposal applyFormationSlot(ServerLevel level, Entity aircraft,
+                                                      FlightPhase phase, FlightSnapshot snapshot,
+                                                      FlightProfile profile, Entity leader,
+                                                      List<Entity> members) {
         int slot = formationSlot(aircraft, members, leader);
         SlotOffset offset = slotOffset(slot);
         Vec3 leaderForward = horizontal(leader.getLookAngle());
@@ -209,7 +212,6 @@ public final class FormationFlightManager {
         FlightControlOutput output = control(snapshot, desiredDirection, desiredPosition.y,
                 targetSpeed, profile, engineTarget,
                 "formation_slot_tracking", "formation_tracking");
-        ReflectiveAircraft.applyControl(aircraft, -output.x(), output.y(), output.z(), output.engineTarget());
         ACTIVE_FORMATION.add(aircraft.getUUID());
 
         int statusTicks = STATUS_TICKS.merge(aircraft.getUUID(), 1, Integer::sum);
@@ -229,6 +231,7 @@ public final class FormationFlightManager {
                     "formation_slot_tracking", reason, phase);
         }
         writeAdapter(level, aircraft, phase, snapshot, output, reason);
+        return ControlProposal.fromGuidance(ControlAuthorityArbiter.Authority.FORMATION, output);
     }
 
     private static FlightControlOutput control(FlightSnapshot snapshot, Vec3 desired,
