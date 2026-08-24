@@ -31,9 +31,14 @@ public final class FighterCombatFacade {
             return ControlOutcome.none();
         }
 
-        boolean energyFighterControl = EnergyFighterApexYawAdapter.applyControl(aircraft);
-        if (energyFighterControl) {
-            return ControlOutcome.alreadyWrote(
+        Optional<ControlProposal> energy = EnergyFighterApexYawAdapter.applyControl(aircraft);
+        if (energy.isPresent()) {
+            return ControlOutcome.proposed(energy.get());
+        }
+        if (EnergyFighterApexYawAdapter.active(aircraft)) {
+            // The state machine still owns this tick even when its DOCTRINE stage deliberately
+            // produces no proposal. Lower combat layers must remain suppressed as before.
+            return ControlOutcome.claimedWithoutProposal(
                     ControlAuthorityArbiter.Authority.ENERGY_FIGHTER_REENGAGEMENT);
         }
 
@@ -44,7 +49,8 @@ public final class FighterCombatFacade {
         if (DefensiveAirCombatManager.active(aircraft)) {
             // The layer holds a live defensive action but declined the tick, so nothing may be
             // written on its behalf. It still owns the tick for reporting purposes.
-            return ControlOutcome.alreadyWrote(ControlAuthorityArbiter.Authority.DEFENSIVE_COMBAT);
+            return ControlOutcome.claimedWithoutProposal(
+                    ControlAuthorityArbiter.Authority.DEFENSIVE_COMBAT);
         }
 
         Optional<ControlProposal> offensive = AirCombatManeuverManager.applyControl(aircraft);
