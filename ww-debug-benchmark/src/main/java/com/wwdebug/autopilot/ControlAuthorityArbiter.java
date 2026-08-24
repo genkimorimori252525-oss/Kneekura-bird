@@ -99,8 +99,8 @@ public final class ControlAuthorityArbiter {
      *
      * <p>Priority, highest last: base benchmark/mission control, formation, offensive combat,
      * defensive combat, energy-fighter re-engagement and aircraft collision avoidance. Terrain
-     * avoidance remains inside base autonomy and is also checked independently by every combat
-     * controller. Player control is absolute and bypasses every automated writer.</p>
+     * avoidance is emitted by base autonomy with its own higher authority. Player control is
+     * absolute and bypasses every automated writer.</p>
      */
     public static Authority applyControl(Entity aircraft) {
         Authority authority = decide(aircraft);
@@ -119,15 +119,29 @@ public final class ControlAuthorityArbiter {
         }
 
         BenchmarkManager.applyControl(aircraft);
-        AutonomousFlightManager.applyControl(aircraft);
+        Optional<ControlProposal> autonomy = AutonomousFlightManager.applyControl(aircraft);
         MutualDogfightMissionHoldAdapter.apply(aircraft);
         ControlOutcome formation = FormationFlightManager.applyControl(aircraft);
 
         boolean collisionRisk = AirspaceSafetyProbe.collisionRisk(aircraft);
         ControlOutcome combat = FighterCombatFacade.applyControl(aircraft, collisionRisk);
+
+        Optional<ControlProposal> terrain = autonomy.filter(
+                proposal -> proposal.authority() == Authority.TERRAIN_AVOIDANCE);
+        if (terrain.isPresent()) {
+            write(aircraft, terrain.get());
+            return Authority.TERRAIN_AVOIDANCE;
+        }
+
         if (combat.claimed()) {
-            // A converted layer leaves its write to us; an unconverted one has already performed it.
-            combat.pendingWrite().ifPresent(proposal -> write(aircraft, proposal));
+            if (combat.pendingWrite().isPresent()) {
+                write(aircraft, combat.pendingWrite().get());
+            } else {
+                // An active combat state may deliberately decline to emit control this tick. In
+                // the old ordered-writer path the already-written formation/base command remained
+                // in force, so preserve that behavior by writing the highest lower proposal.
+                formation.pendingWrite().or(() -> autonomy).ifPresent(proposal -> write(aircraft, proposal));
+            }
             return combat.authority();
         }
         if (formation.authority() == Authority.COLLISION_AVOIDANCE || collisionRisk) {
@@ -135,15 +149,15 @@ public final class ControlAuthorityArbiter {
             // conversion. It ran before combat, and combat stands down while collision risk holds.
             return Authority.COLLISION_AVOIDANCE;
         }
-        if (TerrainAvoidancePlanner.active(aircraft)) {
-            return Authority.TERRAIN_AVOIDANCE;
-        }
         if (formation.claimed()) {
             formation.pendingWrite().ifPresent(proposal -> write(aircraft, proposal));
             return formation.authority();
         }
-        return AutonomousFlightManager.status(aircraft.getUUID()).isPresent()
-                ? Authority.BASE_AUTONOMY : Authority.NONE;
+        if (autonomy.isPresent()) {
+            write(aircraft, autonomy.get());
+            return autonomy.get().authority();
+        }
+        return Authority.NONE;
     }
 
     /**
