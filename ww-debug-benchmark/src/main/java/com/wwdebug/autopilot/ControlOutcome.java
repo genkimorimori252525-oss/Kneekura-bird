@@ -7,13 +7,10 @@ import java.util.Optional;
 /**
  * What a control layer did with a tick, during the conversion to proposals.
  *
- * <p>Seven layers write straight to the aircraft today and are converted one at a time. Until that
- * finishes, a layer either <em>proposed</em> — decided without writing, leaving the write to the
- * arbiter — or <em>already wrote</em>, the old behaviour. This type makes that difference explicit
- * so the remaining work is visible to the compiler rather than tracked in someone's head.</p>
- *
- * <p>{@link #alreadyWrote(Authority)} is deliberately awkward to read. Every remaining use of it is
- * a layer still to convert, and it disappears when the last one lands.</p>
+ * <p>During the migration a layer can either <em>propose</em> — decide without writing and leave
+ * the write to the arbiter — or claim the tick without a pending proposal. The latter covers both
+ * a legacy layer that already wrote and a converted state machine that deliberately retains
+ * ownership while producing no control output for this tick.</p>
  */
 public record ControlOutcome(Authority authority, ControlProposal proposal) {
 
@@ -41,19 +38,32 @@ public record ControlOutcome(Authority authority, ControlProposal proposal) {
     }
 
     /**
-     * An unconverted layer has already written to the aircraft itself.
+     * A layer owns the tick but intentionally has no control proposal to write.
      *
-     * <p>The arbiter must not write again for this tick — it only records who owned it.</p>
+     * <p>This is distinct from {@link #none()}: lower-priority layers must still remain suppressed.
+     */
+    public static ControlOutcome claimedWithoutProposal(Authority authority) {
+        if (authority == null || authority == Authority.NONE) {
+            throw new IllegalArgumentException("a claimed outcome must name a real authority");
+        }
+        return new ControlOutcome(authority, null);
+    }
+
+    /**
+     * A legacy unconverted layer has already written to the aircraft itself.
+     *
+     * <p>Kept while lower layers are still being migrated. Converted layers that retain ownership
+     * without producing output should use {@link #claimedWithoutProposal(Authority)} instead.</p>
      */
     public static ControlOutcome alreadyWrote(Authority authority) {
-        return new ControlOutcome(authority, null);
+        return claimedWithoutProposal(authority);
     }
 
     public boolean claimed() {
         return authority != Authority.NONE;
     }
 
-    /** The write the arbiter still owes, if any. Empty when the layer wrote for itself. */
+    /** The write the arbiter still owes, if any. */
     public Optional<ControlProposal> pendingWrite() {
         return Optional.ofNullable(proposal);
     }
