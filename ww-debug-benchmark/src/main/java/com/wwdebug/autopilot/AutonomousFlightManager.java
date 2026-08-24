@@ -33,19 +33,19 @@ public final class AutonomousFlightManager {
     private AutonomousFlightManager() {
     }
 
-    public static void applyControl(Entity aircraft) {
+    public static Optional<ControlProposal> applyControl(Entity aircraft) {
         if (aircraft.level().isClientSide || !ReflectiveAircraft.isAirplane(aircraft)
                 || !ReflectiveAircraft.isControllable(aircraft)) {
-            return;
+            return Optional.empty();
         }
 
         if (!MobPilotGate.isMobPiloted(aircraft)) {
             stopSession(aircraft, "controlling_passenger_is_not_a_mob");
-            return;
+            return Optional.empty();
         }
 
         if (!(aircraft.level() instanceof ServerLevel level)) {
-            return;
+            return Optional.empty();
         }
         MinecraftServer server = level.getServer();
         SessionEntry entry = SESSIONS.get(aircraft.getUUID());
@@ -59,11 +59,11 @@ public final class AutonomousFlightManager {
                     AutopilotLogManager.writeEvent(server, aircraft, "session_rejected",
                             "missing_measured_flight_profile", FlightPhase.ABORTED);
                 }
-                return;
+                return Optional.empty();
             }
             FlightProfile profile = resolved.get();
             if (!profile.supportsAutonomousFlight()) {
-                return;
+                return Optional.empty();
             }
             AutopilotSession session = new AutopilotSession(aircraft, profile);
             entry = new SessionEntry(aircraft, session, new TerrainAvoidancePlanner.State());
@@ -100,9 +100,10 @@ public final class AutonomousFlightManager {
             AutopilotLogManager.writeControlAdapter(server, aircraft, entry.session.phase(),
                     adapted.reason(), snapshot, safetyPlanned, adapted.output());
         }
-        FlightControlOutput applied = adapted.output();
-        ReflectiveAircraft.applyControl(aircraft, -applied.x(), applied.y(), applied.z(),
-                applied.engineTarget());
+        ControlAuthorityArbiter.Authority authority = terrainDecision.active()
+                ? ControlAuthorityArbiter.Authority.TERRAIN_AVOIDANCE
+                : ControlAuthorityArbiter.Authority.BASE_AUTONOMY;
+        return Optional.of(ControlProposal.fromGuidance(authority, adapted.output()));
     }
 
     private static FlightControlOutput applyTerrainAvoidance(AutopilotSession session,
