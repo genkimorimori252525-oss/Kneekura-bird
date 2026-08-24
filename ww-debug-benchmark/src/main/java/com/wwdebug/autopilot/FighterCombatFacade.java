@@ -47,11 +47,8 @@ public final class FighterCombatFacade {
             return ControlOutcome.alreadyWrote(ControlAuthorityArbiter.Authority.DEFENSIVE_COMBAT);
         }
 
-        AirCombatManeuverManager.applyControl(aircraft);
-        if (AirCombatManeuverManager.active(aircraft)) {
-            return ControlOutcome.alreadyWrote(ControlAuthorityArbiter.Authority.OFFENSIVE_COMBAT);
-        }
-        return ControlOutcome.none();
+        Optional<ControlProposal> offensive = AirCombatManeuverManager.applyControl(aircraft);
+        return offensive.map(ControlOutcome::proposed).orElseGet(ControlOutcome::none);
     }
 
     public static void tick(Entity aircraft) {
