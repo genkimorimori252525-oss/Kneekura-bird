@@ -125,3 +125,14 @@ discipline, and the traps already hit. Read it after this file and before `docs/
 ## Current project handoff
 
 The detailed, updateable state is in `docs/AI_HANDOFF.md`. Treat old large draft PRs as research history, not automatically as the next coding baseline.
+
+## Jolly external-research mailbox
+
+- Read `.jolly/README.md` before using the research mailbox.
+- Keep repository inspection, code reasoning, implementation, tests, CI/log analysis, and small single-source lookups in Codex. The mailbox is not a substitute for normal coding work.
+- When a question requires broad external research, multi-source comparison, ecosystem-wide project discovery, recent compatibility/issue investigation, or several long external pages, prefer delegating that research to Jolly instead of filling the Codex context with raw web material.
+- Create exactly one compact request in `.jolly/inbox/` from `.jolly/templates/REQUEST.md`. Use a unique `JOB-YYYYMMDD-HHMM-short-slug` id, keep `status: pending`, provide only the minimum project context, and normally target `max_output_tokens: 2500`.
+- After creating the request, report its exact path to the repository owner and stop broad external research for that question. Do not poll repeatedly and do not pretend Jolly runs asynchronously.
+- The owner manually triggers Jolly by saying `ジョリー、郵便箱` in ChatGPT.
+- On a later Codex turn, check `.jolly/outbox/<same-job-id>.md`. If it exists, read that compressed result first and use it to continue implementation. Re-open cited external sources only when ambiguity, safety, or a materially important implementation choice requires independent verification.
+- Never place credentials, tokens, cookies, passwords, private machine secrets, or unnecessary personal data in `.jolly/` files.
