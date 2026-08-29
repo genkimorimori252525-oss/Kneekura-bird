@@ -277,41 +277,6 @@ if ($names.Count -eq 0) {
                     liveChartRefresh,
                     "live six chart refresh");
 
-                const string reloadProfiles = @"function Reload-Profiles([string]$Id) {
-    $script:ReloadingProfiles=$true
-    try {
-        $profiles.BeginUpdate()
-        $profiles.Items.Clear()
-        foreach ($profile in @($script:Config.profiles)) { [void]$profiles.Items.Add($profile) }
-        $profiles.DisplayMember = 'name'
-        [int]$index = 0
-        for ([int]$i=0; $i -lt $profiles.Items.Count; $i++) {
-            if ([string]$profiles.Items[$i].id -eq $Id) { $index=$i;break }
-        }
-        if ($profiles.Items.Count -gt 0) { $profiles.SelectedIndex=[int]$index }
-    } finally {
-        $profiles.EndUpdate()
-        $script:ReloadingProfiles=$false
-    }
-    Select-Profile
-}
-
-function Select-Profile";
-                scriptText = ReplaceRegexRequired(
-                    scriptText,
-                    @"function Reload-Profiles\(\[string\]\$Id\) \{.*?\n\}\s*\n\s*function Select-Profile",
-                    reloadProfiles,
-                    "safe profile reload");
-                scriptText = ReplaceRegexRequired(
-                    scriptText,
-                    @"\$profiles\.add_SelectedIndexChanged\(\{\s*Select-Profile\s*\}\)",
-                    "$profiles.add_SelectedIndexChanged({if(-not $script:ReloadingProfiles){Select-Profile}})",
-                    "guarded profile selection handler");
-                scriptText = Regex.Replace(
-                    scriptText,
-                    @"Reload-Profiles ''\s*\nSelect-Profile",
-                    "Reload-Profiles ''");
-
                 if (smokeTest)
                 {
                     const string showDialog = "[void]$form.ShowDialog()";

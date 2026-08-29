@@ -16,8 +16,8 @@ $HistoryRoot = Join-Path $AppRoot 'history'
 $script:Config = $null
 $script:Profile = $null
 $script:LastConfigWrite = [datetime]::MinValue
-$script:RunnerCache = $false
-$script:RunnerCacheAt = [datetime]::MinValue
+$script:RunnerCache = @{}
+$script:RunnerCacheAt = @{}
 $script:LiveSamples = New-Object System.Collections.Generic.List[object]
 $script:HistorySeen = @{}
 $script:CurrentLiveRun = ''
@@ -59,6 +59,23 @@ function Load-Config {
         Copy-Item -LiteralPath $DefaultConfigPath -Destination $ConfigPath -Force
     }
     $script:Config = Get-Content -LiteralPath $ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $defaultConfig = Get-Content -LiteralPath $DefaultConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $knownIds = @{}
+    foreach ($profile in @($script:Config.profiles)) {
+        $knownIds[[string]$profile.id] = $true
+    }
+    $configChanged = $false
+    foreach ($profile in @($defaultConfig.profiles)) {
+        if (-not $knownIds.ContainsKey([string]$profile.id)) {
+            $script:Config.profiles = @($script:Config.profiles) + @($profile)
+            $knownIds[[string]$profile.id] = $true
+            $configChanged = $true
+        }
+    }
+    if ($configChanged) {
+        $script:Config | ConvertTo-Json -Depth 12 |
+            Set-Content -LiteralPath $ConfigPath -Encoding UTF8
+    }
     if ($null -eq $script:Config.profiles -or @($script:Config.profiles).Count -eq 0) {
         throw 'profiles.json にprofilesがありません。'
     }
@@ -404,40 +421,126 @@ function Runner-Processes($Profile) {
     } catch { return @() }
 }
 
-function Runner-Running($Profile,[switch]$Force) {
-    if (-not $Force -and ([datetime]::UtcNow-$script:RunnerCacheAt).TotalSeconds -lt 2) {
-        return [bool]$script:RunnerCache
+function Runner-PidStatePath($Profile) {
+    $id = Safe-Name ([string]$Profile.id)
+    return Join-Path $AppRoot ("runner-$id.pid.json")
+}
+
+function Get-TrackedRunnerProcess($Profile) {
+    $path = Runner-PidStatePath $Profile
+    if (-not (Test-Path -LiteralPath $path)) { return $null }
+    try {
+        $state = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+        $process = Get-Process -Id ([int]$state.processId) -ErrorAction SilentlyContinue
+        if ($null -ne $process -and [string]$process.ProcessName -eq 'cmd') { return $process }
+    } catch {}
+    return $null
+}
+
+function Test-RunnerActiveLog($Profile) {
+    $root = [Environment]::ExpandEnvironmentVariables([string]$Profile.runnerRoot)
+    $diagRoot = Join-Path $root '_diag'
+    if (-not (Test-Path -LiteralPath $diagRoot)) { return $false }
+    $log = Get-ChildItem -LiteralPath $diagRoot -Filter 'Runner_*.log' -File -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTimeUtc -Descending |
+        Select-Object -First 1
+    if ($null -eq $log) { return $false }
+    try {
+        $stream = [IO.File]::Open(
+            $log.FullName,
+            [IO.FileMode]::Open,
+            [IO.FileAccess]::Read,
+            [IO.FileShare]::None)
+        $stream.Dispose()
+        return $false
+    } catch [IO.IOException] {
+        return $true
+    } catch {
+        return $false
     }
-    $script:RunnerCache = @(Runner-Processes $Profile).Count -gt 0
-    $script:RunnerCacheAt = [datetime]::UtcNow
-    return $script:RunnerCache
+}
+
+function Runner-Running($Profile,[switch]$Force) {
+    $id = Safe-Name ([string]$Profile.id)
+    $cachedAt = if ($script:RunnerCacheAt.ContainsKey($id)) {
+        [datetime]$script:RunnerCacheAt[$id]
+    } else {
+        [datetime]::MinValue
+    }
+    if (-not $Force -and ([datetime]::UtcNow-$cachedAt).TotalSeconds -lt 2) {
+        return [bool]$script:RunnerCache[$id]
+    }
+    $script:RunnerCache[$id] =
+        (@(Runner-Processes $Profile).Count -gt 0) -or
+        ($null -ne (Get-TrackedRunnerProcess $Profile)) -or
+        (Test-RunnerActiveLog $Profile)
+    $script:RunnerCacheAt[$id] = [datetime]::UtcNow
+    return [bool]$script:RunnerCache[$id]
+}
+
+function Reset-RunnerCache($Profile) {
+    $id = Safe-Name ([string]$Profile.id)
+    $script:RunnerCacheAt.Remove($id)
+    $script:RunnerCache.Remove($id)
+}
+
+function Get-ProfileById([string]$Id) {
+    return @($script:Config.profiles) |
+        Where-Object { [string]$_.id -eq $Id } |
+        Select-Object -First 1
+}
+
+function Test-RunnerConfigured($Profile) {
+    $root = [Environment]::ExpandEnvironmentVariables([string]$Profile.runnerRoot)
+    return ((Test-Path -LiteralPath (Join-Path $root 'run.cmd')) -and
+        (Test-Path -LiteralPath (Join-Path $root '.runner')))
 }
 
 function Start-Runner($Profile) {
     if (Runner-Running $Profile -Force) { return }
     $root = [Environment]::ExpandEnvironmentVariables([string]$Profile.runnerRoot)
     $cmd = Join-Path $root 'run.cmd'
-    if (-not (Test-Path -LiteralPath $cmd)) {
-        throw "run.cmdが見つかりません: $cmd"
+    if (-not (Test-RunnerConfigured $Profile)) {
+        throw "Runnerが未登録です: $root"
     }
     $logs = Join-Path $AppRoot 'logs'
     New-Item -ItemType Directory -Force -Path $logs | Out-Null
     $id = Safe-Name ([string]$Profile.id)
     $log = Join-Path $logs ("runner-$id.log")
     $line = '""{0}" >> "{1}" 2>&1"' -f $cmd,$log
-    Start-Process cmd.exe -ArgumentList '/d','/s','/c',$line `
-        -WorkingDirectory $root -WindowStyle Hidden | Out-Null
+    $launcher = Start-Process cmd.exe -ArgumentList '/d','/s','/c',$line `
+        -WorkingDirectory $root -WindowStyle Hidden -PassThru
+    [ordered]@{
+        profileId = [string]$Profile.id
+        runnerRoot = $root
+        processId = [int]$launcher.Id
+        startedAt = (Get-Date).ToString('o')
+    } | ConvertTo-Json | Set-Content -LiteralPath (Runner-PidStatePath $Profile) -Encoding UTF8
     Start-Sleep -Milliseconds 700
-    $script:RunnerCacheAt = [datetime]::MinValue
+    Reset-RunnerCache $Profile
 }
 
 function Stop-Runner($Profile) {
-    foreach ($process in @(Runner-Processes $Profile)) {
+    $processes = @(Runner-Processes $Profile)
+    if ($processes.Count -eq 0) {
+        $tracked = Get-TrackedRunnerProcess $Profile
+        if ($null -ne $tracked) { $processes = @($tracked) }
+    }
+    if ($processes.Count -eq 0 -and (Test-RunnerActiveLog $Profile)) {
+        throw 'このRunnerはHub起動情報がないため、安全に停止対象を特定できません。'
+    }
+    foreach ($process in $processes) {
+        $processId = if ($null -ne $process.PSObject.Properties['ProcessId']) {
+            [int]$process.ProcessId
+        } else {
+            [int]$process.Id
+        }
         Start-Process taskkill.exe `
-            -ArgumentList '/PID',[string]$process.ProcessId,'/T','/F' `
+            -ArgumentList '/PID',[string]$processId,'/T','/F' `
             -Wait -WindowStyle Hidden | Out-Null
     }
-    $script:RunnerCacheAt = [datetime]::MinValue
+    Remove-Item -LiteralPath (Runner-PidStatePath $Profile) -Force -ErrorAction SilentlyContinue
+    Reset-RunnerCache $Profile
 }
 
 function Log-Path($Profile) {
@@ -848,6 +951,79 @@ $tabs.Font = New-Object Drawing.Font('Segoe UI',9)
 $form.Controls.Add($tabs)
 $header.BringToFront()
 
+$runnerTab = New-Object Windows.Forms.TabPage
+$runnerTab.Text = 'Runner 管理'
+$runnerTab.BackColor = $ColorWindow
+[void]$tabs.TabPages.Add($runnerTab)
+
+$runnerLayout = New-Object Windows.Forms.TableLayoutPanel
+$runnerLayout.Dock = 'Fill'
+$runnerLayout.RowCount = 3
+$runnerLayout.ColumnCount = 1
+$runnerLayout.Padding = New-Object Windows.Forms.Padding(12)
+[void]$runnerLayout.RowStyles.Add((New-Object Windows.Forms.RowStyle('Absolute',58)))
+[void]$runnerLayout.RowStyles.Add((New-Object Windows.Forms.RowStyle('Percent',100)))
+[void]$runnerLayout.RowStyles.Add((New-Object Windows.Forms.RowStyle('Absolute',52)))
+$runnerTab.Controls.Add($runnerLayout)
+
+$runnerIntro = New-Object Windows.Forms.Label
+$runnerIntro.Dock = 'Fill'
+$runnerIntro.Text = 'Love-Github と Durable Workflow の GitHub Actions runner を一画面で管理します。Warfare Wings runner も既存のまま表示します。'
+$runnerIntro.Font = New-Object Drawing.Font('Segoe UI',10)
+$runnerIntro.ForeColor = $ColorText
+$runnerIntro.TextAlign = 'MiddleLeft'
+$runnerLayout.Controls.Add($runnerIntro,0,0)
+
+$runnerGrid = New-Object Windows.Forms.DataGridView
+$runnerGrid.Dock = 'Fill'
+$runnerGrid.SelectionMode = 'FullRowSelect'
+$runnerGrid.MultiSelect = $false
+Style-Grid $runnerGrid
+foreach ($columnInfo in @(
+    @('Id','ID',160),
+    @('Name','Runner',210),
+    @('Repository','Repository',300),
+    @('Root','ローカル配置',330),
+    @('State','状態',180),
+    @('Evidence','判定根拠',360)
+)) {
+    $column = New-Object Windows.Forms.DataGridViewTextBoxColumn
+    $column.Name = $columnInfo[0]
+    $column.HeaderText = $columnInfo[1]
+    $column.Width = $columnInfo[2]
+    [void]$runnerGrid.Columns.Add($column)
+}
+$runnerGrid.Columns['Id'].Visible = $false
+$runnerLayout.Controls.Add($runnerGrid,0,1)
+
+$runnerButtons = New-Object Windows.Forms.FlowLayoutPanel
+$runnerButtons.Dock = 'Fill'
+$runnerButtons.FlowDirection = 'LeftToRight'
+$runnerButtons.WrapContents = $false
+$runnerButtons.Padding = New-Object Windows.Forms.Padding(0,8,0,0)
+$runnerButtons.BackColor = $ColorWindow
+$runnerLayout.Controls.Add($runnerButtons,0,2)
+
+function New-RunnerButton([string]$Text,[int]$Width) {
+    $button = New-Object Windows.Forms.Button
+    $button.Text = $Text
+    $button.Size = New-Object Drawing.Size($Width,34)
+    $button.FlatStyle = 'Flat'
+    $button.BackColor = $ColorSurface
+    $button.ForeColor = $ColorText
+    $button.Font = New-Object Drawing.Font('Segoe UI',9,[Drawing.FontStyle]::Bold)
+    return $button
+}
+
+$startSelectedRunner = New-RunnerButton '選択を起動' 112
+$stopSelectedRunner = New-RunnerButton '選択を停止' 112
+$startAllRunners = New-RunnerButton 'すべて起動' 112
+$stopAllRunners = New-RunnerButton 'すべて停止' 112
+$refreshRunners = New-RunnerButton '状態を更新' 112
+foreach ($button in @($startSelectedRunner,$stopSelectedRunner,$startAllRunners,$stopAllRunners,$refreshRunners)) {
+    $runnerButtons.Controls.Add($button)
+}
+
 $dashboardTab = New-Object Windows.Forms.TabPage
 $dashboardTab.Text = 'ダッシュボード'
 $dashboardTab.BackColor = $ColorWindow
@@ -1120,14 +1296,22 @@ function Load-SelectedHistory {
 }
 
 function Reload-Profiles([string]$Id) {
-    $profiles.Items.Clear()
-    foreach ($profile in @($script:Config.profiles)) { [void]$profiles.Items.Add($profile) }
-    $profiles.DisplayMember = 'name'
-    $index = 0
-    for ($i=0; $i -lt $profiles.Items.Count; $i++) {
-        if ([string]$profiles.Items[$i].id -eq $Id) { $index=$i;break }
+    $script:ReloadingProfiles = $true
+    try {
+        $profiles.BeginUpdate()
+        $profiles.Items.Clear()
+        foreach ($profile in @($script:Config.profiles)) { [void]$profiles.Items.Add($profile) }
+        $profiles.DisplayMember = 'name'
+        [int]$index = 0
+        for ([int]$i=0; $i -lt $profiles.Items.Count; $i++) {
+            if ([string]$profiles.Items[$i].id -eq $Id) { $index=$i;break }
+        }
+        if ($profiles.Items.Count -gt 0) { $profiles.SelectedIndex = [int]$index }
+    } finally {
+        $profiles.EndUpdate()
+        $script:ReloadingProfiles = $false
     }
-    if ($profiles.Items.Count -gt 0) { $profiles.SelectedIndex = $index }
+    Select-Profile
 }
 
 function Select-Profile {
@@ -1147,10 +1331,63 @@ function Select-Profile {
     Fill-Events $idle $eventGrid
     Update-Chart $chartABox.Chart @() (Selected-MetricKey $chartABox.Combo 'speed') $script:Profile
     Update-Chart $chartBBox.Chart @() (Selected-MetricKey $chartBBox.Combo 'agl') $script:Profile
-    $script:RunnerCacheAt = [datetime]::MinValue
+    Reset-RunnerCache $script:Profile
 }
 
-$profiles.add_SelectedIndexChanged({ Select-Profile })
+function Refresh-RunnerOverview {
+    $selectedId = ''
+    if ($runnerGrid.SelectedRows.Count -gt 0) {
+        $selectedId = [string]$runnerGrid.SelectedRows[0].Cells['Id'].Value
+    }
+    $runnerGrid.SuspendLayout()
+    try {
+        $runnerGrid.Rows.Clear()
+        foreach ($profile in @($script:Config.profiles)) {
+            $root = [Environment]::ExpandEnvironmentVariables([string]$profile.runnerRoot)
+            $repository = ([string]$profile.repoUrl).TrimEnd('/') -replace '^https://github.com/',''
+            if (Test-RunnerConfigured $profile) {
+                $state = Read-RunnerConnectionState $profile
+                $stateText = [string]$state.Text
+                $evidence = [string]$state.Evidence
+            } else {
+                $stateText = '未登録'
+                $evidence = 'run.cmd または .runner がありません'
+            }
+            $index = $runnerGrid.Rows.Add(
+                [string]$profile.id,
+                [string]$profile.name,
+                $repository,
+                $root,
+                $stateText,
+                $evidence)
+            $row = $runnerGrid.Rows[$index]
+            if ($stateText -in @('GitHub 待機中','ジョブ実行中','ジョブ完了確認中')) {
+                $row.Cells['State'].Style.ForeColor = $ColorGood
+            } elseif ($stateText -in @('未登録','停止中','再接続中')) {
+                $row.Cells['State'].Style.ForeColor = $ColorBad
+            } else {
+                $row.Cells['State'].Style.ForeColor = $ColorWarn
+            }
+            if ([string]$profile.id -eq $selectedId) {
+                $row.Selected = $true
+            }
+        }
+        if ($runnerGrid.SelectedRows.Count -eq 0 -and $runnerGrid.Rows.Count -gt 0) {
+            $runnerGrid.Rows[0].Selected = $true
+        }
+    } finally {
+        $runnerGrid.ResumeLayout()
+    }
+}
+
+function Get-SelectedRunnerProfile {
+    if ($runnerGrid.SelectedRows.Count -eq 0) { return $null }
+    return Get-ProfileById ([string]$runnerGrid.SelectedRows[0].Cells['Id'].Value)
+}
+
+$profiles.add_SelectedIndexChanged({
+    if (-not $script:ReloadingProfiles) { Select-Profile }
+})
 $chartABox.Combo.add_SelectedIndexChanged({
     if ($null -ne $script:Profile) {
         Update-Chart $chartABox.Chart $script:LiveSamples `
@@ -1183,6 +1420,44 @@ $disconnect.add_Click({
         try { Stop-Runner $script:Profile } catch { Show-Error $_.Exception.Message }
     }
 })
+$startSelectedRunner.add_Click({
+    $profile = Get-SelectedRunnerProfile
+    if ($null -ne $profile) {
+        try { Start-Runner $profile; Refresh-RunnerOverview } catch { Show-Error $_.Exception.Message }
+    }
+})
+$stopSelectedRunner.add_Click({
+    $profile = Get-SelectedRunnerProfile
+    if ($null -ne $profile -and [Windows.Forms.MessageBox]::Show(
+        "$($profile.name) を停止しますか？",
+        'ジョリー Runner Hub',
+        [Windows.Forms.MessageBoxButtons]::YesNo,
+        [Windows.Forms.MessageBoxIcon]::Question) -eq 'Yes') {
+        try { Stop-Runner $profile; Refresh-RunnerOverview } catch { Show-Error $_.Exception.Message }
+    }
+})
+$startAllRunners.add_Click({
+    $errors = New-Object System.Collections.Generic.List[string]
+    foreach ($profile in @($script:Config.profiles)) {
+        if (-not (Test-RunnerConfigured $profile)) { continue }
+        try { Start-Runner $profile } catch { $errors.Add("$($profile.name): $($_.Exception.Message)") }
+    }
+    Refresh-RunnerOverview
+    if ($errors.Count -gt 0) { Show-Error ($errors -join [Environment]::NewLine) }
+})
+$stopAllRunners.add_Click({
+    if ([Windows.Forms.MessageBox]::Show(
+        'Hubに登録された実行中のRunnerをすべて停止しますか？',
+        'ジョリー Runner Hub',
+        [Windows.Forms.MessageBoxButtons]::YesNo,
+        [Windows.Forms.MessageBoxIcon]::Question) -eq 'Yes') {
+        foreach ($profile in @($script:Config.profiles)) {
+            try { Stop-Runner $profile } catch {}
+        }
+        Refresh-RunnerOverview
+    }
+})
+$refreshRunners.add_Click({ Refresh-RunnerOverview })
 $configButton.add_Click({
     Start-Process notepad.exe -ArgumentList ('"{0}"' -f $ConfigPath)
 })
@@ -1217,7 +1492,7 @@ $historyFolder.add_Click({
 })
 
 Reload-Profiles ''
-Select-Profile
+Refresh-RunnerOverview
 
 $timer = New-Object Windows.Forms.Timer
 $timer.Interval = 1000
@@ -1228,7 +1503,10 @@ $timer.add_Tick({
             $id = [string]$script:Profile.id
             Load-Config
             Reload-Profiles $id
+            Refresh-RunnerOverview
         }
+
+        Refresh-RunnerOverview
 
         if (Runner-Running $script:Profile) {
             $runnerStatus.Value.Text = '接続中'
@@ -1293,7 +1571,15 @@ $form.add_Shown({
         $historySplit.SplitterDistance = [int]($historySplit.Height * 0.64)
     }
     if ([bool]$script:Config.autoConnect) {
-        try { Start-Runner $script:Profile } catch { Show-Error $_.Exception.Message }
+        $errors = New-Object System.Collections.Generic.List[string]
+        foreach ($profile in @($script:Config.profiles)) {
+            if (-not (Test-RunnerConfigured $profile)) { continue }
+            try { Start-Runner $profile } catch {
+                $errors.Add("$($profile.name): $($_.Exception.Message)")
+            }
+        }
+        Refresh-RunnerOverview
+        if ($errors.Count -gt 0) { Show-Error ($errors -join [Environment]::NewLine) }
     }
 })
 $form.add_FormClosed({ $timer.Stop() })

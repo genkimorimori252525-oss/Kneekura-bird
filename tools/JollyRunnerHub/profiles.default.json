@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "autoConnect": true,
   "profiles": [
     {
@@ -165,6 +165,34 @@
           "default": "none"
         }
       ]
+    },
+    {
+      "id": "love-github",
+      "name": "Love-Github",
+      "runnerRoot": "C:\\actions-runner-love-github",
+      "workspaceRoot": "C:\\actions-runner-love-github\\_work\\Love-Github\\Love-Github",
+      "telemetryRoot": "C:\\actions-runner-love-github\\_work\\_jolly-no-telemetry",
+      "filePattern": "*.jsonl",
+      "staleSeconds": 12,
+      "historyDays": 30,
+      "historyMaxRuns": 100,
+      "repoUrl": "https://github.com/genkimorimori252525-oss/Love-Github",
+      "expectedAircraft": [],
+      "metrics": []
+    },
+    {
+      "id": "durable-workflow",
+      "name": "Durable Workflow",
+      "runnerRoot": "C:\\actions-runner-durable-workflow",
+      "workspaceRoot": "C:\\actions-runner-durable-workflow\\_work\\durable-workflow-chatgpt\\durable-workflow-chatgpt",
+      "telemetryRoot": "C:\\actions-runner-durable-workflow\\_work\\_jolly-no-telemetry",
+      "filePattern": "*.jsonl",
+      "staleSeconds": 12,
+      "historyDays": 30,
+      "historyMaxRuns": 100,
+      "repoUrl": "https://github.com/genkimorimori252525-oss/durable-workflow-chatgpt",
+      "expectedAircraft": [],
+      "metrics": []
     }
   ]
 }
