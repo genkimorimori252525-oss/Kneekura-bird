@@ -8,7 +8,7 @@ Windowsの自己ホストGitHub Actions Runnerをデスクトップから起動�
 - 登録済みRunnerの一括自動接続、個別/一括の起動と停止
 - RunnerプロセスとRunnerログを組み合わせたGitHub接続状態の判定
 - `Runner 管理` タブで複数リポジトリの状態、配置先、判定根拠を一覧表示
-- Warfare Wings、Love-Github、Durable Workflowの独立したrepo-scoped Runnerプロファイル
+- Warfare Wings、Love-Github、KNEEKURA CODE-LAB、Durable Workflowの独立したrepo-scoped Runnerプロファイル
 - 1秒ごとにJSONLテレメトリを読み込み
 - 実行中のテレメトリから機体名を自動検出
 - 検証終了後は直近の保存履歴から機体名を復元
@@ -48,10 +48,11 @@ Windowsの自己ホストGitHub Actions Runnerをデスクトップから起動�
 
 ### Runner 管理
 
-3つのRunnerを同時に表示し、選択したRunnerまたは登録済みRunner全体を起動・停止できます。停止はHubが起動元プロセスを記録して安全に対象を特定できる場合だけ実行します。
+4つのRunnerを同時に表示し、選択したRunnerまたは登録済みRunner全体を起動・停止できます。停止はHubが起動元プロセスを記録して安全に対象を特定できる場合だけ実行します。
 
 - Warfare Wings: `C:\actions-runner`
 - Love-Github: `C:\actions-runner-love-github`
+- KNEEKURA CODE-LAB: `C:\actions-runner-kneekura-code-lab`
 - Durable Workflow: `C:\actions-runner-durable-workflow`
 
 各personal repositoryのRunner資格情報は共有せず、それぞれのディレクトリに独立して保持します。`profiles.json`にはrunner tokenやcredentialを保存しません。
