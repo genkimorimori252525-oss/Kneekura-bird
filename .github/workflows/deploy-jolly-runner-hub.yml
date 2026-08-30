@@ -67,6 +67,9 @@ jobs:
             tools/JollyRunnerHub/EphemeralRunnerWatchdog.ps1
             tools/JollyRunnerHub/Manage-EphemeralRunner.ps1
             tools/JollyRunnerHub/Test-EphemeralRunnerController.ps1
+            tools/JollyRunnerHub/RunnerCapabilities.ps1
+            tools/JollyRunnerHub/Inspect-RunnerCapabilities.ps1
+            tools/JollyRunnerHub/Test-RunnerCapabilities.ps1
             tools/JollyRunnerHub/profiles.default.json
             tools/JollyRunnerHub/README.md
 

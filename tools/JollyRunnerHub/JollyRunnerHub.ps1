@@ -12,6 +12,8 @@ $ConfigPath = Join-Path $AppRoot 'profiles.json'
 $DefaultConfigPath = Join-Path $AppRoot 'profiles.default.json'
 $IconPath = Join-Path $AppRoot 'JollyRunnerHub.ico'
 $HistoryRoot = Join-Path $AppRoot 'history'
+$CapabilitiesPath = Join-Path $AppRoot 'capabilities.json'
+$CapabilitiesScriptPath = Join-Path $AppRoot 'RunnerCapabilities.ps1'
 
 $script:Config = $null
 $script:Profile = $null
@@ -985,6 +987,7 @@ foreach ($columnInfo in @(
     @('Repository','Repository',300),
     @('Root','ローカル配置',330),
     @('State','状態',180),
+    @('Capabilities','能力',260),
     @('Evidence','判定根拠',360)
 )) {
     $column = New-Object Windows.Forms.DataGridViewTextBoxColumn
@@ -1020,7 +1023,8 @@ $stopSelectedRunner = New-RunnerButton '選択を停止' 112
 $startAllRunners = New-RunnerButton 'すべて起動' 112
 $stopAllRunners = New-RunnerButton 'すべて停止' 112
 $refreshRunners = New-RunnerButton '状態を更新' 112
-foreach ($button in @($startSelectedRunner,$stopSelectedRunner,$startAllRunners,$stopAllRunners,$refreshRunners)) {
+$refreshCapabilities = New-RunnerButton '能力を更新' 112
+foreach ($button in @($startSelectedRunner,$stopSelectedRunner,$startAllRunners,$stopAllRunners,$refreshRunners,$refreshCapabilities)) {
     $runnerButtons.Controls.Add($button)
 }
 
@@ -1353,12 +1357,34 @@ function Refresh-RunnerOverview {
                 $stateText = '未登録'
                 $evidence = 'run.cmd または .runner がありません'
             }
+            $capabilityText = '未計測'
+            if (Test-Path -LiteralPath $CapabilitiesPath) {
+                try {
+                    $capabilitySnapshot = Get-Content -LiteralPath $CapabilitiesPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                    $required = if ($profile.PSObject.Properties.Name -contains 'requiredCapabilities') {
+                        @($profile.requiredCapabilities)
+                    } else { @() }
+                    $selectedCapabilities = if ($required.Count -eq 0) {
+                        @($capabilitySnapshot.capabilities)
+                    } else {
+                        @($capabilitySnapshot.capabilities | Where-Object { $required -contains [string]$_.name })
+                    }
+                    $readyCount = @($selectedCapabilities | Where-Object { $_.status -eq 'ready' }).Count
+                    $missing = @($selectedCapabilities | Where-Object { $_.status -ne 'ready' } | ForEach-Object { [string]$_.name })
+                    $capabilityText = if ($missing.Count -eq 0) {
+                        "$readyCount/$($selectedCapabilities.Count) ready"
+                    } else {
+                        "$readyCount/$($selectedCapabilities.Count) ready; $($missing -join ', ')"
+                    }
+                } catch { $capabilityText = '読込エラー' }
+            }
             $index = $runnerGrid.Rows.Add(
                 [string]$profile.id,
                 [string]$profile.name,
                 $repository,
                 $root,
                 $stateText,
+                $capabilityText,
                 $evidence)
             $row = $runnerGrid.Rows[$index]
             if ($stateText -in @('GitHub 待機中','ジョブ実行中','ジョブ完了確認中')) {
@@ -1458,6 +1484,18 @@ $stopAllRunners.add_Click({
     }
 })
 $refreshRunners.add_Click({ Refresh-RunnerOverview })
+$refreshCapabilities.add_Click({
+    try {
+        if (-not (Test-Path -LiteralPath $CapabilitiesScriptPath)) {
+            throw "RunnerCapabilities.ps1 がありません: $CapabilitiesScriptPath"
+        }
+        . $CapabilitiesScriptPath
+        $roots = @($script:Config.profiles | ForEach-Object { [string]$_.runnerRoot })
+        Get-JollyRunnerCapabilities -RunnerRoots $roots | ConvertTo-Json -Depth 8 |
+            Set-Content -LiteralPath $CapabilitiesPath -Encoding UTF8
+        Refresh-RunnerOverview
+    } catch { Show-Error $_.Exception.Message }
+})
 $configButton.add_Click({
     Start-Process notepad.exe -ArgumentList ('"{0}"' -f $ConfigPath)
 })

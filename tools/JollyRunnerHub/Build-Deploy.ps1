@@ -20,6 +20,9 @@ $ephemeralModulePath = Join-Path $root 'EphemeralRunnerController.psm1'
 $ephemeralWatchdogPath = Join-Path $root 'EphemeralRunnerWatchdog.ps1'
 $ephemeralCliPath = Join-Path $root 'Manage-EphemeralRunner.ps1'
 $ephemeralTestPath = Join-Path $root 'Test-EphemeralRunnerController.ps1'
+$capabilitiesPath = Join-Path $root 'RunnerCapabilities.ps1'
+$capabilitiesCliPath = Join-Path $root 'Inspect-RunnerCapabilities.ps1'
+$capabilitiesTestPath = Join-Path $root 'Test-RunnerCapabilities.ps1'
 $runtimeSourcePath = Join-Path $buildDir 'JollyRunnerHub.source.ps1'
 
 $scriptText = Get-Content -LiteralPath $scriptPath -Raw -Encoding UTF8
@@ -79,6 +82,20 @@ foreach ($ephemeralPath in @($ephemeralModulePath,$ephemeralWatchdogPath,$epheme
     }
 }
 & $ephemeralTestPath | Out-Host
+foreach ($capabilityScript in @($capabilitiesPath,$capabilitiesCliPath,$capabilitiesTestPath)) {
+    $capabilityText = Get-Content -LiteralPath $capabilityScript -Raw -Encoding UTF8
+    $capabilityTokens = $null
+    $capabilityParseErrors = $null
+    [System.Management.Automation.Language.Parser]::ParseInput(
+        $capabilityText,[ref]$capabilityTokens,[ref]$capabilityParseErrors) | Out-Null
+    if (@($capabilityParseErrors).Count -gt 0) {
+        $details = @($capabilityParseErrors | ForEach-Object {
+            '{0}:{1} {2}' -f $_.Extent.StartLineNumber,$_.Extent.StartColumnNumber,$_.Message
+        }) -join [Environment]::NewLine
+        throw "Runner capability script syntax validation failed for $capabilityScript`n$details"
+    }
+}
+& $capabilitiesTestPath | Out-Host
 
 try {
     Add-Type -AssemblyName System.Windows.Forms.DataVisualization -ErrorAction Stop
@@ -289,6 +306,9 @@ if ($Install) {
     Copy-Item -LiteralPath $defaultConfig -Destination $smokeDefaultConfig -Force
     foreach ($ephemeralPath in @($ephemeralModulePath,$ephemeralWatchdogPath,$ephemeralCliPath)) {
         Copy-Item -LiteralPath $ephemeralPath -Destination (Join-Path $appData (Split-Path -Leaf $ephemeralPath)) -Force
+    }
+    foreach ($capabilityScript in @($capabilitiesPath,$capabilitiesCliPath)) {
+        Copy-Item -LiteralPath $capabilityScript -Destination (Join-Path $appData (Split-Path -Leaf $capabilityScript)) -Force
     }
 
     $profilePath = $smokeProfile

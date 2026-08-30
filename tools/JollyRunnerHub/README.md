@@ -91,6 +91,16 @@ Windows PowerShell 5.1が必要なstepは`shell: powershell`を明示します�
 - `status`、`stop`、`gc`はinstance IDを対象とし、ephemeral base外のpathを削除しません。
 - `%LOCALAPPDATA%\JollyRunnerHub\ephemeral\<instance>\state.json`にはtokenやcredentialを含めません。
 
+### Runner能力
+
+`Runner 管理`タブの`能力を更新`は、Git、GitHub CLI、Node、Java/Javac、Gradle、Python、Docker/Linux engine、WSL、通常Ubuntu distro、Actions tool cacheを個別に検査します。結果は`ready / degraded / unavailable`と根拠に分けて`%LOCALAPPDATA%\JollyRunnerHub\capabilities.json`へ保存します。各Profileの`requiredCapabilities`に対する充足数と不足項目が画面に表示されます。
+
+```powershell
+& "$env:LOCALAPPDATA\JollyRunnerHub\Inspect-RunnerCapabilities.ps1" `
+  -RunnerRoots @('C:\actions-runner-love-github','C:\actions-runner-durable-workflow') `
+  -OutputPath "$env:LOCALAPPDATA\JollyRunnerHub\capabilities.json"
+```
+
 ### ダッシュボード
 
 ヘッダー、機体カード、6枚のミニグラフ、詳細表を重ならない固定レイアウト行に分けて表示します。各グラフのプルダウンからSpeed、AGL、Pitch、Roll、Separationなどを切り替えられます。
