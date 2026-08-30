@@ -1,0 +1,154 @@
+name: PR103 Ephemeral Lifecycle Rehearsal v2
+
+on:
+  push:
+    branches:
+      - verify/pr103-ephemeral-lifecycle-v2-20260831
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr103-ephemeral-lifecycle-rehearsal-v2
+  cancel-in-progress: false
+
+jobs:
+  controller:
+    name: Create isolated ephemeral runner
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Inspect capabilities and start ephemeral runner
+        run: |
+          $ErrorActionPreference = 'Stop'
+          . .\tools\JollyRunnerHub\RunnerLifecycle.ps1
+
+          $sourceRoot = Split-Path (Split-Path $env:RUNNER_TEMP -Parent) -Parent
+          $caps = Get-JollyRunnerCapabilities -RunnerRoot $sourceRoot
+          Write-Host "PERSISTENT_RUNNER=$env:RUNNER_NAME"
+          Write-Host "CAPABILITIES=$($caps.Summary)"
+          if (-not $caps.RunnerFiles) { throw 'runner capability missing' }
+          if (-not $caps.Git) { throw 'git capability missing' }
+          if (-not $caps.Gh) { throw 'gh capability missing' }
+
+          $appRoot = Join-Path $env:LOCALAPPDATA ("JollyRunnerHub-Lifecycle-Rehearsal-" + $env:GITHUB_RUN_ID)
+          Remove-Item -LiteralPath $appRoot -Recurse -Force -ErrorAction SilentlyContinue
+
+          $profile = [pscustomobject]@{
+            id = 'warfare-wings-rehearsal'
+            repoUrl = 'https://github.com/genkimorimori252525-oss/warfare_wings-1.1.4-1.20.1-forge'
+            runnerRoot = $sourceRoot
+            ephemeralEnabled = $true
+            ephemeralTtlMinutes = 5
+            ephemeralLabels = @('pr103-lifecycle-rehearsal')
+          }
+          $state = Start-JollyEphemeralRunner -Profile $profile -AppRoot $appRoot
+          if ([string]::IsNullOrWhiteSpace([string]$state.runnerName)) { throw 'runner name missing' }
+          Write-Host "EPHEMERAL_RUNNER=$($state.runnerName)"
+          Write-Host "EPHEMERAL_ROOT=$($state.root)"
+
+          $lookup = Find-JollyGitHubRunner -Repository $state.repository -RunnerName $state.runnerName
+          if (-not $lookup.Ok -or $null -eq $lookup.Runner) { throw 'ephemeral runner did not register' }
+          if ([string]$lookup.Runner.status -ne 'online') { throw "ephemeral runner not online: $($lookup.Runner.status)" }
+
+  child:
+    name: Execute one job on ephemeral runner
+    needs: controller
+    runs-on: [self-hosted, Windows, X64, pr103-lifecycle-rehearsal]
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prove child identity and capabilities
+        run: |
+          $ErrorActionPreference = 'Stop'
+          . .\tools\JollyRunnerHub\RunnerLifecycle.ps1
+          Write-Host "CHILD_RUNNER=$env:RUNNER_NAME"
+          if ($env:RUNNER_NAME -notlike 'Jolly-warfare-wings-rehearsal-Ephemeral-*') {
+            throw "unexpected child runner: $env:RUNNER_NAME"
+          }
+          $sourceRoot = Split-Path (Split-Path $env:RUNNER_TEMP -Parent) -Parent
+          $caps = Get-JollyRunnerCapabilities -RunnerRoot $sourceRoot
+          Write-Host "CHILD_CAPABILITIES=$($caps.Summary)"
+          if (-not $caps.RunnerFiles -or -not $caps.Git) { throw 'child capability contract failed' }
+
+          $appRoot = Join-Path $env:LOCALAPPDATA ("JollyRunnerHub-Lifecycle-Rehearsal-" + $env:GITHUB_RUN_ID)
+          New-Item -ItemType Directory -Force -Path $appRoot | Out-Null
+          Set-Content -LiteralPath (Join-Path $appRoot 'child-job-completed.txt') -Value $env:RUNNER_NAME -Encoding UTF8
+
+  cleanup:
+    name: Verify auto-deregister and Hub GC recovery
+    if: always()
+    needs: [controller, child]
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify persistent runner, deregistration, and cleanup
+        run: |
+          $ErrorActionPreference = 'Stop'
+          . .\tools\JollyRunnerHub\RunnerLifecycle.ps1
+          $repo = 'genkimorimori252525-oss/warfare_wings-1.1.4-1.20.1-forge'
+          $appRoot = Join-Path $env:LOCALAPPDATA ("JollyRunnerHub-Lifecycle-Rehearsal-" + $env:GITHUB_RUN_ID)
+
+          if (-not (Test-Path -LiteralPath (Join-Path $appRoot 'child-job-completed.txt'))) {
+            throw 'child completion marker missing'
+          }
+
+          $states = @(Get-JollyEphemeralStates -AppRoot $appRoot)
+          if ($states.Count -ne 1) { throw "expected one ephemeral state, found $($states.Count)" }
+          $state = $states[0]
+          Write-Host "RECOVERY_STATE=$($state.runnerName)"
+
+          $gone = $false
+          for ($i = 0; $i -lt 45; $i++) {
+            $lookup = Find-JollyGitHubRunner -Repository $repo -RunnerName ([string]$state.runnerName)
+            if (-not $lookup.Ok) { throw $lookup.Error }
+            if ($null -eq $lookup.Runner) { $gone = $true; break }
+            Start-Sleep -Seconds 2
+          }
+          if (-not $gone) { throw 'ephemeral registration did not auto-deregister' }
+
+          $status = Get-JollyEphemeralStatus -State $state
+          Write-Host "POST_JOB_STATUS=$($status.Code) $($status.Summary)"
+          if ([string]$status.Code -ne 'finished') {
+            throw "expected finished stale state before GC, got $($status.Code)"
+          }
+
+          $persistent = (& gh api "repos/$repo/actions/runners" | ConvertFrom-Json).runners |
+            Where-Object { $_.name -eq $env:RUNNER_NAME } |
+            Select-Object -First 1
+          if ($null -eq $persistent -or [string]$persistent.status -ne 'online') {
+            throw "persistent runner is not online after child lifecycle: $env:RUNNER_NAME"
+          }
+          Write-Host "PERSISTENT_STATUS=$($persistent.status) BUSY=$($persistent.busy)"
+
+          $gc = @(Invoke-JollyEphemeralGc -AppRoot $appRoot)
+          $gc | ForEach-Object { Write-Host "GC_ACTION=$($_.Action) DETAIL=$($_.Detail)" }
+          if (@($gc | Where-Object { $_.Action -eq 'cleaned_finished' }).Count -ne 1) {
+            throw 'Hub GC did not clean the finished ephemeral state'
+          }
+          if (@(Get-JollyEphemeralStates -AppRoot $appRoot).Count -ne 0) {
+            throw 'ephemeral state remains after GC'
+          }
+
+          $ephemeralRoot = Get-JollyEphemeralRoot $appRoot
+          if (Test-Path -LiteralPath $ephemeralRoot) {
+            $remaining = @(Get-ChildItem -LiteralPath $ephemeralRoot -Force -ErrorAction SilentlyContinue)
+            if ($remaining.Count -ne 0) { throw 'ephemeral local root still contains runner data after GC' }
+          }
+
+          Remove-Item -LiteralPath $appRoot -Recurse -Force -ErrorAction SilentlyContinue
+          Write-Host 'LIFECYCLE_REHEARSAL=SUCCESS'
