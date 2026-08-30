@@ -411,12 +411,12 @@ function Read-History([string]$Path) {
 
 function Runner-Processes($Profile) {
     $root = [Environment]::ExpandEnvironmentVariables([string]$Profile.runnerRoot).TrimEnd('\')
-    $escaped = [regex]::Escape($root)
+    $rootPattern = [regex]::Escape($root) + '(?:\\|["\s]|$)'
     try {
         return @(Get-CimInstance Win32_Process -Filter "Name='Runner.Listener.exe'" |
             Where-Object {
-                ([string]$_.ExecutablePath -match "^$escaped") -or
-                ([string]$_.CommandLine -match $escaped)
+                ([string]$_.ExecutablePath -match "^$rootPattern") -or
+                ([string]$_.CommandLine -match $rootPattern)
             })
     } catch { return @() }
 }
