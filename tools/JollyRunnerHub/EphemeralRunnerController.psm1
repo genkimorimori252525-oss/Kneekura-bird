@@ -68,6 +68,8 @@ function New-JollyEphemeralRunnerPlan {
         runnerRoot = $runnerRoot
         statePath = (Join-Path $instanceRoot 'state.json')
         logPath = (Join-Path $instanceRoot 'watchdog.log')
+        stdoutLogPath = (Join-Path $instanceRoot 'runner.stdout.log')
+        stderrLogPath = (Join-Path $instanceRoot 'runner.stderr.log')
         createdAt = $createdAt.ToString('o')
         expiresAt = $createdAt.AddMinutes($TtlMinutes).ToString('o')
         expectedRunId = $ExpectedRunId

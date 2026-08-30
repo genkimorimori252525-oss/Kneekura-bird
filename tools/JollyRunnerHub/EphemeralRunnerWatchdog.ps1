@@ -18,7 +18,9 @@ try {
     $env:RUNNER_TRACKING_ID = ''
     try {
         $runner = Start-Process -FilePath (Join-Path ([string]$state.runnerRoot) 'run.cmd') `
-            -WorkingDirectory ([string]$state.runnerRoot) -WindowStyle Hidden -PassThru
+            -WorkingDirectory ([string]$state.runnerRoot) -WindowStyle Hidden -PassThru `
+            -RedirectStandardOutput ([string]$state.stdoutLogPath) `
+            -RedirectStandardError ([string]$state.stderrLogPath)
     }
     finally { $env:RUNNER_TRACKING_ID = $previousTracking }
 
