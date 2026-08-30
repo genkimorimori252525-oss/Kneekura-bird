@@ -272,6 +272,50 @@ function Stop-JollyEphemeralProcess {
     return $null -eq (Get-Process -Id $processId -ErrorAction SilentlyContinue)
 }
 
+function Remove-JollyOwnedDirectoryTree {
+    param(
+        [Parameter(Mandatory=$true)][string]$Path,
+        [Parameter(Mandatory=$true)][string]$AppRoot
+    )
+    if (-not (Test-JollyEphemeralOwnedPath -Path $Path -AppRoot $AppRoot)) { return $false }
+    if (-not (Test-Path -LiteralPath $Path)) { return $true }
+
+    try {
+        Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop
+        return -not (Test-Path -LiteralPath $Path)
+    }
+    catch {
+        # Windows PowerShell 5.1 can enumerate a checked-out tree yet fail to
+        # delete a deep descendant with DirectoryNotFoundException when the
+        # legacy path limit is crossed. Robocopy's mirror engine handles the
+        # deep tree natively; mirror an empty directory only after the same
+        # strict ownership check above, then remove the now-empty root.
+        $emptyRoot = Join-Path (Get-JollyEphemeralRoot $AppRoot) (
+            '_empty-' + [guid]::NewGuid().ToString('N')
+        )
+        New-Item -ItemType Directory -Force -Path $emptyRoot | Out-Null
+        try {
+            $oldPreference = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            & robocopy $emptyRoot $Path /MIR /R:0 /W:0 /NFL /NDL /NJH /NJS /NP | Out-Null
+            $mirrorCode = $LASTEXITCODE
+            $ErrorActionPreference = $oldPreference
+            if ($mirrorCode -gt 7) {
+                throw "Long-path cleanup mirror failed with robocopy exit code $mirrorCode"
+            }
+            if (Test-Path -LiteralPath $Path) {
+                Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop
+            }
+            return -not (Test-Path -LiteralPath $Path)
+        }
+        finally {
+            $ErrorActionPreference = 'SilentlyContinue'
+            Remove-Item -LiteralPath $emptyRoot -Recurse -Force -ErrorAction SilentlyContinue
+            $ErrorActionPreference = 'Stop'
+        }
+    }
+}
+
 function Remove-JollyEphemeralLocalState {
     param(
         [Parameter(Mandatory=$true)]$State,
@@ -279,7 +323,7 @@ function Remove-JollyEphemeralLocalState {
     )
     $root = [string]$State.root
     if (-not (Test-JollyEphemeralOwnedPath -Path $root -AppRoot $AppRoot)) { return $false }
-    if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction Stop }
+    if (-not (Remove-JollyOwnedDirectoryTree -Path $root -AppRoot $AppRoot)) { return $false }
     $statePath = [string]$State.statePath
     if (-not [string]::IsNullOrWhiteSpace($statePath) -and (Test-Path -LiteralPath $statePath)) {
         Remove-Item -LiteralPath $statePath -Force -ErrorAction Stop
