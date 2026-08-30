@@ -410,10 +410,32 @@ function Start-JollyEphemeralRunner {
 
     try {
         $ErrorActionPreference = 'Continue'
-        & robocopy $sourceRoot $dest /E /XD _work _diag /XF .runner .credentials .credentials_rsaparams .service | Out-Host
+        & robocopy $sourceRoot $dest /E /XD _work _diag /XF .runner .runner_migrated .credentials .credentials_migrated .credentials_rsaparams .service | Out-Host
         $copyCode = $LASTEXITCODE
         $ErrorActionPreference = 'Stop'
         if ($copyCode -gt 7) { throw "Ephemeral runner copy failed with exit code $copyCode" }
+
+        # A configured source runner can contain migration markers that make a
+        # byte-for-byte copy look configured even when .runner itself is
+        # excluded. Ephemeral clones must always begin from an unconfigured
+        # local state before a fresh short-lived registration token is used.
+        $configurationArtifacts = @(
+            '.runner',
+            '.runner_migrated',
+            '.credentials',
+            '.credentials_migrated',
+            '.credentials_rsaparams',
+            '.service'
+        )
+        foreach ($artifact in $configurationArtifacts) {
+            Remove-Item -LiteralPath (Join-Path $dest $artifact) -Force -ErrorAction SilentlyContinue
+        }
+        $remainingConfiguration = @($configurationArtifacts | Where-Object {
+            Test-Path -LiteralPath (Join-Path $dest $_)
+        })
+        if ($remainingConfiguration.Count -gt 0) {
+            throw "Ephemeral runner copy still contains configured-runner metadata: $($remainingConfiguration -join ', ')"
+        }
 
         $token = (& gh api --method POST "repos/$repository/actions/runners/registration-token" --jq .token).Trim()
         if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($token)) { throw 'Could not mint GitHub runner registration token' }
