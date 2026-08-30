@@ -295,11 +295,14 @@ function Remove-JollyOwnedDirectoryTree {
         )
         New-Item -ItemType Directory -Force -Path $emptyRoot | Out-Null
         try {
-            $oldPreference = $ErrorActionPreference
-            $ErrorActionPreference = 'Continue'
-            & robocopy $emptyRoot $Path /MIR /R:0 /W:0 /NFL /NDL /NJH /NJS /NP | Out-Null
-            $mirrorCode = $LASTEXITCODE
-            $ErrorActionPreference = $oldPreference
+            $robocopy = Join-Path $env:WINDIR 'System32\robocopy.exe'
+            if (-not (Test-Path -LiteralPath $robocopy)) { throw 'robocopy.exe was not found' }
+            $mirrorProcess = Start-Process -FilePath $robocopy -ArgumentList @(
+                ('"{0}"' -f $emptyRoot),
+                ('"{0}"' -f $Path),
+                '/MIR','/R:0','/W:0','/NFL','/NDL','/NJH','/NJS','/NP'
+            ) -Wait -PassThru -WindowStyle Hidden
+            $mirrorCode = [int]$mirrorProcess.ExitCode
             if ($mirrorCode -gt 7) {
                 throw "Long-path cleanup mirror failed with robocopy exit code $mirrorCode"
             }
@@ -309,9 +312,7 @@ function Remove-JollyOwnedDirectoryTree {
             return -not (Test-Path -LiteralPath $Path)
         }
         finally {
-            $ErrorActionPreference = 'SilentlyContinue'
             Remove-Item -LiteralPath $emptyRoot -Recurse -Force -ErrorAction SilentlyContinue
-            $ErrorActionPreference = 'Stop'
         }
     }
 }
