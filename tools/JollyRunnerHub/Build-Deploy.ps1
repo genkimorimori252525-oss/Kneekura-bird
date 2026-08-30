@@ -99,6 +99,12 @@ try {
     [void](Write-JollyEphemeralState -AppRoot $lifecycleTestRoot -State $expired)
     $dryRun = @(Invoke-JollyEphemeralGc -AppRoot $lifecycleTestRoot -DryRun -SkipGitHub)
     if (@($dryRun | Where-Object { $_.Action -eq 'would_clean_expired' }).Count -ne 1) { throw 'Expired ephemeral dry-run TTL contract failed.' }
+    Remove-Item -LiteralPath $liveRoot -Recurse -Force -ErrorAction SilentlyContinue
+
+    $legacyRoot = Join-Path (Get-JollyLegacyEphemeralRoot $lifecycleTestRoot) 'legacy'
+    New-Item -ItemType Directory -Force -Path $legacyRoot | Out-Null
+    if (-not (Test-JollyEphemeralOwnedPath -Path $legacyRoot -AppRoot $lifecycleTestRoot)) { throw 'Legacy ephemeral ownership compatibility failed.' }
+    Remove-Item -LiteralPath $legacyRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 finally { Remove-Item -LiteralPath $lifecycleTestRoot -Recurse -Force -ErrorAction SilentlyContinue }
 

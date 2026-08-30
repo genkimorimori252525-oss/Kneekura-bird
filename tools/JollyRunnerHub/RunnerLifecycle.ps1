@@ -8,7 +8,26 @@ function ConvertTo-JollySafeName {
 
 function Get-JollyEphemeralRoot {
     param([Parameter(Mandatory=$true)][string]$AppRoot)
+    # Runner workspaces can add the repository name twice below _work.
+    # Keep executable/work data on a deliberately short path to avoid
+    # MAX_PATH failures, while lifecycle state remains under AppRoot.
+    $temp = [IO.Path]::GetTempPath()
+    if ([string]::IsNullOrWhiteSpace($temp)) { throw 'Windows temporary directory is unavailable' }
+    return Join-Path $temp 'JollyER'
+}
+
+function Get-JollyLegacyEphemeralRoot {
+    param([Parameter(Mandatory=$true)][string]$AppRoot)
     return Join-Path $AppRoot 'ephemeral'
+}
+
+function Test-JollyEphemeralOwnedPath {
+    param(
+        [Parameter(Mandatory=$true)][string]$Path,
+        [Parameter(Mandatory=$true)][string]$AppRoot
+    )
+    if (Test-JollyPathInside -Path $Path -Root (Get-JollyEphemeralRoot $AppRoot)) { return $true }
+    return Test-JollyPathInside -Path $Path -Root (Get-JollyLegacyEphemeralRoot $AppRoot)
 }
 
 function Get-JollyEphemeralStateRoot {
@@ -169,7 +188,7 @@ function Get-JollyEphemeralStates {
                 Add-Member -InputObject $state -NotePropertyName stateId -NotePropertyValue $file.BaseName
             }
             Add-Member -InputObject $state -NotePropertyName statePath -NotePropertyValue $file.FullName -Force
-            Add-Member -InputObject $state -NotePropertyName rootValid -NotePropertyValue (Test-JollyPathInside -Path ([string]$state.root) -Root $ephemeralRoot) -Force
+            Add-Member -InputObject $state -NotePropertyName rootValid -NotePropertyValue (Test-JollyEphemeralOwnedPath -Path ([string]$state.root) -AppRoot $AppRoot) -Force
             [void]$states.Add($state)
         }
         catch {}
@@ -243,8 +262,7 @@ function Stop-JollyEphemeralProcess {
         [Parameter(Mandatory=$true)]$State,
         [Parameter(Mandatory=$true)][string]$AppRoot
     )
-    $ephemeralRoot = Get-JollyEphemeralRoot $AppRoot
-    if (-not (Test-JollyPathInside -Path ([string]$State.root) -Root $ephemeralRoot)) { return $false }
+    if (-not (Test-JollyEphemeralOwnedPath -Path ([string]$State.root) -AppRoot $AppRoot)) { return $false }
     $processId = 0
     if (-not [int]::TryParse([string]$State.processId,[ref]$processId) -or $processId -le 0) { return $true }
     $process = Get-Process -Id $processId -ErrorAction SilentlyContinue
@@ -259,9 +277,8 @@ function Remove-JollyEphemeralLocalState {
         [Parameter(Mandatory=$true)]$State,
         [Parameter(Mandatory=$true)][string]$AppRoot
     )
-    $ephemeralRoot = Get-JollyEphemeralRoot $AppRoot
     $root = [string]$State.root
-    if (-not (Test-JollyPathInside -Path $root -Root $ephemeralRoot)) { return $false }
+    if (-not (Test-JollyEphemeralOwnedPath -Path $root -AppRoot $AppRoot)) { return $false }
     if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction Stop }
     $statePath = [string]$State.statePath
     if (-not [string]::IsNullOrWhiteSpace($statePath) -and (Test-Path -LiteralPath $statePath)) {
@@ -393,9 +410,11 @@ function Start-JollyEphemeralRunner {
     $ttlMinutes = Get-JollyEphemeralTtlMinutes $Profile
     $labels = @(Get-JollyEphemeralLabels $Profile)
     $safeProfile = ConvertTo-JollySafeName ([string]$Profile.id)
-    $stamp = (Get-Date).ToUniversalTime().ToString('yyyyMMddHHmmss')
+    $pathProfile = $safeProfile
+    if ($pathProfile.Length -gt 12) { $pathProfile = $pathProfile.Substring(0,12) }
+    $stamp = (Get-Date).ToUniversalTime().ToString('MMddHHmmss')
     $random = Get-Random -Minimum 1000 -Maximum 9999
-    $stateId = "$safeProfile-$stamp-$random"
+    $stateId = "$pathProfile-$stamp-$random"
     $runnerName = "Jolly-$safeProfile-Ephemeral-$stamp-$random"
     $ephemeralRoot = Get-JollyEphemeralRoot $AppRoot
     $dest = Join-Path $ephemeralRoot $stateId
@@ -499,7 +518,7 @@ function Start-JollyEphemeralRunner {
                 try { Start-Process taskkill.exe -ArgumentList '/PID',[string]$launcher.Id,'/T','/F' -Wait -WindowStyle Hidden | Out-Null }
                 catch {}
             }
-            if (Test-JollyPathInside -Path $dest -Root $ephemeralRoot) {
+            if (Test-JollyEphemeralOwnedPath -Path $dest -AppRoot $AppRoot) {
                 Remove-Item -LiteralPath $dest -Recurse -Force -ErrorAction SilentlyContinue
             }
         }
