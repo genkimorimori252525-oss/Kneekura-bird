@@ -57,6 +57,18 @@ Windowsの自己ホストGitHub Actions Runnerをデスクトップから起動�
 
 各personal repositoryのRunner資格情報は共有せず、それぞれのディレクトリに独立して保持します。`profiles.json`にはrunner tokenやcredentialを保存しません。
 
+### CI routing
+
+各workflowは登録先repositoryと一致するcustom labelを使用します。
+
+- Love-Github: `love-github`
+- KNEEKURA CODE-LAB: `kneekura-code-lab`
+- Durable Workflow: `durable-workflow`
+
+workflowの`runs-on`を変更した場合は、古いrunを再実行せず、変更後のcommitから新規runを発生させます。GitHub Actionsの再実行は元runのcommitとworkflow定義を使用するため、GitHub-hosted runner向けの古いrunはself-hosted検証になりません。
+
+Windows PowerShell 5.1が必要なstepは`shell: powershell`を明示します。`pwsh`を使用するstepは、対象RunnerにPowerShell 7がインストールされPATHから解決できることを事前に確認します。
+
 `autoConnect: true`では、Hub起動時に登録済みの全Runnerを接続します。すでに動作中のRunnerは診断ログの使用状態も含めて検出し、重複起動しません。
 
 ### ダッシュボード
