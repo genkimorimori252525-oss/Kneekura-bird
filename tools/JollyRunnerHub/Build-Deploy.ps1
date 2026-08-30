@@ -125,6 +125,21 @@ if (-not $scriptText.Contains($dashboardTabTarget)) {
 }
 $runtimeScriptText = $scriptText.Replace($dashboardTabTarget,$dashboardTabReplacement.TrimEnd())
 
+$runnerLifecycleLoader = @'
+$RunnerLifecyclePath = Join-Path $PSScriptRoot 'RunnerLifecycle.ps1'
+if (-not (Test-Path -LiteralPath $RunnerLifecyclePath)) {
+    $RunnerLifecyclePath = Join-Path (Split-Path -Parent $PSScriptRoot) 'RunnerLifecycle.ps1'
+}
+if (-not (Test-Path -LiteralPath $RunnerLifecyclePath)) { throw 'RunnerLifecycle.ps1 was not found.' }
+. $RunnerLifecyclePath
+'@
+if (-not $runtimeScriptText.Contains($runnerLifecycleLoader.Trim())) {
+    throw 'Runner Hub lifecycle loader patch target was not found.'
+}
+$runtimeScriptText = $runtimeScriptText.Replace(
+    $runnerLifecycleLoader.Trim(),
+    $lifecycleText.TrimEnd())
+
 $dashboardLayoutTarget = '$dashboardTab.Controls.Add($dashboardLayout)'
 $dashboardLayoutReplacement = @'
 $dashboardLayout.Dock = 'Top'
