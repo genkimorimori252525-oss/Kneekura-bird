@@ -63,6 +63,10 @@ jobs:
             tools/JollyRunnerHub/build/deploy.log
             tools/JollyRunnerHub/JollyRunnerHub.ps1
             tools/JollyRunnerHub/RunnerConnectionState.ps1
+            tools/JollyRunnerHub/EphemeralRunnerController.psm1
+            tools/JollyRunnerHub/EphemeralRunnerWatchdog.ps1
+            tools/JollyRunnerHub/Manage-EphemeralRunner.ps1
+            tools/JollyRunnerHub/Test-EphemeralRunnerController.ps1
             tools/JollyRunnerHub/profiles.default.json
             tools/JollyRunnerHub/README.md
 

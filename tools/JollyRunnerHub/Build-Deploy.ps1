@@ -16,6 +16,10 @@ $launcherPath = Join-Path $root 'Launcher.cs'
 $defaultConfig = Join-Path $root 'profiles.default.json'
 $scriptPath = Join-Path $root 'JollyRunnerHub.ps1'
 $connectionStatePath = Join-Path $root 'RunnerConnectionState.ps1'
+$ephemeralModulePath = Join-Path $root 'EphemeralRunnerController.psm1'
+$ephemeralWatchdogPath = Join-Path $root 'EphemeralRunnerWatchdog.ps1'
+$ephemeralCliPath = Join-Path $root 'Manage-EphemeralRunner.ps1'
+$ephemeralTestPath = Join-Path $root 'Test-EphemeralRunnerController.ps1'
 $runtimeSourcePath = Join-Path $buildDir 'JollyRunnerHub.source.ps1'
 
 $scriptText = Get-Content -LiteralPath $scriptPath -Raw -Encoding UTF8
@@ -60,6 +64,21 @@ Assert-RunnerConnectionState -Expected 'connected_starting' -ProcessRunning $tru
 Assert-RunnerConnectionState -Expected 'listening' -ProcessRunning $true -Lines @('Connected to GitHub','Listening for Jobs')
 Assert-RunnerConnectionState -Expected 'running_job' -ProcessRunning $true -Lines @('Listening for Jobs','Running job: validate')
 Assert-RunnerConnectionState -Expected 'reconnecting' -ProcessRunning $true -Lines @('Listening for Jobs','Runner connect error: The HTTP request timed out')
+
+foreach ($ephemeralPath in @($ephemeralModulePath,$ephemeralWatchdogPath,$ephemeralCliPath,$ephemeralTestPath)) {
+    $ephemeralText = Get-Content -LiteralPath $ephemeralPath -Raw -Encoding UTF8
+    $ephemeralTokens = $null
+    $ephemeralParseErrors = $null
+    [System.Management.Automation.Language.Parser]::ParseInput(
+        $ephemeralText,[ref]$ephemeralTokens,[ref]$ephemeralParseErrors) | Out-Null
+    if (@($ephemeralParseErrors).Count -gt 0) {
+        $details = @($ephemeralParseErrors | ForEach-Object {
+            '{0}:{1} {2}' -f $_.Extent.StartLineNumber,$_.Extent.StartColumnNumber,$_.Message
+        }) -join [Environment]::NewLine
+        throw "Ephemeral runner script syntax validation failed for $ephemeralPath`n$details"
+    }
+}
+& $ephemeralTestPath | Out-Host
 
 try {
     Add-Type -AssemblyName System.Windows.Forms.DataVisualization -ErrorAction Stop
@@ -268,6 +287,9 @@ if ($Install) {
     $installedScriptPath = Join-Path $appData 'JollyRunnerHub.ps1'
     Set-Content -LiteralPath $installedScriptPath -Value $runtimeScriptText -Encoding UTF8
     Copy-Item -LiteralPath $defaultConfig -Destination $smokeDefaultConfig -Force
+    foreach ($ephemeralPath in @($ephemeralModulePath,$ephemeralWatchdogPath,$ephemeralCliPath)) {
+        Copy-Item -LiteralPath $ephemeralPath -Destination (Join-Path $appData (Split-Path -Leaf $ephemeralPath)) -Force
+    }
 
     $profilePath = $smokeProfile
     if (-not (Test-Path -LiteralPath $profilePath)) {
@@ -331,6 +353,7 @@ for ($attempt = 0; $attempt -lt 21600; $attempt++) {
         startup_smoke_test = 'passed'
         dashboard_scroll = 'vertical'
         runner_connection_state = 'log-classified'
+        ephemeral_runner_lifecycle = 'watchdog-ttl-gc'
     }
     $installInfo | ConvertTo-Json |
         Set-Content -LiteralPath (Join-Path $appData 'install-status.json') -Encoding UTF8

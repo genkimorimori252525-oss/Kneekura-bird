@@ -71,6 +71,26 @@ Windows PowerShell 5.1が必要なstepは`shell: powershell`を明示します�
 
 `autoConnect: true`では、Hub起動時に登録済みの全Runnerを接続します。すでに動作中のRunnerは診断ログの使用状態も含めて検出し、重複起動しません。
 
+### Ephemeral Runner lifecycle
+
+`Manage-EphemeralRunner.ps1` は、検証専用のrepo-scoped Runnerを常設Runnerとは別のrootへ生成します。
+
+```powershell
+& "$env:LOCALAPPDATA\JollyRunnerHub\Manage-EphemeralRunner.ps1" `
+  -Command spawn `
+  -Repository 'owner/repository' `
+  -Labels @('validation-only') `
+  -SourceRunnerRoot 'C:\actions-runner-love-github' `
+  -TtlMinutes 60
+```
+
+- GitHub registration tokenはstateやログへ保存せず、`config.cmd`実行中のprocess environmentだけで使用します。
+- instanceごとに固有のRunner名、runner root、`_work`を使用します。
+- watchdogは`RUNNER_TRACKING_ID`を継承せず、親Actions job終了後も割当済みjobを完走できます。
+- job終了またはTTL到達後、GitHub登録解除とrunner root清掃を行います。
+- `status`、`stop`、`gc`はinstance IDを対象とし、ephemeral base外のpathを削除しません。
+- `%LOCALAPPDATA%\JollyRunnerHub\ephemeral\<instance>\state.json`にはtokenやcredentialを含めません。
+
 ### ダッシュボード
 
 ヘッダー、機体カード、6枚のミニグラフ、詳細表を重ならない固定レイアウト行に分けて表示します。各グラフのプルダウンからSpeed、AGL、Pitch、Roll、Separationなどを切り替えられます。
