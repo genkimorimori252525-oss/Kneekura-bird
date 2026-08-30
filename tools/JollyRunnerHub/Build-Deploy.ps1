@@ -16,6 +16,7 @@ $launcherPath = Join-Path $root 'Launcher.cs'
 $defaultConfig = Join-Path $root 'profiles.default.json'
 $scriptPath = Join-Path $root 'JollyRunnerHub.ps1'
 $connectionStatePath = Join-Path $root 'RunnerConnectionState.ps1'
+$lifecyclePath = Join-Path $root 'RunnerLifecycle.ps1'
 $runtimeSourcePath = Join-Path $buildDir 'JollyRunnerHub.source.ps1'
 
 $scriptText = Get-Content -LiteralPath $scriptPath -Raw -Encoding UTF8
@@ -60,6 +61,46 @@ Assert-RunnerConnectionState -Expected 'connected_starting' -ProcessRunning $tru
 Assert-RunnerConnectionState -Expected 'listening' -ProcessRunning $true -Lines @('Connected to GitHub','Listening for Jobs')
 Assert-RunnerConnectionState -Expected 'running_job' -ProcessRunning $true -Lines @('Listening for Jobs','Running job: validate')
 Assert-RunnerConnectionState -Expected 'reconnecting' -ProcessRunning $true -Lines @('Listening for Jobs','Runner connect error: The HTTP request timed out')
+
+$lifecycleText = Get-Content -LiteralPath $lifecyclePath -Raw -Encoding UTF8
+$lifecycleTokens = $null
+$lifecycleParseErrors = $null
+[System.Management.Automation.Language.Parser]::ParseInput(
+    $lifecycleText, [ref]$lifecycleTokens, [ref]$lifecycleParseErrors) | Out-Null
+if (@($lifecycleParseErrors).Count -gt 0) {
+    $details = @($lifecycleParseErrors | ForEach-Object {
+        '{0}:{1} {2}' -f $_.Extent.StartLineNumber,$_.Extent.StartColumnNumber,$_.Message
+    }) -join [Environment]::NewLine
+    throw "RunnerLifecycle.ps1 syntax validation failed:`n$details"
+}
+
+. $lifecyclePath
+if ((Get-JollyEphemeralTtlMinutes ([pscustomobject]@{})) -ne 30) { throw 'Default ephemeral TTL contract failed.' }
+if ((Get-JollyEphemeralTtlMinutes ([pscustomobject]@{ephemeralTtlMinutes=1})) -ne 5) { throw 'Minimum ephemeral TTL contract failed.' }
+if ((Get-JollyEphemeralTtlMinutes ([pscustomobject]@{ephemeralTtlMinutes=999})) -ne 120) { throw 'Maximum ephemeral TTL contract failed.' }
+$lifecycleTestRoot = Join-Path $buildDir 'lifecycle-contract-test'
+Remove-Item -LiteralPath $lifecycleTestRoot -Recurse -Force -ErrorAction SilentlyContinue
+try {
+    $inside = Join-Path (Get-JollyEphemeralRoot $lifecycleTestRoot) 'inside'
+    $outside = Join-Path $buildDir 'outside-lifecycle-test'
+    if (-not (Test-JollyPathInside -Path $inside -Root (Get-JollyEphemeralRoot $lifecycleTestRoot))) { throw 'Ephemeral root guard rejected an owned path.' }
+    if (Test-JollyPathInside -Path $outside -Root (Get-JollyEphemeralRoot $lifecycleTestRoot)) { throw 'Ephemeral root guard accepted an outside path.' }
+    $caps = Get-JollyRunnerCapabilities -RunnerRoot $root -CommandsOnly
+    if ($null -eq $caps.PSObject.Properties['Summary']) { throw 'Runner capability contract is missing Summary.' }
+    $finishedRoot = Join-Path (Get-JollyEphemeralRoot $lifecycleTestRoot) 'finished'
+    New-Item -ItemType Directory -Force -Path $finishedRoot | Out-Null
+    $finished = [pscustomobject][ordered]@{stateId='finished';profileId='test';repository='owner/repo';runnerName='finished';root=$finishedRoot;processId=2147483647;createdAt=[datetime]::UtcNow.AddMinutes(-10).ToString('o');expiresAt=[datetime]::UtcNow.AddMinutes(-5).ToString('o');ttlMinutes=5;labels=@('jolly-ephemeral')}
+    [void](Write-JollyEphemeralState -AppRoot $lifecycleTestRoot -State $finished)
+    $gc = @(Invoke-JollyEphemeralGc -AppRoot $lifecycleTestRoot -SkipGitHub)
+    if (@($gc | Where-Object { $_.Action -eq 'cleaned_finished' }).Count -ne 1) { throw 'Finished ephemeral GC recovery contract failed.' }
+    $liveRoot = Join-Path (Get-JollyEphemeralRoot $lifecycleTestRoot) 'expired-live'
+    New-Item -ItemType Directory -Force -Path $liveRoot | Out-Null
+    $expired = [pscustomobject][ordered]@{stateId='expired-live';profileId='test';repository='owner/repo';runnerName='expired-live';root=$liveRoot;processId=$PID;createdAt=[datetime]::UtcNow.AddMinutes(-10).ToString('o');expiresAt=[datetime]::UtcNow.AddMinutes(-1).ToString('o');ttlMinutes=5;labels=@('jolly-ephemeral')}
+    [void](Write-JollyEphemeralState -AppRoot $lifecycleTestRoot -State $expired)
+    $dryRun = @(Invoke-JollyEphemeralGc -AppRoot $lifecycleTestRoot -DryRun -SkipGitHub)
+    if (@($dryRun | Where-Object { $_.Action -eq 'would_clean_expired' }).Count -ne 1) { throw 'Expired ephemeral dry-run TTL contract failed.' }
+}
+finally { Remove-Item -LiteralPath $lifecycleTestRoot -Recurse -Force -ErrorAction SilentlyContinue }
 
 try {
     Add-Type -AssemblyName System.Windows.Forms.DataVisualization -ErrorAction Stop
@@ -267,6 +308,7 @@ function Copy-Or-StageUpdate {
 if ($Install) {
     $installedScriptPath = Join-Path $appData 'JollyRunnerHub.ps1'
     Set-Content -LiteralPath $installedScriptPath -Value $runtimeScriptText -Encoding UTF8
+    Copy-Item -LiteralPath $lifecyclePath -Destination (Join-Path $appData 'RunnerLifecycle.ps1') -Force
     Copy-Item -LiteralPath $defaultConfig -Destination $smokeDefaultConfig -Force
 
     $profilePath = $smokeProfile
@@ -331,6 +373,8 @@ for ($attempt = 0; $attempt -lt 21600; $attempt++) {
         startup_smoke_test = 'passed'
         dashboard_scroll = 'vertical'
         runner_connection_state = 'log-classified'
+        runner_ephemeral_lifecycle = 'ttl-gc-v1'
+        runner_capabilities = 'cached-v1'
     }
     $installInfo | ConvertTo-Json |
         Set-Content -LiteralPath (Join-Path $appData 'install-status.json') -Encoding UTF8

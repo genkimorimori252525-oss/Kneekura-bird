@@ -63,6 +63,7 @@ jobs:
             tools/JollyRunnerHub/build/deploy.log
             tools/JollyRunnerHub/JollyRunnerHub.ps1
             tools/JollyRunnerHub/RunnerConnectionState.ps1
+            tools/JollyRunnerHub/RunnerLifecycle.ps1
             tools/JollyRunnerHub/profiles.default.json
             tools/JollyRunnerHub/README.md
 

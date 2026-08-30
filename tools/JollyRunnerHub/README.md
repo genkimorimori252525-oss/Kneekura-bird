@@ -121,3 +121,12 @@ GameTestのイベントとRunnerプロセスのログを別タブで確認でき
 8. `%LOCALAPPDATA%\JollyRunnerHub` とデスクトップへ配置
 
 追加ランタイムは不要です。GUI本体はWindows PowerShell 5.1 + WinForms + .NET Framework標準Chartingで動作します。
+
+
+## Ephemeral Runner / capability 管理
+
+- Runner 管理タブから、選択したrepo profile用の独立Ephemeral Runnerを明示操作で作成できます。常設Runnerの資格情報はコピーせず、runner binaryだけを隔離ディレクトリへ複製し、GitHubの短寿命registration tokenで `--ephemeral` 登録します。
+- Ephemeral Runnerは既定30分、最小5分・最大120分のTTLを持ちます。TTL切れでもGitHubが `busy=true` のjobは強制停止しません。GitHub状態を確認できない場合もfail-safeで保持します。
+- Hubは30秒ごとと手動 `Ephemeral GC` で終了済み/期限切れstateを回収します。削除対象は `%LOCALAPPDATA%\JollyRunnerHub\ephemeral` 配下とHubが記録したprocess IDに限定します。
+- `Capabilities` 列はrunner files / git / gh / Docker / WSL / Python / PowerShell 7 / Javaをキャッシュ付きで表示します。`Ephemeral / TTL` 列はprofileごとのactive/expired/GC pendingを表示します。
+- 自動起動は従来どおり常設Runnerだけです。Ephemeral Runnerはユーザーまたは検証フローの明示操作なしには作成しません。
