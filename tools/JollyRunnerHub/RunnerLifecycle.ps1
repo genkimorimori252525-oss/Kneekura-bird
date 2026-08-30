@@ -445,7 +445,7 @@ function Start-JollyEphemeralRunner {
         Push-Location $dest
         try {
             $ErrorActionPreference = 'Continue'
-            & $configCmd @configArgs
+            & $configCmd @configArgs | Out-Host
             $configCode = $LASTEXITCODE
             $ErrorActionPreference = 'Stop'
             if ($configCode -ne 0) { throw "Ephemeral runner config failed with exit code $configCode" }
