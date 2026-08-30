@@ -1,6 +1,20 @@
 # AI development handoff
 
-Last updated: 2026-07-26 (Asia/Tokyo)
+Last updated: 2026-08-30 (Asia/Tokyo)
+
+## Jolly Runner Hub multi-repository operation
+
+Branch `agent/jolly-multi-runner-hub` extends `tools/JollyRunnerHub` with a `Runner 管理` tab for three independent repo-scoped Windows runners:
+
+- Warfare Wings: `C:\actions-runner`, runner `ジョリー`
+- Love-Github: `C:\actions-runner-love-github`, runner `ジョリー-Love-Github`, label `love-github`
+- Durable Workflow: `C:\actions-runner-durable-workflow`, runner `ジョリー-Durable-Workflow`, label `durable-workflow`
+
+The Hub now supports individual/all start and stop, auto-connects every configured runner, keeps process caches per profile, records the parent `cmd.exe` it starts, and treats a locked latest `_diag/Runner_*.log` as local liveness evidence when Windows redacts `Runner.Listener.exe` path/command-line fields. This last fallback prevents duplicate starts on this machine.
+
+During the first live launch, before the fallback existed, the Hub failed to identify the already-running Warfare Wings listener and started the same registration again. GitHub kept the registration online, but listener continuity was interrupted once and the PID changed. After the fallback was installed, reopening the Hub preserved all three listener PIDs exactly (`13776,21144,21900`). Do not claim the original listener process was never interrupted.
+
+The desktop build is installed at `C:\Users\genki\OneDrive\Desktop\JollyRunnerHub.exe`; `%LOCALAPPDATA%\JollyRunnerHub\profiles.json` contains all three profiles and no runner tokens. Love-Github PR #18 and Durable Workflow PR #12 now route Windows-compatible CI to dedicated labels. Durable's Ubuntu/container validation is retained separately as a manually dispatched hosted workflow because the current machine has no usable Linux/Docker runner.
 
 Follow `/AGENTS.md` before changing code. Live GitHub state overrides older notes.
 

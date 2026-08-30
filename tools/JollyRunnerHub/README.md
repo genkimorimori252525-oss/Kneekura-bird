@@ -5,9 +5,10 @@ Windowsの自己ホストGitHub Actions Runnerをデスクトップから起動�
 ## 主な機能
 
 - 起動時にWindowsへ管理者権限を要求
-- 選択したRunnerの自動接続、接続、切断
+- 登録済みRunnerの一括自動接続、個別/一括の起動と停止
 - RunnerプロセスとRunnerログを組み合わせたGitHub接続状態の判定
-- 複数リポジトリのプロファイル管理
+- `Runner 管理` タブで複数リポジトリの状態、配置先、判定根拠を一覧表示
+- Warfare Wings、Love-Github、KNEEKURA CODE-LAB、Durable Workflowの独立したrepo-scoped Runnerプロファイル
 - 1秒ごとにJSONLテレメトリを読み込み
 - 実行中のテレメトリから機体名を自動検出
 - 検証終了後は直近の保存履歴から機体名を復元
@@ -29,7 +30,7 @@ Windowsの自己ホストGitHub Actions Runnerをデスクトップから起動�
 
 ## Runner状態の意味
 
-ヘッダーのRunner表示は、`Runner.Listener.exe`の存在だけではなく、HubログとActions Runnerの最新 `_diag/Runner_*.log` を時系列で読み、最後の接続マーカーから判定します。
+ヘッダーと`Runner 管理`タブの表示は、Hubが記録した起動プロセス、使用中の最新 `_diag/Runner_*.log`、Hubログを組み合わせ、最後の接続マーカーから判定します。Windowsがプロセスの実行パスを返さない場合も、Runnerごとの診断ログのファイルロックで二重起動を防ぎます。
 
 - `停止中`: `Runner.Listener.exe`が存在しない。
 - `起動中（接続確認待ち）`: プロセスは存在するが、GitHub接続を示すログがまだない。
@@ -44,6 +45,31 @@ Windowsの自己ホストGitHub Actions Runnerをデスクトップから起動�
 接続判定は表示補助です。実際の検証受理は、対象workflowのRun IDとリポジトリの検証状態ファイルで確認してください。
 
 ## 画面構成
+
+### Runner 管理
+
+4つのRunnerを同時に表示し、選択したRunnerまたは登録済みRunner全体を起動・停止できます。停止はHubが起動元プロセスを記録して安全に対象を特定できる場合だけ実行します。
+
+- Warfare Wings: `C:\actions-runner`
+- Love-Github: `C:\actions-runner-love-github`
+- KNEEKURA CODE-LAB: `C:\actions-runner-kneekura-code-lab`
+- Durable Workflow: `C:\actions-runner-durable-workflow`
+
+各personal repositoryのRunner資格情報は共有せず、それぞれのディレクトリに独立して保持します。`profiles.json`にはrunner tokenやcredentialを保存しません。
+
+### CI routing
+
+各workflowは登録先repositoryと一致するcustom labelを使用します。
+
+- Love-Github: `love-github`
+- KNEEKURA CODE-LAB: `kneekura-code-lab`
+- Durable Workflow: `durable-workflow`
+
+workflowの`runs-on`を変更した場合は、古いrunを再実行せず、変更後のcommitから新規runを発生させます。GitHub Actionsの再実行は元runのcommitとworkflow定義を使用するため、GitHub-hosted runner向けの古いrunはself-hosted検証になりません。
+
+Windows PowerShell 5.1が必要なstepは`shell: powershell`を明示します。`pwsh`を使用するstepは、対象RunnerにPowerShell 7がインストールされPATHから解決できることを事前に確認します。
+
+`autoConnect: true`では、Hub起動時に登録済みの全Runnerを接続します。すでに動作中のRunnerは診断ログの使用状態も含めて検出し、重複起動しません。
 
 ### ダッシュボード
 
@@ -91,7 +117,16 @@ GameTestのイベントとRunnerプロセスのログを別タブで確認でき
 4. `profiles.default.json` のJSON検証
 5. Windows標準の.NET FrameworkコンパイラでランチャーEXEを生成
 6. 接続状態分類器を含む実行時スクリプトの構文検証
-7. ヘッダー・タブ・6グラフを含む全UIの非表示起動スモークテスト
+7. Runner管理、接続判定、チャートを含む実行時sourceの構文・必須パッチassertion
 8. `%LOCALAPPDATA%\JollyRunnerHub` とデスクトップへ配置
 
 追加ランタイムは不要です。GUI本体はWindows PowerShell 5.1 + WinForms + .NET Framework標準Chartingで動作します。
+
+
+## Ephemeral Runner / capability 管理
+
+- Runner 管理タブから、選択したrepo profile用の独立Ephemeral Runnerを明示操作で作成できます。常設Runnerの資格情報はコピーせず、runner binaryだけを隔離ディレクトリへ複製し、GitHubの短寿命registration tokenで `--ephemeral` 登録します。
+- Ephemeral Runnerは既定30分、最小5分・最大120分のTTLを持ちます。TTL切れでもGitHubが `busy=true` のjobは強制停止しません。GitHub状態を確認できない場合もfail-safeで保持します。
+- Hubは30秒ごとと手動 `Ephemeral GC` で終了済み/期限切れstateを回収します。削除対象は `%LOCALAPPDATA%\JollyRunnerHub\ephemeral` 配下とHubが記録したprocess IDに限定します。
+- `Capabilities` 列はrunner files / git / gh / Docker / WSL / Python / PowerShell 7 / Javaをキャッシュ付きで表示します。`Ephemeral / TTL` 列はprofileごとのactive/expired/GC pendingを表示します。
+- 自動起動は従来どおり常設Runnerだけです。Ephemeral Runnerはユーザーまたは検証フローの明示操作なしには作成しません。

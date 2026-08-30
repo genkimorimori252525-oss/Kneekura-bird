@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 5,
   "autoConnect": true,
   "profiles": [
     {
@@ -164,6 +164,68 @@
           "path": "event",
           "default": "none"
         }
+      ],
+      "ephemeralEnabled": true,
+      "ephemeralTtlMinutes": 30,
+      "ephemeralLabels": [
+        "jolly-ephemeral"
+      ]
+    },
+    {
+      "id": "love-github",
+      "name": "Love-Github",
+      "runnerRoot": "C:\\actions-runner-love-github",
+      "workspaceRoot": "C:\\actions-runner-love-github\\_work\\Love-Github\\Love-Github",
+      "telemetryRoot": "C:\\actions-runner-love-github\\_work\\_jolly-no-telemetry",
+      "filePattern": "*.jsonl",
+      "staleSeconds": 12,
+      "historyDays": 30,
+      "historyMaxRuns": 100,
+      "repoUrl": "https://github.com/genkimorimori252525-oss/Love-Github",
+      "expectedAircraft": [],
+      "metrics": [],
+      "ephemeralEnabled": true,
+      "ephemeralTtlMinutes": 30,
+      "ephemeralLabels": [
+        "jolly-ephemeral"
+      ]
+    },
+    {
+      "id": "kneekura-code-lab",
+      "name": "KNEEKURA CODE-LAB",
+      "runnerRoot": "C:\\actions-runner-kneekura-code-lab",
+      "workspaceRoot": "C:\\actions-runner-kneekura-code-lab\\_work\\KNEEKURA-CODE-LAB\\KNEEKURA-CODE-LAB",
+      "telemetryRoot": "C:\\actions-runner-kneekura-code-lab\\_work\\_jolly-no-telemetry",
+      "filePattern": "*.jsonl",
+      "staleSeconds": 12,
+      "historyDays": 30,
+      "historyMaxRuns": 100,
+      "repoUrl": "https://github.com/genkimorimori252525-oss/KNEEKURA-CODE-LAB",
+      "expectedAircraft": [],
+      "metrics": [],
+      "ephemeralEnabled": true,
+      "ephemeralTtlMinutes": 30,
+      "ephemeralLabels": [
+        "jolly-ephemeral"
+      ]
+    },
+    {
+      "id": "durable-workflow",
+      "name": "Durable Workflow",
+      "runnerRoot": "C:\\actions-runner-durable-workflow",
+      "workspaceRoot": "C:\\actions-runner-durable-workflow\\_work\\durable-workflow-chatgpt\\durable-workflow-chatgpt",
+      "telemetryRoot": "C:\\actions-runner-durable-workflow\\_work\\_jolly-no-telemetry",
+      "filePattern": "*.jsonl",
+      "staleSeconds": 12,
+      "historyDays": 30,
+      "historyMaxRuns": 100,
+      "repoUrl": "https://github.com/genkimorimori252525-oss/durable-workflow-chatgpt",
+      "expectedAircraft": [],
+      "metrics": [],
+      "ephemeralEnabled": true,
+      "ephemeralTtlMinutes": 30,
+      "ephemeralLabels": [
+        "jolly-ephemeral"
       ]
     }
   ]
