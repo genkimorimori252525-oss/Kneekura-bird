@@ -14,12 +14,22 @@ $IconPath = Join-Path $AppRoot 'JollyRunnerHub.ico'
 $HistoryRoot = Join-Path $AppRoot 'history'
 $CapabilitiesPath = Join-Path $AppRoot 'capabilities.json'
 $CapabilitiesScriptPath = Join-Path $AppRoot 'RunnerCapabilities.ps1'
+$CapabilitiesCliPath = Join-Path $AppRoot 'Inspect-RunnerCapabilities.ps1'
+$RunnerLifecyclePath = Join-Path $PSScriptRoot 'RunnerLifecycle.ps1'
+if (-not (Test-Path -LiteralPath $RunnerLifecyclePath)) {
+    $RunnerLifecyclePath = Join-Path (Split-Path -Parent $PSScriptRoot) 'RunnerLifecycle.ps1'
+}
+if (-not (Test-Path -LiteralPath $RunnerLifecyclePath)) { throw 'RunnerLifecycle.ps1 was not found.' }
+. $RunnerLifecyclePath
 
 $script:Config = $null
 $script:Profile = $null
 $script:LastConfigWrite = [datetime]::MinValue
 $script:RunnerCache = @{}
 $script:RunnerCacheAt = @{}
+$script:CapabilityCache = @{}
+$script:CapabilityCacheAt = @{}
+$script:LastEphemeralGc = [datetime]::UtcNow.AddMinutes(-10)
 $script:LiveSamples = New-Object System.Collections.Generic.List[object]
 $script:HistorySeen = @{}
 $script:CurrentLiveRun = ''
@@ -484,6 +494,25 @@ function Reset-RunnerCache($Profile) {
     $id = Safe-Name ([string]$Profile.id)
     $script:RunnerCacheAt.Remove($id)
     $script:RunnerCache.Remove($id)
+}
+
+function Get-CachedRunnerCapabilities($Profile,[switch]$Force) {
+    $id = Safe-Name ([string]$Profile.id)
+    $cachedAt = if ($script:CapabilityCacheAt.ContainsKey($id)) { [datetime]$script:CapabilityCacheAt[$id] } else { [datetime]::MinValue }
+    if (-not $Force -and $script:CapabilityCache.ContainsKey($id) -and ([datetime]::UtcNow-$cachedAt).TotalSeconds -lt 30) {
+        return $script:CapabilityCache[$id]
+    }
+    $root = [Environment]::ExpandEnvironmentVariables([string]$Profile.runnerRoot)
+    $value = Get-JollyRunnerCapabilities -RunnerRoot $root
+    $script:CapabilityCache[$id] = $value
+    $script:CapabilityCacheAt[$id] = [datetime]::UtcNow
+    return $value
+}
+
+function Reset-RunnerCapabilityCache($Profile) {
+    $id = Safe-Name ([string]$Profile.id)
+    $script:CapabilityCache.Remove($id)
+    $script:CapabilityCacheAt.Remove($id)
 }
 
 function Get-ProfileById([string]$Id) {
@@ -988,7 +1017,8 @@ foreach ($columnInfo in @(
     @('Root','ローカル配置',330),
     @('State','状態',180),
     @('Capabilities','能力',260),
-    @('Evidence','判定根拠',360)
+    @('Evidence','判定根拠',320),
+    @('Ephemeral','Ephemeral / TTL',230)
 )) {
     $column = New-Object Windows.Forms.DataGridViewTextBoxColumn
     $column.Name = $columnInfo[0]
@@ -1024,7 +1054,10 @@ $startAllRunners = New-RunnerButton 'すべて起動' 112
 $stopAllRunners = New-RunnerButton 'すべて停止' 112
 $refreshRunners = New-RunnerButton '状態を更新' 112
 $refreshCapabilities = New-RunnerButton '能力を更新' 112
-foreach ($button in @($startSelectedRunner,$stopSelectedRunner,$startAllRunners,$stopAllRunners,$refreshRunners,$refreshCapabilities)) {
+$startEphemeralRunner = New-RunnerButton 'Ephemeral起動' 122
+$gcEphemeralRunners = New-RunnerButton 'Ephemeral GC' 112
+$refreshCapabilities = New-RunnerButton '能力を更新' 112
+foreach ($button in @($startSelectedRunner,$stopSelectedRunner,$startAllRunners,$stopAllRunners,$startEphemeralRunner,$gcEphemeralRunners,$refreshRunners,$refreshCapabilities)) {
     $runnerButtons.Controls.Add($button)
 }
 
@@ -1357,7 +1390,8 @@ function Refresh-RunnerOverview {
                 $stateText = '未登録'
                 $evidence = 'run.cmd または .runner がありません'
             }
-            $capabilityText = '未計測'
+            $cachedCapabilities = Get-CachedRunnerCapabilities $profile
+            $capabilityText = [string]$cachedCapabilities.Summary
             if (Test-Path -LiteralPath $CapabilitiesPath) {
                 try {
                     $capabilitySnapshot = Get-Content -LiteralPath $CapabilitiesPath -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -1378,6 +1412,9 @@ function Refresh-RunnerOverview {
                     }
                 } catch { $capabilityText = '読込エラー' }
             }
+            $ephemeral = if (Test-JollyEphemeralEnabled $profile) {
+                Get-JollyEphemeralSummary -AppRoot $AppRoot -ProfileId ([string]$profile.id)
+            } else { 'disabled' }
             $index = $runnerGrid.Rows.Add(
                 [string]$profile.id,
                 [string]$profile.name,
@@ -1385,7 +1422,8 @@ function Refresh-RunnerOverview {
                 $root,
                 $stateText,
                 $capabilityText,
-                $evidence)
+                $evidence,
+                $ephemeral)
             $row = $runnerGrid.Rows[$index]
             if ($stateText -in @('GitHub 待機中','ジョブ実行中','ジョブ完了確認中')) {
                 $row.Cells['State'].Style.ForeColor = $ColorGood
@@ -1483,16 +1521,54 @@ $stopAllRunners.add_Click({
         Refresh-RunnerOverview
     }
 })
-$refreshRunners.add_Click({ Refresh-RunnerOverview })
+$startEphemeralRunner.add_Click({
+    $profile = Get-SelectedRunnerProfile
+    if ($null -eq $profile) { return }
+    if ([Windows.Forms.MessageBox]::Show(
+        "$($profile.name) 用の一時Runnerを作成しますか？",
+        'ジョリー Runner Hub',
+        [Windows.Forms.MessageBoxButtons]::YesNo,
+        [Windows.Forms.MessageBoxIcon]::Question) -eq 'Yes') {
+        try {
+            $state = Start-JollyEphemeralRunner -Profile $profile -AppRoot $AppRoot
+            Refresh-RunnerOverview
+            [Windows.Forms.MessageBox]::Show(
+                "作成しました: $($state.runnerName)`nTTL=$($state.ttlMinutes)分`nLabels=$(@($state.labels) -join ',')",
+                'ジョリー Runner Hub',
+                [Windows.Forms.MessageBoxButtons]::OK,
+                [Windows.Forms.MessageBoxIcon]::Information) | Out-Null
+        } catch { Show-Error $_.Exception.Message }
+    }
+})
+$gcEphemeralRunners.add_Click({
+    try {
+        $results = @(Invoke-JollyEphemeralGc -AppRoot $AppRoot)
+        Refresh-RunnerOverview
+        $changed = @($results | Where-Object { [string]$_.Action -like 'cleaned_*' }).Count
+        [Windows.Forms.MessageBox]::Show(
+            "Ephemeral GC: cleaned=$changed / inspected=$($results.Count)",
+            'ジョリー Runner Hub',
+            [Windows.Forms.MessageBoxButtons]::OK,
+            [Windows.Forms.MessageBoxIcon]::Information) | Out-Null
+    } catch { Show-Error $_.Exception.Message }
+})
+$refreshRunners.add_Click({
+    foreach ($profile in @($script:Config.profiles)) { Reset-RunnerCapabilityCache $profile }
+    Refresh-RunnerOverview
+})
 $refreshCapabilities.add_Click({
     try {
         if (-not (Test-Path -LiteralPath $CapabilitiesScriptPath)) {
             throw "RunnerCapabilities.ps1 がありません: $CapabilitiesScriptPath"
         }
-        . $CapabilitiesScriptPath
+        if (-not (Test-Path -LiteralPath $CapabilitiesCliPath)) {
+            throw "Inspect-RunnerCapabilities.ps1 がありません: $CapabilitiesCliPath"
+        }
         $roots = @($script:Config.profiles | ForEach-Object { [string]$_.runnerRoot })
-        Get-JollyRunnerCapabilities -RunnerRoots $roots | ConvertTo-Json -Depth 8 |
-            Set-Content -LiteralPath $CapabilitiesPath -Encoding UTF8
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $CapabilitiesCliPath `
+            -RunnerRoots $roots -OutputPath $CapabilitiesPath | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Capability probe failed with exit code $LASTEXITCODE" }
+        foreach ($profile in @($script:Config.profiles)) { Reset-RunnerCapabilityCache $profile }
         Refresh-RunnerOverview
     } catch { Show-Error $_.Exception.Message }
 })
@@ -1542,6 +1618,11 @@ $timer.add_Tick({
             Load-Config
             Reload-Profiles $id
             Refresh-RunnerOverview
+        }
+
+        if (([datetime]::UtcNow-$script:LastEphemeralGc).TotalSeconds -ge 30) {
+            try { [void](Invoke-JollyEphemeralGc -AppRoot $AppRoot) } catch {}
+            $script:LastEphemeralGc = [datetime]::UtcNow
         }
 
         Refresh-RunnerOverview
@@ -1603,6 +1684,8 @@ $timer.add_Tick({
 $timer.Start()
 
 $form.add_Shown({
+    try { [void](Invoke-JollyEphemeralGc -AppRoot $AppRoot) } catch {}
+    $script:LastEphemeralGc = [datetime]::UtcNow
     if ($historySplit.Height -gt 420) {
         $historySplit.Panel1MinSize = 180
         $historySplit.Panel2MinSize = 140
