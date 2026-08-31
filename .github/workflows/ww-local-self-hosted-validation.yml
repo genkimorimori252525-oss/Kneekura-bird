@@ -44,7 +44,7 @@ jobs:
 
     steps:
       - name: Checkout request metadata
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 1
           clean: true
@@ -107,7 +107,7 @@ jobs:
           Write-Host "Run GameTest: $runGameTest"
 
       - name: Checkout requested repository ref
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ steps.request.outputs.ref }}
           fetch-depth: 1
@@ -203,13 +203,13 @@ jobs:
             });
 
       - name: Set up Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
