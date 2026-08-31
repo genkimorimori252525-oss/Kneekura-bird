@@ -152,6 +152,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.8'
+          cache-disabled: true
 
       - name: Build benchmark mod and deterministic simulation
         id: build

@@ -70,6 +70,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.8'
+          cache-disabled: true
 
       - name: Cache exact runtime aircraft mods
         id: flight-mod-cache
