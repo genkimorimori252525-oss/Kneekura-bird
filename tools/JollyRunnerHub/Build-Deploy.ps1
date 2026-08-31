@@ -16,6 +16,14 @@ $launcherPath = Join-Path $root 'Launcher.cs'
 $defaultConfig = Join-Path $root 'profiles.default.json'
 $scriptPath = Join-Path $root 'JollyRunnerHub.ps1'
 $connectionStatePath = Join-Path $root 'RunnerConnectionState.ps1'
+$ephemeralModulePath = Join-Path $root 'EphemeralRunnerController.psm1'
+$ephemeralWatchdogPath = Join-Path $root 'EphemeralRunnerWatchdog.ps1'
+$ephemeralCliPath = Join-Path $root 'Manage-EphemeralRunner.ps1'
+$ephemeralTestPath = Join-Path $root 'Test-EphemeralRunnerController.ps1'
+$capabilitiesPath = Join-Path $root 'RunnerCapabilities.ps1'
+$capabilitiesCliPath = Join-Path $root 'Inspect-RunnerCapabilities.ps1'
+$capabilitiesTestPath = Join-Path $root 'Test-RunnerCapabilities.ps1'
+$localGradlePath = Join-Path $root 'Use-LocalGradle.ps1'
 $lifecyclePath = Join-Path $root 'RunnerLifecycle.ps1'
 $runtimeSourcePath = Join-Path $buildDir 'JollyRunnerHub.source.ps1'
 
@@ -61,6 +69,36 @@ Assert-RunnerConnectionState -Expected 'connected_starting' -ProcessRunning $tru
 Assert-RunnerConnectionState -Expected 'listening' -ProcessRunning $true -Lines @('Connected to GitHub','Listening for Jobs')
 Assert-RunnerConnectionState -Expected 'running_job' -ProcessRunning $true -Lines @('Listening for Jobs','Running job: validate')
 Assert-RunnerConnectionState -Expected 'reconnecting' -ProcessRunning $true -Lines @('Listening for Jobs','Runner connect error: The HTTP request timed out')
+
+foreach ($ephemeralPath in @($ephemeralModulePath,$ephemeralWatchdogPath,$ephemeralCliPath,$ephemeralTestPath)) {
+    $ephemeralText = Get-Content -LiteralPath $ephemeralPath -Raw -Encoding UTF8
+    $ephemeralTokens = $null
+    $ephemeralParseErrors = $null
+    [System.Management.Automation.Language.Parser]::ParseInput(
+        $ephemeralText,[ref]$ephemeralTokens,[ref]$ephemeralParseErrors) | Out-Null
+    if (@($ephemeralParseErrors).Count -gt 0) {
+        $details = @($ephemeralParseErrors | ForEach-Object {
+            '{0}:{1} {2}' -f $_.Extent.StartLineNumber,$_.Extent.StartColumnNumber,$_.Message
+        }) -join [Environment]::NewLine
+        throw "Ephemeral runner script syntax validation failed for $ephemeralPath`n$details"
+    }
+}
+& $ephemeralTestPath | Out-Host
+foreach ($capabilityScript in @($capabilitiesPath,$capabilitiesCliPath,$capabilitiesTestPath,$localGradlePath)) {
+    $capabilityText = Get-Content -LiteralPath $capabilityScript -Raw -Encoding UTF8
+    $capabilityTokens = $null
+    $capabilityParseErrors = $null
+    [System.Management.Automation.Language.Parser]::ParseInput(
+        $capabilityText,[ref]$capabilityTokens,[ref]$capabilityParseErrors) | Out-Null
+    if (@($capabilityParseErrors).Count -gt 0) {
+        $details = @($capabilityParseErrors | ForEach-Object {
+            '{0}:{1} {2}' -f $_.Extent.StartLineNumber,$_.Extent.StartColumnNumber,$_.Message
+        }) -join [Environment]::NewLine
+        throw "Runner capability script syntax validation failed for $capabilityScript`n$details"
+    }
+}
+& $capabilitiesTestPath | Out-Host
+& $localGradlePath -Version '8.8' | Out-Host
 
 $lifecycleText = Get-Content -LiteralPath $lifecyclePath -Raw -Encoding UTF8
 $lifecycleTokens = $null
@@ -130,6 +168,7 @@ if (-not $scriptText.Contains($dashboardTabTarget)) {
     throw 'Runner Hub scroll patch target was not found: dashboard tab.'
 }
 $runtimeScriptText = $scriptText.Replace($dashboardTabTarget,$dashboardTabReplacement.TrimEnd())
+$runtimeScriptText = $runtimeScriptText.Replace("`r`n","`n")
 
 $runnerLifecycleLoader = @'
 $RunnerLifecyclePath = Join-Path $PSScriptRoot 'RunnerLifecycle.ps1'
@@ -139,12 +178,13 @@ if (-not (Test-Path -LiteralPath $RunnerLifecyclePath)) {
 if (-not (Test-Path -LiteralPath $RunnerLifecyclePath)) { throw 'RunnerLifecycle.ps1 was not found.' }
 . $RunnerLifecyclePath
 '@
-if (-not $runtimeScriptText.Contains($runnerLifecycleLoader.Trim())) {
+$runnerLifecycleLoaderText = $runnerLifecycleLoader.Trim().Replace("`r`n","`n")
+if (-not $runtimeScriptText.Contains($runnerLifecycleLoaderText)) {
     throw 'Runner Hub lifecycle loader patch target was not found.'
 }
 $runtimeScriptText = $runtimeScriptText.Replace(
-    $runnerLifecycleLoader.Trim(),
-    $lifecycleText.TrimEnd())
+    $runnerLifecycleLoaderText,
+    $lifecycleText.TrimEnd().Replace("`r`n","`n"))
 
 $dashboardLayoutTarget = '$dashboardTab.Controls.Add($dashboardLayout)'
 $dashboardLayoutReplacement = @'
@@ -331,6 +371,12 @@ if ($Install) {
     Set-Content -LiteralPath $installedScriptPath -Value $runtimeScriptText -Encoding UTF8
     Copy-Item -LiteralPath $lifecyclePath -Destination (Join-Path $appData 'RunnerLifecycle.ps1') -Force
     Copy-Item -LiteralPath $defaultConfig -Destination $smokeDefaultConfig -Force
+    foreach ($ephemeralPath in @($ephemeralModulePath,$ephemeralWatchdogPath,$ephemeralCliPath)) {
+        Copy-Item -LiteralPath $ephemeralPath -Destination (Join-Path $appData (Split-Path -Leaf $ephemeralPath)) -Force
+    }
+    foreach ($capabilityScript in @($capabilitiesPath,$capabilitiesCliPath,$localGradlePath)) {
+        Copy-Item -LiteralPath $capabilityScript -Destination (Join-Path $appData (Split-Path -Leaf $capabilityScript)) -Force
+    }
 
     $profilePath = $smokeProfile
     if (-not (Test-Path -LiteralPath $profilePath)) {
@@ -394,6 +440,7 @@ for ($attempt = 0; $attempt -lt 21600; $attempt++) {
         startup_smoke_test = 'passed'
         dashboard_scroll = 'vertical'
         runner_connection_state = 'log-classified'
+        ephemeral_runner_lifecycle = 'watchdog-ttl-gc'
         runner_ephemeral_lifecycle = 'ttl-gc-v1'
         runner_capabilities = 'cached-v1'
     }

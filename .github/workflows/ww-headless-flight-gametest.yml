@@ -57,19 +57,19 @@ jobs:
         working-directory: ww-debug-benchmark
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           clean: true
           persist-credentials: false
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.8'
+      - name: Activate cached Gradle 8.8
+        working-directory: ${{ github.workspace }}
+        run: .\tools\JollyRunnerHub\Use-LocalGradle.ps1 -Version 8.8
 
       - name: Cache exact runtime aircraft mods
         id: flight-mod-cache

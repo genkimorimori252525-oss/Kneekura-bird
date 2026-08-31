@@ -13,6 +13,7 @@
       "historyDays": 30,
       "historyMaxRuns": 100,
       "repoUrl": "https://github.com/genkimorimori252525-oss/warfare_wings-1.1.4-1.20.1-forge",
+      "requiredCapabilities": ["git", "gh", "java", "javac", "gradle"],
       "expectedAircraft": [
         "A6M",
         "P-47N"
@@ -182,6 +183,7 @@
       "historyDays": 30,
       "historyMaxRuns": 100,
       "repoUrl": "https://github.com/genkimorimori252525-oss/Love-Github",
+      "requiredCapabilities": ["git", "gh", "node", "docker_linux"],
       "expectedAircraft": [],
       "metrics": [],
       "ephemeralEnabled": true,
@@ -201,6 +203,7 @@
       "historyDays": 30,
       "historyMaxRuns": 100,
       "repoUrl": "https://github.com/genkimorimori252525-oss/KNEEKURA-CODE-LAB",
+      "requiredCapabilities": ["git", "gh", "node", "java", "javac", "docker_linux"],
       "expectedAircraft": [],
       "metrics": [],
       "ephemeralEnabled": true,
@@ -220,6 +223,7 @@
       "historyDays": 30,
       "historyMaxRuns": 100,
       "repoUrl": "https://github.com/genkimorimori252525-oss/durable-workflow-chatgpt",
+      "requiredCapabilities": ["git", "gh", "python", "docker_linux"],
       "expectedAircraft": [],
       "metrics": [],
       "ephemeralEnabled": true,

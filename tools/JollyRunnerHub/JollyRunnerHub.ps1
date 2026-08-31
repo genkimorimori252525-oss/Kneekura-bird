@@ -12,6 +12,9 @@ $ConfigPath = Join-Path $AppRoot 'profiles.json'
 $DefaultConfigPath = Join-Path $AppRoot 'profiles.default.json'
 $IconPath = Join-Path $AppRoot 'JollyRunnerHub.ico'
 $HistoryRoot = Join-Path $AppRoot 'history'
+$CapabilitiesPath = Join-Path $AppRoot 'capabilities.json'
+$CapabilitiesScriptPath = Join-Path $AppRoot 'RunnerCapabilities.ps1'
+$CapabilitiesCliPath = Join-Path $AppRoot 'Inspect-RunnerCapabilities.ps1'
 $RunnerLifecyclePath = Join-Path $PSScriptRoot 'RunnerLifecycle.ps1'
 if (-not (Test-Path -LiteralPath $RunnerLifecyclePath)) {
     $RunnerLifecyclePath = Join-Path (Split-Path -Parent $PSScriptRoot) 'RunnerLifecycle.ps1'
@@ -1013,8 +1016,8 @@ foreach ($columnInfo in @(
     @('Repository','Repository',300),
     @('Root','ローカル配置',330),
     @('State','状態',180),
+    @('Capabilities','能力',260),
     @('Evidence','判定根拠',320),
-    @('Capabilities','Capabilities',260),
     @('Ephemeral','Ephemeral / TTL',230)
 )) {
     $column = New-Object Windows.Forms.DataGridViewTextBoxColumn
@@ -1050,9 +1053,11 @@ $stopSelectedRunner = New-RunnerButton '選択を停止' 112
 $startAllRunners = New-RunnerButton 'すべて起動' 112
 $stopAllRunners = New-RunnerButton 'すべて停止' 112
 $refreshRunners = New-RunnerButton '状態を更新' 112
+$refreshCapabilities = New-RunnerButton '能力を更新' 112
 $startEphemeralRunner = New-RunnerButton 'Ephemeral起動' 122
 $gcEphemeralRunners = New-RunnerButton 'Ephemeral GC' 112
-foreach ($button in @($startSelectedRunner,$stopSelectedRunner,$startAllRunners,$stopAllRunners,$startEphemeralRunner,$gcEphemeralRunners,$refreshRunners)) {
+$refreshCapabilities = New-RunnerButton '能力を更新' 112
+foreach ($button in @($startSelectedRunner,$stopSelectedRunner,$startAllRunners,$stopAllRunners,$startEphemeralRunner,$gcEphemeralRunners,$refreshRunners,$refreshCapabilities)) {
     $runnerButtons.Controls.Add($button)
 }
 
@@ -1385,7 +1390,28 @@ function Refresh-RunnerOverview {
                 $stateText = '未登録'
                 $evidence = 'run.cmd または .runner がありません'
             }
-            $capabilities = Get-CachedRunnerCapabilities $profile
+            $cachedCapabilities = Get-CachedRunnerCapabilities $profile
+            $capabilityText = [string]$cachedCapabilities.Summary
+            if (Test-Path -LiteralPath $CapabilitiesPath) {
+                try {
+                    $capabilitySnapshot = Get-Content -LiteralPath $CapabilitiesPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                    $required = if ($profile.PSObject.Properties.Name -contains 'requiredCapabilities') {
+                        @($profile.requiredCapabilities)
+                    } else { @() }
+                    $selectedCapabilities = if ($required.Count -eq 0) {
+                        @($capabilitySnapshot.capabilities)
+                    } else {
+                        @($capabilitySnapshot.capabilities | Where-Object { $required -contains [string]$_.name })
+                    }
+                    $readyCount = @($selectedCapabilities | Where-Object { $_.status -eq 'ready' }).Count
+                    $missing = @($selectedCapabilities | Where-Object { $_.status -ne 'ready' } | ForEach-Object { [string]$_.name })
+                    $capabilityText = if ($missing.Count -eq 0) {
+                        "$readyCount/$($selectedCapabilities.Count) ready"
+                    } else {
+                        "$readyCount/$($selectedCapabilities.Count) ready; $($missing -join ', ')"
+                    }
+                } catch { $capabilityText = '読込エラー' }
+            }
             $ephemeral = if (Test-JollyEphemeralEnabled $profile) {
                 Get-JollyEphemeralSummary -AppRoot $AppRoot -ProfileId ([string]$profile.id)
             } else { 'disabled' }
@@ -1395,8 +1421,8 @@ function Refresh-RunnerOverview {
                 $repository,
                 $root,
                 $stateText,
+                $capabilityText,
                 $evidence,
-                [string]$capabilities.Summary,
                 $ephemeral)
             $row = $runnerGrid.Rows[$index]
             if ($stateText -in @('GitHub 待機中','ジョブ実行中','ジョブ完了確認中')) {
@@ -1529,6 +1555,22 @@ $gcEphemeralRunners.add_Click({
 $refreshRunners.add_Click({
     foreach ($profile in @($script:Config.profiles)) { Reset-RunnerCapabilityCache $profile }
     Refresh-RunnerOverview
+})
+$refreshCapabilities.add_Click({
+    try {
+        if (-not (Test-Path -LiteralPath $CapabilitiesScriptPath)) {
+            throw "RunnerCapabilities.ps1 がありません: $CapabilitiesScriptPath"
+        }
+        if (-not (Test-Path -LiteralPath $CapabilitiesCliPath)) {
+            throw "Inspect-RunnerCapabilities.ps1 がありません: $CapabilitiesCliPath"
+        }
+        $roots = @($script:Config.profiles | ForEach-Object { [string]$_.runnerRoot })
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $CapabilitiesCliPath `
+            -RunnerRoots $roots -OutputPath $CapabilitiesPath | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Capability probe failed with exit code $LASTEXITCODE" }
+        foreach ($profile in @($script:Config.profiles)) { Reset-RunnerCapabilityCache $profile }
+        Refresh-RunnerOverview
+    } catch { Show-Error $_.Exception.Message }
 })
 $configButton.add_Click({
     Start-Process notepad.exe -ArgumentList ('"{0}"' -f $ConfigPath)
