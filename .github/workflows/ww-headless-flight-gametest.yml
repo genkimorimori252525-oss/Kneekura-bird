@@ -67,10 +67,9 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.8'
-          cache-disabled: true
+      - name: Activate cached Gradle 8.8
+        working-directory: ${{ github.workspace }}
+        run: .\tools\JollyRunnerHub\Use-LocalGradle.ps1 -Version 8.8
 
       - name: Cache exact runtime aircraft mods
         id: flight-mod-cache

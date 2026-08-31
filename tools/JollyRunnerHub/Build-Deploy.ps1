@@ -23,6 +23,7 @@ $ephemeralTestPath = Join-Path $root 'Test-EphemeralRunnerController.ps1'
 $capabilitiesPath = Join-Path $root 'RunnerCapabilities.ps1'
 $capabilitiesCliPath = Join-Path $root 'Inspect-RunnerCapabilities.ps1'
 $capabilitiesTestPath = Join-Path $root 'Test-RunnerCapabilities.ps1'
+$localGradlePath = Join-Path $root 'Use-LocalGradle.ps1'
 $lifecyclePath = Join-Path $root 'RunnerLifecycle.ps1'
 $runtimeSourcePath = Join-Path $buildDir 'JollyRunnerHub.source.ps1'
 
@@ -83,7 +84,7 @@ foreach ($ephemeralPath in @($ephemeralModulePath,$ephemeralWatchdogPath,$epheme
     }
 }
 & $ephemeralTestPath | Out-Host
-foreach ($capabilityScript in @($capabilitiesPath,$capabilitiesCliPath,$capabilitiesTestPath)) {
+foreach ($capabilityScript in @($capabilitiesPath,$capabilitiesCliPath,$capabilitiesTestPath,$localGradlePath)) {
     $capabilityText = Get-Content -LiteralPath $capabilityScript -Raw -Encoding UTF8
     $capabilityTokens = $null
     $capabilityParseErrors = $null
@@ -97,6 +98,7 @@ foreach ($capabilityScript in @($capabilitiesPath,$capabilitiesCliPath,$capabili
     }
 }
 & $capabilitiesTestPath | Out-Host
+& $localGradlePath -Version '8.8' | Out-Host
 
 $lifecycleText = Get-Content -LiteralPath $lifecyclePath -Raw -Encoding UTF8
 $lifecycleTokens = $null
@@ -372,7 +374,7 @@ if ($Install) {
     foreach ($ephemeralPath in @($ephemeralModulePath,$ephemeralWatchdogPath,$ephemeralCliPath)) {
         Copy-Item -LiteralPath $ephemeralPath -Destination (Join-Path $appData (Split-Path -Leaf $ephemeralPath)) -Force
     }
-    foreach ($capabilityScript in @($capabilitiesPath,$capabilitiesCliPath)) {
+    foreach ($capabilityScript in @($capabilitiesPath,$capabilitiesCliPath,$localGradlePath)) {
         Copy-Item -LiteralPath $capabilityScript -Destination (Join-Path $appData (Split-Path -Leaf $capabilityScript)) -Force
     }
 

@@ -70,6 +70,7 @@ jobs:
             tools/JollyRunnerHub/RunnerCapabilities.ps1
             tools/JollyRunnerHub/Inspect-RunnerCapabilities.ps1
             tools/JollyRunnerHub/Test-RunnerCapabilities.ps1
+            tools/JollyRunnerHub/Use-LocalGradle.ps1
             tools/JollyRunnerHub/RunnerLifecycle.ps1
             tools/JollyRunnerHub/profiles.default.json
             tools/JollyRunnerHub/README.md

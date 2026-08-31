@@ -101,6 +101,8 @@ Windows PowerShell 5.1が必要なstepは`shell: powershell`を明示します�
   -OutputPath "$env:LOCALAPPDATA\JollyRunnerHub\capabilities.json"
 ```
 
+Self-hosted CIは`Use-LocalGradle.ps1`で固定済みGradle distributionを有効化します。Gradle 8.8がローカルcacheにない場合は、network downloadを開始せず`TOOLCHAIN_FAILURE`として即時終了します。
+
 ### ダッシュボード
 
 ヘッダー、機体カード、6枚のミニグラフ、詳細表を重ならない固定レイアウト行に分けて表示します。各グラフのプルダウンからSpeed、AGL、Pitch、Roll、Separationなどを切り替えられます。
