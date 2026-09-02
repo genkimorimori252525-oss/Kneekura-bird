@@ -6,6 +6,50 @@ function ConvertFrom-JollyUtf8Base64 {
 function Get-JollyRunnerConnectionState {
     param(
         [Parameter(Mandatory=$true)][bool]$ProcessRunning,
+        [string[]]$LogLines = @(),
+        [datetime]$LogUpdatedAtUtc = [datetime]::MinValue,
+        [datetime]$NowUtc = [datetime]::MinValue,
+        [ValidateSet('online','busy','offline','unknown')][string]$GitHubStatus = 'unknown',
+        [int]$StaleAfterSeconds = 120,
+        [bool]$DiagnosticsReadable = $true
+    )
+    $now = if ($NowUtc -ne [datetime]::MinValue) { $NowUtc.ToUniversalTime() } else { [datetime]::UtcNow }
+    $logAgeSeconds = $null
+    $freshness = if (-not $DiagnosticsReadable) { 'unreadable' } else { 'unknown' }
+    if ($LogUpdatedAtUtc -ne [datetime]::MinValue) {
+        $logAgeSeconds = [math]::Max(0, [int][math]::Floor(($now - $LogUpdatedAtUtc.ToUniversalTime()).TotalSeconds))
+        $freshness = if ($logAgeSeconds -le [math]::Max(1,$StaleAfterSeconds)) { 'fresh' } else { 'stale' }
+    }
+    $state = Get-JollyRunnerConnectionStateLegacy -ProcessRunning $ProcessRunning -LogLines $LogLines
+    if ($state.Code -eq 'stopped') { $state.Code = 'stopped' }
+    if (-not $ProcessRunning) { $state.Evidence = 'process=stopped; github=' + $GitHubStatus }
+    elseif (-not $DiagnosticsReadable) {
+        $state = [pscustomobject]@{Code='diagnostics_unreadable';Text=(ConvertFrom-JollyUtf8Base64 '6Ki65pat44Ot44Kw44KS5YaN6Kqt6L685Lit');Tone='warn';Evidence='process=alive; diagnostics=unreadable; retry=scheduled'}
+    }
+    elseif ($GitHubStatus -eq 'busy') {
+        $state = [pscustomobject]@{Code='running_job';Text=(ConvertFrom-JollyUtf8Base64 '44K444On44OW5a6f6KGM5Lit77yIR2l0SHVi56K66KqN5riI44G/77yJ');Tone='good';Evidence='process=alive; github=busy'}
+    }
+    elseif ($GitHubStatus -eq 'online') {
+        $state = [pscustomobject]@{Code='listening';Text=(ConvertFrom-JollyUtf8Base64 'R2l0SHViIOW+heapn+S4re+8iEdpdEh1Yueiuuiqjea4iOOBv++8iQ==');Tone='good';Evidence='process=alive; github=online'}
+    }
+    elseif ($freshness -eq 'stale' -and $state.Code -eq 'reconnecting') {
+        $state = [pscustomobject]@{Code='stale_diagnostics';Text=(ConvertFrom-JollyUtf8Base64 '6Ki65pat44Ot44Kw44GM5Y+k44GE44Gf44KB5o6l57aa44KS5YaN56K66KqN5Lit');Tone='warn';Evidence=('process=alive; diagnostics=stale ({0}s); github={1}' -f $logAgeSeconds,$GitHubStatus)}
+    }
+    elseif ($freshness -eq 'stale' -and $state.Code -eq 'starting') {
+        $state.Code = 'stale_diagnostics'
+        $state.Text = ConvertFrom-JollyUtf8Base64 '6Ki65pat44Ot44Kw44GM5Y+k44GE44Gf44KB5o6l57aa44KS5YaN56K66KqN5Lit'
+        $state.Evidence = ('process=alive; diagnostics=stale ({0}s); github={1}' -f $logAgeSeconds,$GitHubStatus)
+    }
+    $state | Add-Member -NotePropertyName ProcessRunning -NotePropertyValue ([bool]$ProcessRunning) -Force
+    $state | Add-Member -NotePropertyName DiagnosticsFreshness -NotePropertyValue $freshness -Force
+    $state | Add-Member -NotePropertyName LogAgeSeconds -NotePropertyValue $logAgeSeconds -Force
+    $state | Add-Member -NotePropertyName GitHubStatus -NotePropertyValue $GitHubStatus -Force
+    return $state
+}
+
+function Get-JollyRunnerConnectionStateLegacy {
+    param(
+        [Parameter(Mandatory=$true)][bool]$ProcessRunning,
         [string[]]$LogLines = @()
     )
 

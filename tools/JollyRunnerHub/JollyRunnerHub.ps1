@@ -29,6 +29,12 @@ $script:RunnerCache = @{}
 $script:RunnerCacheAt = @{}
 $script:CapabilityCache = @{}
 $script:CapabilityCacheAt = @{}
+$script:GitHubRunnerStatusCache = @{}
+$script:GitHubRunnerStatusCacheAt = @{}
+$script:CapabilitiesSnapshot = $null
+$script:CapabilitiesSnapshotAt = [datetime]::MinValue
+$script:CapabilitiesReadFailures = 0
+$script:RunnerRecoveryState = @{}
 $script:LastEphemeralGc = [datetime]::UtcNow.AddMinutes(-10)
 $script:LiveSamples = New-Object System.Collections.Generic.List[object]
 $script:HistorySeen = @{}
@@ -53,6 +59,43 @@ function Show-Error([string]$Text) {
         $Text, 'ジョリー Runner Hub',
         [System.Windows.Forms.MessageBoxButtons]::OK,
         [System.Windows.Forms.MessageBoxIcon]::Error) | Out-Null
+}
+
+function Read-CapabilitySnapshot {
+    if (-not (Test-Path -LiteralPath $CapabilitiesPath)) { return $null }
+    try {
+        $raw = Get-Content -LiteralPath $CapabilitiesPath -Raw -Encoding UTF8 -ErrorAction Stop
+        if ([string]::IsNullOrWhiteSpace($raw)) { throw 'capabilities snapshot is empty' }
+        $snapshot = $raw | ConvertFrom-Json
+        if ($null -eq $snapshot -or $null -eq $snapshot.PSObject.Properties['capabilities']) { throw 'capabilities snapshot is incomplete' }
+        $script:CapabilitiesSnapshot = $snapshot
+        $script:CapabilitiesSnapshotAt = [datetime]::UtcNow
+        $script:CapabilitiesReadFailures = 0
+        return $snapshot
+    } catch {
+        $script:CapabilitiesReadFailures++
+        return $script:CapabilitiesSnapshot
+    }
+}
+
+function Invoke-RunnerAutoRecovery($Profile,$State) {
+    if ($null -eq $Profile -or $null -eq $State) { return }
+    $autoConnect = if ($Profile.PSObject.Properties.Name -contains 'autoConnect') { [bool]$Profile.autoConnect } else { [bool]$script:Config.autoConnect }
+    if (-not $autoConnect -or [string]$State.Code -ne 'stopped' -or -not (Test-RunnerConfigured $Profile)) { return }
+    $id = Safe-Name ([string]$Profile.id)
+    if (-not $script:RunnerRecoveryState.ContainsKey($id)) {
+        $script:RunnerRecoveryState[$id] = [pscustomobject]@{ Attempts=0; LastAttempt=[datetime]::MinValue }
+    }
+    $recovery = $script:RunnerRecoveryState[$id]
+    $delay = [math]::Min(60,[math]::Pow(2,[math]::Min(4,[int]$recovery.Attempts))*2)
+    if (([datetime]::UtcNow-[datetime]$recovery.LastAttempt).TotalSeconds -lt $delay) { return }
+    $recovery.LastAttempt = [datetime]::UtcNow
+    try {
+        Start-Runner $Profile
+        $recovery.Attempts = 0
+    } catch {
+        $recovery.Attempts = [math]::Min(5,[int]$recovery.Attempts+1)
+    }
 }
 
 function Set-DoubleBuffered($Control) {
@@ -1384,6 +1427,7 @@ function Refresh-RunnerOverview {
             $repository = ([string]$profile.repoUrl).TrimEnd('/') -replace '^https://github.com/',''
             if (Test-RunnerConfigured $profile) {
                 $state = Read-RunnerConnectionState $profile
+                Invoke-RunnerAutoRecovery $profile $state
                 $stateText = [string]$state.Text
                 $evidence = [string]$state.Evidence
             } else {
@@ -1392,25 +1436,26 @@ function Refresh-RunnerOverview {
             }
             $cachedCapabilities = Get-CachedRunnerCapabilities $profile
             $capabilityText = [string]$cachedCapabilities.Summary
-            if (Test-Path -LiteralPath $CapabilitiesPath) {
-                try {
-                    $capabilitySnapshot = Get-Content -LiteralPath $CapabilitiesPath -Raw -Encoding UTF8 | ConvertFrom-Json
-                    $required = if ($profile.PSObject.Properties.Name -contains 'requiredCapabilities') {
-                        @($profile.requiredCapabilities)
-                    } else { @() }
-                    $selectedCapabilities = if ($required.Count -eq 0) {
-                        @($capabilitySnapshot.capabilities)
-                    } else {
-                        @($capabilitySnapshot.capabilities | Where-Object { $required -contains [string]$_.name })
-                    }
-                    $readyCount = @($selectedCapabilities | Where-Object { $_.status -eq 'ready' }).Count
-                    $missing = @($selectedCapabilities | Where-Object { $_.status -ne 'ready' } | ForEach-Object { [string]$_.name })
-                    $capabilityText = if ($missing.Count -eq 0) {
-                        "$readyCount/$($selectedCapabilities.Count) ready"
-                    } else {
-                        "$readyCount/$($selectedCapabilities.Count) ready; $($missing -join ', ')"
-                    }
-                } catch { $capabilityText = '読込エラー' }
+            $capabilitySnapshot = Read-CapabilitySnapshot
+            if ($null -ne $capabilitySnapshot) {
+                $required = if ($profile.PSObject.Properties.Name -contains 'requiredCapabilities') {
+                    @($profile.requiredCapabilities)
+                } else { @() }
+                $selectedCapabilities = if (@($required).Count -eq 0) {
+                    @($capabilitySnapshot.capabilities)
+                } else {
+                    @($capabilitySnapshot.capabilities | Where-Object { $required -contains [string]$_.name })
+                }
+                $readyCount = @($selectedCapabilities | Where-Object { $_.status -eq 'ready' }).Count
+                $missing = @($selectedCapabilities | Where-Object { $_.status -ne 'ready' } | ForEach-Object { [string]$_.name })
+                $capabilityText = if ($missing.Count -eq 0) {
+                    "$readyCount/$($selectedCapabilities.Count) ready"
+                } else {
+                    "$readyCount/$($selectedCapabilities.Count) ready; $($missing -join ', ')"
+                }
+                if ($script:CapabilitiesReadFailures -gt 0) { $capabilityText += ' (更新再試行中)' }
+            } else {
+                $capabilityText = '能力情報を再取得中'
             }
             $ephemeral = if (Test-JollyEphemeralEnabled $profile) {
                 Get-JollyEphemeralSummary -AppRoot $AppRoot -ProfileId ([string]$profile.id)
@@ -1425,9 +1470,9 @@ function Refresh-RunnerOverview {
                 $evidence,
                 $ephemeral)
             $row = $runnerGrid.Rows[$index]
-            if ($stateText -in @('GitHub 待機中','ジョブ実行中','ジョブ完了確認中')) {
+            if ([string]$state.Code -in @('listening','running_job','connected_starting')) {
                 $row.Cells['State'].Style.ForeColor = $ColorGood
-            } elseif ($stateText -in @('未登録','停止中','再接続中')) {
+            } elseif ([string]$state.Code -in @('stopped','reconnecting')) {
                 $row.Cells['State'].Style.ForeColor = $ColorBad
             } else {
                 $row.Cells['State'].Style.ForeColor = $ColorWarn
