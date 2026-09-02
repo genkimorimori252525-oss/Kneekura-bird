@@ -69,6 +69,15 @@ Assert-RunnerConnectionState -Expected 'connected_starting' -ProcessRunning $tru
 Assert-RunnerConnectionState -Expected 'listening' -ProcessRunning $true -Lines @('Connected to GitHub','Listening for Jobs')
 Assert-RunnerConnectionState -Expected 'running_job' -ProcessRunning $true -Lines @('Listening for Jobs','Running job: validate')
 Assert-RunnerConnectionState -Expected 'reconnecting' -ProcessRunning $true -Lines @('Listening for Jobs','Runner connect error: The HTTP request timed out')
+$healthNow = [datetime]'2026-09-02T13:00:00Z'
+$staleHealth = Get-JollyRunnerConnectionState -ProcessRunning $true -LogLines @('Runner connect error: The HTTP request timed out') -LogUpdatedAtUtc ([datetime]'2026-09-02T12:55:00Z') -NowUtc $healthNow
+if ($staleHealth.Code -ne 'stale_diagnostics' -or $staleHealth.DiagnosticsFreshness -ne 'stale' -or $staleHealth.LogAgeSeconds -ne 300) {
+    throw "Stale diagnostics contract failed: $($staleHealth | ConvertTo-Json -Compress)"
+}
+$onlineHealth = Get-JollyRunnerConnectionState -ProcessRunning $true -LogLines @('old reconnect marker') -LogUpdatedAtUtc ([datetime]'2026-09-02T12:55:00Z') -NowUtc $healthNow -GitHubStatus online
+if ($onlineHealth.Code -ne 'listening' -or $onlineHealth.GitHubStatus -ne 'online') { throw 'GitHub online state did not override stale diagnostics.' }
+$unreadableHealth = Get-JollyRunnerConnectionState -ProcessRunning $true -DiagnosticsReadable $false
+if ($unreadableHealth.Code -ne 'diagnostics_unreadable') { throw 'Unreadable diagnostics state was not classified.' }
 
 foreach ($ephemeralPath in @($ephemeralModulePath,$ephemeralWatchdogPath,$ephemeralCliPath,$ephemeralTestPath)) {
     $ephemeralText = Get-Content -LiteralPath $ephemeralPath -Raw -Encoding UTF8
@@ -203,7 +212,7 @@ $runtimeScriptText = $runtimeScriptText.Replace(
 
 $runnerAdapterTarget = 'function Start-Runner($Profile) {'
 $runnerAdapter = @'
-function Get-RunnerConnectionLogLines($Profile) {
+function Get-RunnerConnectionLogSnapshot($Profile) {
     $files = New-Object System.Collections.Generic.List[object]
 
     $hubLog = Log-Path $Profile
@@ -221,21 +230,75 @@ function Get-RunnerConnectionLogLines($Profile) {
     }
 
     $lines = New-Object System.Collections.Generic.List[string]
+    $latestWrite = [datetime]::MinValue
+    $readable = $true
     foreach ($file in @($files | Sort-Object LastWriteTimeUtc)) {
-        foreach ($line in (Tail-Lines $file.FullName 1048576)) {
-            [void]$lines.Add([string]$line)
+        try {
+            if ($file.LastWriteTimeUtc -gt $latestWrite) { $latestWrite = $file.LastWriteTimeUtc }
+            foreach ($line in (Tail-Lines $file.FullName 1048576)) {
+                [void]$lines.Add([string]$line)
+            }
+        } catch {
+            $readable = $false
         }
     }
-    return $lines.ToArray()
+    return [pscustomobject]@{ Lines=$lines.ToArray(); UpdatedAtUtc=$latestWrite; Readable=$readable }
+}
+
+function Get-RunnerConnectionLogLines($Profile) {
+    return @((Get-RunnerConnectionLogSnapshot $Profile).Lines)
+}
+
+function Get-RunnerGitHubStatus($Profile) {
+    if ($null -eq $script:GitHubRunnerStatusCache) { $script:GitHubRunnerStatusCache = @{} }
+    if ($null -eq $script:GitHubRunnerStatusCacheAt) { $script:GitHubRunnerStatusCacheAt = @{} }
+    $id = Safe-Name ([string]$Profile.id)
+    $cachedAt = if ($script:GitHubRunnerStatusCacheAt.ContainsKey($id)) { [datetime]$script:GitHubRunnerStatusCacheAt[$id] } else { [datetime]::MinValue }
+    if ($script:GitHubRunnerStatusCache.ContainsKey($id) -and ([datetime]::UtcNow-$cachedAt).TotalSeconds -lt 15) {
+        return $script:GitHubRunnerStatusCache[$id]
+    }
+    $status = 'unknown'
+    $evidence = 'github=unknown'
+    try {
+        $root = [Environment]::ExpandEnvironmentVariables([string]$Profile.runnerRoot)
+        $runnerFile = Join-Path $root '.runner'
+        $runnerName = ''
+        if (Test-Path -LiteralPath $runnerFile) {
+            $runnerConfig = Get-Content -LiteralPath $runnerFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($property in @('agentName','name')) {
+                if ($runnerConfig.PSObject.Properties.Name -contains $property -and -not [string]::IsNullOrWhiteSpace([string]$runnerConfig.$property)) { $runnerName = [string]$runnerConfig.$property; break }
+            }
+        }
+        $repository = ([string]$Profile.repoUrl).TrimEnd('/') -replace '^https://github.com/',''
+        if ([string]::IsNullOrWhiteSpace($runnerName) -or [string]::IsNullOrWhiteSpace($repository)) {
+            $evidence = 'github=unknown (runner name unavailable)'
+        } else {
+            $lookup = Find-JollyGitHubRunner -Repository $repository -RunnerName $runnerName
+            if ($lookup.Ok -and $null -ne $lookup.Runner) {
+                $candidate = [string]$lookup.Runner.status
+                if ($candidate -in @('online','offline','busy')) { $status = $candidate; $evidence = 'github=' + $candidate }
+            } elseif (-not $lookup.Ok) { $evidence = 'github=unknown (query failed)' }
+            else { $status = 'offline'; $evidence = 'github=offline (runner not listed)' }
+        }
+    } catch { $evidence = 'github=unknown (query exception)' }
+    $result = [pscustomobject]@{Status=$status;Evidence=$evidence}
+    $script:GitHubRunnerStatusCache[$id] = $result
+    $script:GitHubRunnerStatusCacheAt[$id] = [datetime]::UtcNow
+    return $result
 }
 
 function Read-RunnerConnectionState($Profile) {
     $running = Runner-Running $Profile
+    $remote = Get-RunnerGitHubStatus $Profile
     if (-not $running) {
-        return Get-JollyRunnerConnectionState -ProcessRunning $false -LogLines @()
+        $state = Get-JollyRunnerConnectionState -ProcessRunning $false -LogLines @() -GitHubStatus $remote.Status
+        $state.Evidence += '; ' + $remote.Evidence
+        return $state
     }
-    $lines = @(Get-RunnerConnectionLogLines $Profile)
-    return Get-JollyRunnerConnectionState -ProcessRunning $true -LogLines $lines
+    $snapshot = Get-RunnerConnectionLogSnapshot $Profile
+    $state = Get-JollyRunnerConnectionState -ProcessRunning $true -LogLines @($snapshot.Lines) -LogUpdatedAtUtc $snapshot.UpdatedAtUtc -GitHubStatus $remote.Status -DiagnosticsReadable ([bool]$snapshot.Readable)
+    $state.Evidence += '; ' + $remote.Evidence
+    return $state
 }
 
 function Start-Runner($Profile) {
