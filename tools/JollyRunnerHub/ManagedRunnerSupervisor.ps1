@@ -36,9 +36,10 @@ $mutex = New-Object Threading.Mutex($false,'Local\JollyRunnerHub-ManagedSupervis
 if (-not $mutex.WaitOne([TimeSpan]::FromSeconds(2))) { exit 0 }
 
 $script:Recovery = @{}
-$script:LastProbeLaunch = @{}
+$script:ProbeProcesses = @{}
 $script:MaintenanceProcess = $null
 $script:LastMaintenance = [datetime]::MinValue
+$script:ProcessInventory = @()
 
 function Write-SupervisorEvent {
     param([string]$ProfileId,[string]$Action,[string]$Result,[string]$Reason)
@@ -49,36 +50,33 @@ function Write-SupervisorEvent {
                 Move-Item -LiteralPath $EventLogPath -Destination ($EventLogPath + '.1') -Force -ErrorAction SilentlyContinue
             }
         }
-        [ordered]@{
-            timestamp=([datetime]::UtcNow).ToString('o')
-            profileId=$ProfileId
-            action=$Action
-            result=$Result
-            reason=$Reason
-        } | ConvertTo-Json -Compress | Add-Content -LiteralPath $EventLogPath -Encoding UTF8
+        [ordered]@{timestamp=([datetime]::UtcNow).ToString('o');profileId=$ProfileId;action=$Action;result=$Result;reason=$Reason} | ConvertTo-Json -Compress | Add-Content -LiteralPath $EventLogPath -Encoding UTF8
     } catch {}
+}
+
+function Refresh-SupervisorProcessInventory {
+    try {
+        $script:ProcessInventory = @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object { [string]$_.Name -in @('Runner.Listener.exe','cmd.exe') })
+    } catch {
+        $script:ProcessInventory = @()
+    }
 }
 
 function Get-SupervisorRunnerProcesses {
     param($Profile)
     $root = [Environment]::ExpandEnvironmentVariables([string]$Profile.runnerRoot).TrimEnd('\')
     if ([string]::IsNullOrWhiteSpace($root)) { return @() }
-    $pattern = '^' + [regex]::Escape($root) + '(?:\\|["\s]|$)'
-    try {
-        return @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
-            [string]$_.Name -in @('Runner.Listener.exe','cmd.exe') -and (
-                ([string]$_.ExecutablePath -match $pattern) -or
-                ([string]$_.CommandLine -match [regex]::Escape($root))
-            )
-        })
-    } catch { return @() }
+    $escapedRoot = [regex]::Escape($root)
+    $pattern = '^' + $escapedRoot + '(?:\\|["\s]|$)'
+    return @($script:ProcessInventory | Where-Object {
+        ([string]$_.ExecutablePath -match $pattern) -or ([string]$_.CommandLine -match $escapedRoot)
+    })
 }
 
 function Test-SupervisorRunnerConfigured {
     param($Profile)
     $root = [Environment]::ExpandEnvironmentVariables([string]$Profile.runnerRoot)
-    return (Test-Path -LiteralPath (Join-Path $root 'run.cmd') -PathType Leaf) -and
-        (Test-Path -LiteralPath (Join-Path $root '.runner') -PathType Leaf)
+    return (Test-Path -LiteralPath (Join-Path $root 'run.cmd') -PathType Leaf) -and (Test-Path -LiteralPath (Join-Path $root '.runner') -PathType Leaf)
 }
 
 function Start-SupervisorRunner {
@@ -103,10 +101,9 @@ function Start-SupervisorRunner {
 
 function Stop-SupervisorRunner {
     param($Profile)
-    $processes = @(Get-SupervisorRunnerProcesses $Profile)
-    $ids = @($processes | ForEach-Object { [int]$_.ProcessId } | Where-Object { $_ -gt 0 } | Select-Object -Unique)
+    $ids = @(Get-SupervisorRunnerProcesses $Profile | ForEach-Object { [int]$_.ProcessId } | Where-Object { $_ -gt 0 } | Sort-Object -Descending -Unique)
     foreach ($processId in $ids) {
-        Start-Process taskkill.exe -ArgumentList '/PID',[string]$processId,'/T','/F' -Wait -WindowStyle Hidden | Out-Null
+        try { Start-Process taskkill.exe -ArgumentList '/PID',[string]$processId,'/T','/F' -Wait -WindowStyle Hidden | Out-Null } catch {}
     }
 }
 
@@ -118,8 +115,7 @@ function Get-SupervisorRawLocalState {
     $diagRoot = Join-Path $root '_diag'
     $lines = @()
     if (Test-Path -LiteralPath $diagRoot -PathType Container) {
-        $latest = Get-ChildItem -LiteralPath $diagRoot -Filter 'Runner_*.log' -File -ErrorAction SilentlyContinue |
-            Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+        $latest = Get-ChildItem -LiteralPath $diagRoot -Filter 'Runner_*.log' -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
         if ($null -ne $latest) {
             try { $lines = @(Get-Content -LiteralPath $latest.FullName -Tail 300 -Encoding UTF8 -ErrorAction Stop) } catch {}
         }
@@ -147,17 +143,42 @@ function Read-SupervisorDispatchProbe {
     } catch { return $null }
 }
 
-function Invoke-SupervisorDispatchProbe {
+function Cleanup-SupervisorProbeProcesses {
+    foreach ($profileId in @($script:ProbeProcesses.Keys)) {
+        $entry = $script:ProbeProcesses[$profileId]
+        if ($null -eq $entry -or $null -eq $entry.Process) {
+            $script:ProbeProcesses.Remove($profileId)
+            continue
+        }
+        if ($entry.Process.HasExited) {
+            $script:ProbeProcesses.Remove($profileId)
+            continue
+        }
+        if (([datetime]::UtcNow-[datetime]$entry.StartedAt).TotalSeconds -gt 30) {
+            try { Start-Process taskkill.exe -ArgumentList '/PID',[string]$entry.Process.Id,'/T','/F' -Wait -WindowStyle Hidden | Out-Null } catch {}
+            Write-SupervisorEvent $profileId 'dispatch-probe' 'timeout' 'background probe exceeded 30 seconds'
+            $script:ProbeProcesses.Remove($profileId)
+        }
+    }
+}
+
+function Start-SupervisorDispatchProbe {
     param($Profile)
+    $profileId = [string]$Profile.id
+    if ($script:ProbeProcesses.ContainsKey($profileId)) { return $false }
     $repository = ([string]$Profile.repoUrl).TrimEnd('/') -replace '^https://github.com/',''
     $root = [Environment]::ExpandEnvironmentVariables([string]$Profile.runnerRoot)
     $output = Get-SupervisorDispatchPath $Profile
     $routingCsv = (Get-JollyDispatchRoutingLabels $Profile) -join ','
     $args = @('-NoProfile','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File',('"{0}"' -f $DispatchProbePath),'-Repository',$repository,'-RunnerRoot',('"{0}"' -f $root),'-OutputPath',('"{0}"' -f $output),'-RoutingLabelsCsv',$routingCsv,'-TimeoutSeconds','4')
-    $process = Start-Process powershell.exe -ArgumentList $args -WindowStyle Hidden -PassThru
-    if (-not $process.WaitForExit(45000)) {
-        try { Start-Process taskkill.exe -ArgumentList '/PID',[string]$process.Id,'/T','/F' -Wait -WindowStyle Hidden | Out-Null } catch {}
-        Write-SupervisorEvent ([string]$Profile.id) 'dispatch-probe' 'timeout' 'probe exceeded 45 seconds'
+    $previousTracking = $env:RUNNER_TRACKING_ID
+    $env:RUNNER_TRACKING_ID = ''
+    try {
+        $process = Start-Process powershell.exe -ArgumentList $args -WindowStyle Hidden -PassThru
+        $script:ProbeProcesses[$profileId] = [pscustomobject]@{Process=$process;StartedAt=[datetime]::UtcNow}
+        return $true
+    } finally {
+        $env:RUNNER_TRACKING_ID = $previousTracking
     }
 }
 
@@ -168,9 +189,11 @@ function Get-SupervisorRecoveryState {
         $script:Recovery[$id] = [pscustomobject]@{
             Consecutive=0
             LastProbeAt=''
-            LastAttempt=[datetime]::MinValue
-            WindowStart=[datetime]::UtcNow
-            AttemptsInWindow=0
+            LastRecoveryAttempt=[datetime]::MinValue
+            RecoveryWindowStart=[datetime]::UtcNow
+            RecoveryAttemptsInWindow=0
+            LastStartAttempt=[datetime]::MinValue
+            StartFailureCount=0
         }
     }
     return $script:Recovery[$id]
@@ -180,10 +203,12 @@ function Write-SupervisorStatus {
     param($Profiles)
     $payload = [ordered]@{
         schema='jolly.managed-supervisor'
-        version=1
+        version=2
         processId=$PID
         updatedAt=([datetime]::UtcNow).ToString('o')
         intervalSeconds=$IntervalSeconds
+        activeDispatchProbes=@($script:ProbeProcesses.Keys).Count
+        maintenanceRunning=($null -ne $script:MaintenanceProcess -and -not $script:MaintenanceProcess.HasExited)
         profiles=$Profiles
     }
     $temp = $StatusPath + '.tmp-' + [guid]::NewGuid().ToString('N')
@@ -215,6 +240,8 @@ try {
     do {
         $cycleProfiles = @()
         try {
+            Cleanup-SupervisorProbeProcesses
+            Refresh-SupervisorProcessInventory
             $config = Read-JollyRunnerConfig -ConfigPath $ConfigPath -DefaultConfigPath $DefaultConfigPath
             $probeBudget = 1
             foreach ($profile in @($config.profiles)) {
@@ -226,15 +253,12 @@ try {
 
                 $probe = Read-SupervisorDispatchProbe $profile
                 $probeMaxAge = Get-JollyDispatchProbeMaxAgeSeconds $profile
-                if ($configured -and $probeBudget -gt 0 -and ($null -eq $probe -or [int]$probe.SnapshotAgeSeconds -ge $probeMaxAge)) {
+                if ($configured -and $probeBudget -gt 0 -and -not $script:ProbeProcesses.ContainsKey($profileId) -and ($null -eq $probe -or [int]$probe.SnapshotAgeSeconds -ge $probeMaxAge)) {
                     try {
-                        Invoke-SupervisorDispatchProbe $profile
-                        $script:LastProbeLaunch[$profileId] = [datetime]::UtcNow
+                        if (Start-SupervisorDispatchProbe $profile) { $probeBudget-- }
                     } catch {
                         Write-SupervisorEvent $profileId 'dispatch-probe' 'failed' $_.Exception.Message
                     }
-                    $probeBudget--
-                    $probe = Read-SupervisorDispatchProbe $profile
                 }
 
                 $dispatch = if ($configured) {
@@ -245,27 +269,39 @@ try {
                 }
 
                 $recovery = Get-SupervisorRecoveryState $profile
+                if ($processRunning) { $recovery.StartFailureCount = 0 }
                 $probeAt = if ($null -ne $probe) { [string]$probe.probedAt } else { '' }
                 if ($probeAt -and $probeAt -ne [string]$recovery.LastProbeAt) {
                     $recovery.LastProbeAt = $probeAt
                     if ([bool]$dispatch.CanRecover) { $recovery.Consecutive=[int]$recovery.Consecutive+1 } else { $recovery.Consecutive=0 }
                 }
-                if (([datetime]::UtcNow-[datetime]$recovery.WindowStart).TotalHours -ge 1) {
-                    $recovery.WindowStart=[datetime]::UtcNow
-                    $recovery.AttemptsInWindow=0
+                if (([datetime]::UtcNow-[datetime]$recovery.RecoveryWindowStart).TotalHours -ge 1) {
+                    $recovery.RecoveryWindowStart=[datetime]::UtcNow
+                    $recovery.RecoveryAttemptsInWindow=0
                 }
-                $busy = $false
-                if ($null -ne $probe) { $busy = [bool]$probe.runnerBusy }
-                $minutesSinceAttempt = ([datetime]::UtcNow-[datetime]$recovery.LastAttempt).TotalMinutes
-                $decision = Get-JollyManagedSupervisorDecision -Configured $configured -DesiredState $desired -ProcessRunning $processRunning -LocalCode ([string]$local.Code) -DispatchCode ([string]$dispatch.Code) -DispatchCanRecover ([bool]$dispatch.CanRecover) -RunnerBusy $busy -ConsecutiveRecoverableProbes ([int]$recovery.Consecutive) -MinutesSinceLastAttempt $minutesSinceAttempt -AttemptsInWindow ([int]$recovery.AttemptsInWindow)
+
+                $busy = if ($null -ne $probe) { [bool]$probe.runnerBusy } else { $false }
+                $decision = Get-JollyManagedSupervisorDecision -Configured $configured -DesiredState $desired -ProcessRunning $processRunning -LocalCode ([string]$local.Code) -DispatchCode ([string]$dispatch.Code) -DispatchCanRecover ([bool]$dispatch.CanRecover) -RunnerBusy $busy -ConsecutiveRecoverableProbes ([int]$recovery.Consecutive) -MinutesSinceLastRecoveryAttempt (([datetime]::UtcNow-[datetime]$recovery.LastRecoveryAttempt).TotalMinutes) -RecoveryAttemptsInWindow ([int]$recovery.RecoveryAttemptsInWindow) -SecondsSinceLastStartAttempt (([datetime]::UtcNow-[datetime]$recovery.LastStartAttempt).TotalSeconds) -StartFailureCount ([int]$recovery.StartFailureCount)
 
                 $actionResult = 'none'
-                if ([string]$decision.Action -eq 'start') {
+                if ([string]$decision.Action -eq 'stop') {
+                    try {
+                        Stop-SupervisorRunner $profile
+                        $actionResult='stopped'
+                        Write-SupervisorEvent $profileId 'stop' 'success' ([string]$decision.Reason)
+                        Refresh-SupervisorProcessInventory
+                    } catch {
+                        $actionResult='stop-failed'
+                        Write-SupervisorEvent $profileId 'stop' 'failed' $_.Exception.Message
+                    }
+                }
+                elseif ([string]$decision.Action -eq 'start') {
+                    $recovery.LastStartAttempt=[datetime]::UtcNow
+                    $recovery.StartFailureCount=[math]::Min(5,[int]$recovery.StartFailureCount+1)
                     try {
                         Start-SupervisorRunner $profile
-                        $recovery.LastAttempt=[datetime]::UtcNow
-                        $actionResult='started'
-                        Write-SupervisorEvent $profileId 'start' 'success' ([string]$decision.Reason)
+                        $actionResult='start-issued'
+                        Write-SupervisorEvent $profileId 'start' 'issued' ([string]$decision.Reason)
                     } catch {
                         $actionResult='start-failed'
                         Write-SupervisorEvent $profileId 'start' 'failed' $_.Exception.Message
@@ -275,12 +311,13 @@ try {
                     try {
                         Stop-SupervisorRunner $profile
                         Start-Sleep -Milliseconds 600
+                        Refresh-SupervisorProcessInventory
                         Start-SupervisorRunner $profile
-                        $recovery.LastAttempt=[datetime]::UtcNow
-                        $recovery.AttemptsInWindow=[int]$recovery.AttemptsInWindow+1
+                        $recovery.LastRecoveryAttempt=[datetime]::UtcNow
+                        $recovery.RecoveryAttemptsInWindow=[int]$recovery.RecoveryAttemptsInWindow+1
                         $recovery.Consecutive=0
-                        $actionResult='reconnected'
-                        Write-SupervisorEvent $profileId 'reconnect' 'success' ([string]$decision.Reason)
+                        $actionResult='reconnect-issued'
+                        Write-SupervisorEvent $profileId 'reconnect' 'issued' ([string]$decision.Reason)
                     } catch {
                         $actionResult='reconnect-failed'
                         Write-SupervisorEvent $profileId 'reconnect' 'failed' $_.Exception.Message
@@ -291,15 +328,17 @@ try {
                     id=$profileId
                     desiredState=$desired
                     configured=[bool]$configured
-                    processRunning=[bool](@(Get-SupervisorRunnerProcesses $profile).Count -gt 0)
+                    processRunning=[bool]$processRunning
                     localCode=[string]$local.Code
                     dispatchCode=[string]$dispatch.Code
                     dispatchTone=[string]$dispatch.Tone
-                    runnerBusy=$busy
+                    runnerBusy=[bool]$busy
                     eligibleQueuedCount=if ($null -ne $probe) {[int]$probe.eligibleQueuedCount} else {0}
                     oldestQueuedSeconds=if ($null -ne $probe) {[int]$probe.oldestQueuedSeconds} else {0}
                     recoveryConsecutive=[int]$recovery.Consecutive
+                    startFailureCount=[int]$recovery.StartFailureCount
                     action=$actionResult
+                    decisionReason=[string]$decision.Reason
                 }
             }
             Start-MaintenanceIfDue
@@ -311,6 +350,10 @@ try {
         if (-not $Once) { Start-Sleep -Seconds $IntervalSeconds }
     } while (-not $Once)
 } finally {
+    foreach ($profileId in @($script:ProbeProcesses.Keys)) {
+        $entry = $script:ProbeProcesses[$profileId]
+        try { if ($null -ne $entry -and $null -ne $entry.Process -and -not $entry.Process.HasExited) { $entry.Process.Kill() } } catch {}
+    }
     try { $mutex.ReleaseMutex() } catch {}
     $mutex.Dispose()
 }
