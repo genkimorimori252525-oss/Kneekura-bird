@@ -19,6 +19,10 @@ $CapabilitiesCliPath = Join-Path $AppRoot 'Inspect-RunnerCapabilities.ps1'
 $DispatchRoot = Join-Path $AppRoot 'dispatch'
 $DispatchWatchPath = Join-Path $PSScriptRoot 'RunnerDispatchWatch.ps1'
 $DispatchProbePath = Join-Path $PSScriptRoot 'RunnerDispatchProbe.ps1'
+$RunnerConfigPath = Join-Path $PSScriptRoot 'RunnerConfig.ps1'
+$RunnerControlStatePath = Join-Path $PSScriptRoot 'RunnerControlState.ps1'
+$MaintenancePath = Join-Path $PSScriptRoot 'RunnerMaintenance.ps1'
+$SupervisorStatusPath = Join-Path $AppRoot 'supervisor-status.json'
 $RunnerLifecyclePath = Join-Path $PSScriptRoot 'RunnerLifecycle.ps1'
 if (-not (Test-Path -LiteralPath $RunnerLifecyclePath)) {
     $RunnerLifecyclePath = Join-Path (Split-Path -Parent $PSScriptRoot) 'RunnerLifecycle.ps1'
@@ -33,7 +37,14 @@ if (-not (Test-Path -LiteralPath $DispatchProbePath)) {
 }
 if (-not (Test-Path -LiteralPath $DispatchWatchPath)) { throw 'RunnerDispatchWatch.ps1 was not found.' }
 if (-not (Test-Path -LiteralPath $DispatchProbePath)) { throw 'RunnerDispatchProbe.ps1 was not found.' }
+if (-not (Test-Path -LiteralPath $RunnerConfigPath)) { $RunnerConfigPath = Join-Path $AppRoot 'RunnerConfig.ps1' }
+if (-not (Test-Path -LiteralPath $RunnerConfigPath)) { throw 'RunnerConfig.ps1 was not found.' }
+if (-not (Test-Path -LiteralPath $RunnerControlStatePath)) { $RunnerControlStatePath = Join-Path $AppRoot 'RunnerControlState.ps1' }
+if (-not (Test-Path -LiteralPath $MaintenancePath)) { $MaintenancePath = Join-Path $AppRoot 'RunnerMaintenance.ps1' }
+if (-not (Test-Path -LiteralPath $RunnerControlStatePath)) { throw 'RunnerControlState.ps1 was not found.' }
 . $DispatchWatchPath
+. $RunnerConfigPath
+. $RunnerControlStatePath
 
 $script:Config = $null
 $script:Profile = $null
@@ -66,6 +77,8 @@ $script:DispatchProbeProcesses = @{}
 $script:DispatchProbeLastLaunch = @{}
 $script:DispatchRecoveryState = @{}
 $script:DispatchRecoveryLogPath = Join-Path $AppRoot 'dispatch-recovery.jsonl'
+$script:MaintenanceFallbackProcess = $null
+$script:LastBackgroundMaintenance = [datetime]::MinValue
 
 $ColorWindow = [Drawing.Color]::FromArgb(242,245,249)
 $ColorSurface = [Drawing.Color]::White
@@ -103,10 +116,92 @@ function Read-CapabilitySnapshot {
     }
 }
 
+function Read-ManagedSupervisorStatus {
+    if (-not (Test-Path -LiteralPath $SupervisorStatusPath -PathType Leaf)) { return $null }
+    try {
+        $status = Get-Content -LiteralPath $SupervisorStatusPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        $updated = [datetime]::MinValue
+        if (-not [datetime]::TryParse([string]$status.updatedAt,[ref]$updated)) { return $null }
+        $age = [math]::Max(0,[int]([datetime]::UtcNow-$updated.ToUniversalTime()).TotalSeconds)
+        Add-Member -InputObject $status -NotePropertyName AgeSeconds -NotePropertyValue $age -Force
+        return $status
+    } catch { return $null }
+}
+
+function Test-ManagedSupervisorHealthy {
+    $status = Read-ManagedSupervisorStatus
+    return ($null -ne $status -and [int]$status.AgeSeconds -le 30)
+}
+
+function Get-ProfileDesiredState($Profile) {
+    return Get-JollyDesiredRunnerState -AppRoot $AppRoot -Profile $Profile -Config $script:Config
+}
+
+function Set-ProfileDesiredState($Profile,[ValidateSet('running','stopped')][string]$State) {
+    if ($null -eq $Profile) { return }
+    [void](Set-JollyDesiredRunnerState -AppRoot $AppRoot -ProfileId ([string]$Profile.id) -State $State)
+}
+
+function Get-DispatchDisplayText($Classification) {
+    if ($null -eq $Classification) { return '診断待ち' }
+    switch ([string]$Classification.Code) {
+        'probe_pending' { return '診断待ち' }
+        'probe_stale' { return '診断が古い' }
+        'api_error' { return 'GitHub診断失敗' }
+        'route_duplicate' { return '配送先が重複' }
+        'registration_missing' { return 'GitHub登録なし' }
+        'running' { return 'ジョブ実行中' }
+        'github_offline' { return 'GitHub側オフライン' }
+        'ghost_online' { return 'Ghost online疑い' }
+        'ready' { return '配送待機OK' }
+        'idle_unknown' { return '待機状態確認中' }
+        'assigned' { return 'Runnerへ配送済み' }
+        'dispatch_stalled' {
+            if ([string]$Classification.Evidence -match 'oldest=(\d+)s') { return ('配送停止疑い ' + $Matches[1] + 's') }
+            return '配送停止疑い'
+        }
+        'dispatch_slow' {
+            if ([string]$Classification.Text -match '(\d+)s') { return ('配送遅延 ' + $Matches[1] + 's') }
+            return '配送遅延'
+        }
+        'queue_waiting' {
+            if ([string]$Classification.Text -match '(\d+)s') { return ('配送待ち ' + $Matches[1] + 's') }
+            return '配送待ち'
+        }
+        'manual_stop' { return '手動停止' }
+        'unregistered' { return '未登録' }
+        'disabled' { return '監視OFF' }
+        default { return [string]$Classification.Text }
+    }
+}
+
+function Start-BackgroundMaintenanceIfDue([switch]$Force) {
+    if (Test-ManagedSupervisorHealthy) { return $false }
+    if (-not (Test-Path -LiteralPath $MaintenancePath -PathType Leaf)) { return $false }
+    if ($null -ne $script:MaintenanceFallbackProcess -and -not $script:MaintenanceFallbackProcess.HasExited) { return $false }
+    if (-not $Force -and ([datetime]::UtcNow-$script:LastBackgroundMaintenance).TotalSeconds -lt 120) { return $false }
+    $previousTracking = $env:RUNNER_TRACKING_ID
+    $env:RUNNER_TRACKING_ID = ''
+    try {
+        $script:MaintenanceFallbackProcess = Start-Process powershell.exe -ArgumentList @(
+            '-NoProfile','-ExecutionPolicy','Bypass','-WindowStyle','Hidden',
+            '-File',('"{0}"' -f $MaintenancePath),
+            '-AppRoot',('"{0}"' -f $AppRoot)
+        ) -WindowStyle Hidden -PassThru
+        $script:LastBackgroundMaintenance = [datetime]::UtcNow
+        return $true
+    } catch {
+        return $false
+    } finally {
+        $env:RUNNER_TRACKING_ID = $previousTracking
+    }
+}
+
 function Invoke-RunnerAutoRecovery($Profile,$State) {
     if ($null -eq $Profile -or $null -eq $State) { return }
-    $autoConnect = if ($Profile.PSObject.Properties.Name -contains 'autoConnect') { [bool]$Profile.autoConnect } else { [bool]$script:Config.autoConnect }
-    if (-not $autoConnect -or [string]$State.Code -ne 'stopped' -or -not (Test-RunnerConfigured $Profile)) { return }
+    if (Test-ManagedSupervisorHealthy) { return }
+    if ((Get-ProfileDesiredState $Profile) -ne 'running') { return }
+    if ([string]$State.Code -ne 'stopped' -or -not (Test-RunnerConfigured $Profile)) { return }
     $id = Safe-Name ([string]$Profile.id)
     if (-not $script:RunnerRecoveryState.ContainsKey($id)) {
         $script:RunnerRecoveryState[$id] = [pscustomobject]@{ Attempts=0; LastAttempt=[datetime]::MinValue }
@@ -135,33 +230,12 @@ function Set-DoubleBuffered($Control) {
 function Load-Config {
     New-Item -ItemType Directory -Force -Path $AppRoot | Out-Null
     New-Item -ItemType Directory -Force -Path $HistoryRoot | Out-Null
-    if (-not (Test-Path -LiteralPath $ConfigPath)) {
-        Copy-Item -LiteralPath $DefaultConfigPath -Destination $ConfigPath -Force
-    }
-    $script:Config = Get-Content -LiteralPath $ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    $defaultConfig = Get-Content -LiteralPath $DefaultConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    $knownIds = @{}
-    foreach ($profile in @($script:Config.profiles)) {
-        $knownIds[[string]$profile.id] = $true
-    }
-    $configChanged = $false
-    foreach ($profile in @($defaultConfig.profiles)) {
-        if (-not $knownIds.ContainsKey([string]$profile.id)) {
-            $script:Config.profiles = @($script:Config.profiles) + @($profile)
-            $knownIds[[string]$profile.id] = $true
-            $configChanged = $true
-        }
-    }
-    if ($configChanged) {
-        $script:Config | ConvertTo-Json -Depth 12 |
-            Set-Content -LiteralPath $ConfigPath -Encoding UTF8
-    }
+    $script:Config = Read-JollyRunnerConfig -ConfigPath $ConfigPath -DefaultConfigPath $DefaultConfigPath
     if ($null -eq $script:Config.profiles -or @($script:Config.profiles).Count -eq 0) {
         throw 'profiles.json にprofilesがありません。'
     }
     $script:LastConfigWrite = (Get-Item -LiteralPath $ConfigPath).LastWriteTimeUtc
 }
-
 
 function Normalize-RunnerRoot([string]$Path) {
     if ([string]::IsNullOrWhiteSpace($Path)) { return '' }
@@ -423,7 +497,7 @@ function Update-DispatchRecoveryState($Profile,$Dispatch,$LocalState) {
         $recovery.LastProbeAt = $probeAt
         if ([bool]$Dispatch.Classification.CanRecover) { $recovery.Consecutive=[int]$recovery.Consecutive+1 } else { $recovery.Consecutive=0 }
     }
-    if ([bool]$Dispatch.Classification.CanRecover) { [void](Invoke-DispatchReconnect $Profile $LocalState $Dispatch) }
+    if ([bool]$Dispatch.Classification.CanRecover -and -not (Test-ManagedSupervisorHealthy)) { [void](Invoke-DispatchReconnect $Profile $LocalState $Dispatch) }
 }
 
 function Get-Value($Object, [string]$Path) {
@@ -1296,17 +1370,20 @@ $statusFlow = New-Object Windows.Forms.FlowLayoutPanel
 $statusFlow.Dock = 'Fill'
 $statusFlow.FlowDirection = 'LeftToRight'
 $statusFlow.WrapContents = $false
+$statusFlow.AutoScroll = $true
 $statusFlow.Padding = New-Object Windows.Forms.Padding(6,0,8,0)
 $statusFlow.BackColor = $ColorHeader
 $header.Controls.Add($statusFlow,0,1)
 $header.SetColumnSpan($statusFlow,2)
 
-$runnerStatus = New-StatusPanel 'Runner' 250
-$validationStatus = New-StatusPanel 'Validation' 590
-$historyStatus = New-StatusPanel 'History' 300
+$runnerStatus = New-StatusPanel 'Runner' 220
+$validationStatus = New-StatusPanel 'Validation' 430
+$historyStatus = New-StatusPanel 'History' 250
+$supervisorStatus = New-StatusPanel 'Supervisor' 270
 $statusFlow.Controls.Add($runnerStatus.Panel)
 $statusFlow.Controls.Add($validationStatus.Panel)
 $statusFlow.Controls.Add($historyStatus.Panel)
+$statusFlow.Controls.Add($supervisorStatus.Panel)
 
 $tabs = New-Object Windows.Forms.TabControl
 $tabs.Dock = 'Fill'
@@ -1346,6 +1423,7 @@ foreach ($columnInfo in @(
     @('Id','ID',160),
     @('Name','Runner',210),
     @('Scope','管轄',105),
+    @('Desired','希望',100),
     @('Repository','Repository',300),
     @('Root','ローカル配置',330),
     @('State','状態',180),
@@ -1724,7 +1802,7 @@ function Set-RunnerGridRow($Model) {
         $index = $runnerGrid.Rows.Add()
         $row = $runnerGrid.Rows[$index]
     }
-    foreach ($cellName in @('Id','Name','Scope','Repository','Root','State','Dispatch','Queue','Capabilities','Evidence','Ephemeral')) {
+    foreach ($cellName in @('Id','Name','Scope','Desired','Repository','Root','State','Dispatch','Queue','Capabilities','Evidence','Ephemeral')) {
         $value = [string]$Model.$cellName
         if ([string]$row.Cells[$cellName].Value -ne $value) {
             $row.Cells[$cellName].Value = $value
@@ -1785,10 +1863,11 @@ function Refresh-RunnerOverview([switch]$Force) {
         foreach ($profile in @($script:Config.profiles)) {
             $root = [Environment]::ExpandEnvironmentVariables([string]$profile.runnerRoot)
             $repository = ([string]$profile.repoUrl).TrimEnd('/') -replace '^https://github.com/',''
+            $desired = Get-ProfileDesiredState $profile
             $configured = Test-RunnerConfigured $profile
             $stateCode = 'unregistered'
             if ($configured) {
-                if ($probeLaunchBudget -gt 0 -and (Start-DispatchProbeIfDue $profile -Force:$Force)) { $probeLaunchBudget-- }
+                if (-not (Test-ManagedSupervisorHealthy) -and $probeLaunchBudget -gt 0 -and (Start-DispatchProbeIfDue $profile -Force:$Force)) { $probeLaunchBudget-- }
                 $rawLocal = Read-RunnerRawLocalConnectionState $profile
                 $state = Read-RunnerConnectionState $profile
                 Invoke-RunnerAutoRecovery $profile $state
@@ -1829,8 +1908,17 @@ function Refresh-RunnerOverview([switch]$Force) {
             } else { 'disabled' }
 
             if ($configured) {
-                $dispatch = Get-DispatchPresentation $profile $rawLocal
-                Update-DispatchRecoveryState $profile $dispatch $rawLocal
+                $observedDispatch = Get-DispatchPresentation $profile $rawLocal
+                if ($desired -eq 'stopped') {
+                    $dispatch = [pscustomobject]@{
+                        Classification=[pscustomobject]@{Code='manual_stop';Text='manual stop';Tone='warn';CanRecover=$false;Evidence=('desired-state=stopped; observed=' + [string]$observedDispatch.Classification.Code)}
+                        Probe=$observedDispatch.Probe
+                        QueueText=$observedDispatch.QueueText
+                    }
+                } else {
+                    $dispatch = $observedDispatch
+                    Update-DispatchRecoveryState $profile $dispatch $rawLocal
+                }
             } else {
                 $dispatch = [pscustomobject]@{
                     Classification=[pscustomobject]@{Code='unregistered';Text='未登録';Tone='bad';CanRecover=$false;Evidence='canonical runner root is not registered'}
@@ -1838,9 +1926,11 @@ function Refresh-RunnerOverview([switch]$Force) {
                     QueueText='-'
                 }
             }
-            if ([string]$dispatch.Classification.Tone -eq 'bad') { $dispatchIssueCount++ }
+            if ($desired -ne 'stopped' -and [string]$dispatch.Classification.Tone -eq 'bad') { $dispatchIssueCount++ }
 
-            $tone = if ($stateCode -in @('listening','running_job','connected_starting')) {
+            $tone = if ($desired -eq 'stopped') {
+                'warn'
+            } elseif ($stateCode -in @('listening','running_job','connected_starting')) {
                 'good'
             } elseif ($stateCode -in @('stopped','reconnecting','unregistered')) {
                 'bad'
@@ -1852,10 +1942,11 @@ function Refresh-RunnerOverview([switch]$Force) {
                 Id = [string]$profile.id
                 Name = [string]$profile.name
                 Scope = '管理'
+                Desired = if ($desired -eq 'running') { '起動希望' } else { '手動停止' }
                 Repository = $repository
                 Root = $root
                 State = $stateText
-                Dispatch = [string]$dispatch.Classification.Text
+                Dispatch = Get-DispatchDisplayText $dispatch.Classification
                 Queue = [string]$dispatch.QueueText
                 Capabilities = $capabilityText
                 Evidence = ($evidence + '; dispatch=' + [string]$dispatch.Classification.Evidence)
@@ -1871,6 +1962,7 @@ function Refresh-RunnerOverview([switch]$Force) {
                 Id = [string]$item.Id
                 Name = [string]$item.Name
                 Scope = '未管理'
+                Desired = 'Hub外'
                 Repository = if ([string]::IsNullOrWhiteSpace([string]$item.Repository)) { '(不明)' } else { [string]$item.Repository }
                 Root = [string]$item.Root
                 State = if ($item.Running) { '実行中 / 未管理' } else { '停止 / 未管理' }
@@ -1957,7 +2049,11 @@ $historyMetric.add_SelectedIndexChanged({
 })
 
 $connect.add_Click({
-    try { Start-Runner $script:Profile } catch { Show-Error $_.Exception.Message }
+    try {
+        Set-ProfileDesiredState $script:Profile running
+        Start-Runner $script:Profile
+        Refresh-RunnerOverview -Force
+    } catch { Show-Error $_.Exception.Message }
 })
 $disconnect.add_Click({
     if ([Windows.Forms.MessageBox]::Show(
@@ -1965,13 +2061,21 @@ $disconnect.add_Click({
         'ジョリー Runner Hub',
         [Windows.Forms.MessageBoxButtons]::YesNo,
         [Windows.Forms.MessageBoxIcon]::Question) -eq 'Yes') {
-        try { Stop-Runner $script:Profile } catch { Show-Error $_.Exception.Message }
+        try {
+            Set-ProfileDesiredState $script:Profile stopped
+            Stop-Runner $script:Profile
+            Refresh-RunnerOverview -Force
+        } catch { Show-Error $_.Exception.Message }
     }
 })
 $startSelectedRunner.add_Click({
     $profile = Get-SelectedRunnerProfile
     if ($null -ne $profile) {
-        try { Start-Runner $profile; Refresh-RunnerOverview -Force } catch { Show-Error $_.Exception.Message }
+        try {
+            Set-ProfileDesiredState $profile running
+            Start-Runner $profile
+            Refresh-RunnerOverview -Force
+        } catch { Show-Error $_.Exception.Message }
     }
 })
 $stopSelectedRunner.add_Click({
@@ -1981,14 +2085,21 @@ $stopSelectedRunner.add_Click({
         'ジョリー Runner Hub',
         [Windows.Forms.MessageBoxButtons]::YesNo,
         [Windows.Forms.MessageBoxIcon]::Question) -eq 'Yes') {
-        try { Stop-Runner $profile; Refresh-RunnerOverview -Force } catch { Show-Error $_.Exception.Message }
+        try {
+            Set-ProfileDesiredState $profile stopped
+            Stop-Runner $profile
+            Refresh-RunnerOverview -Force
+        } catch { Show-Error $_.Exception.Message }
     }
 })
 $startAllRunners.add_Click({
     $errors = New-Object System.Collections.Generic.List[string]
     foreach ($profile in @($script:Config.profiles)) {
         if (-not (Test-RunnerConfigured $profile)) { continue }
-        try { Start-Runner $profile } catch { $errors.Add("$($profile.name): $($_.Exception.Message)") }
+        try {
+            Set-ProfileDesiredState $profile running
+            Start-Runner $profile
+        } catch { $errors.Add("$($profile.name): $($_.Exception.Message)") }
     }
     Refresh-RunnerOverview -Force
     if ($errors.Count -gt 0) { Show-Error ($errors -join [Environment]::NewLine) }
@@ -2000,7 +2111,10 @@ $stopAllRunners.add_Click({
         [Windows.Forms.MessageBoxButtons]::YesNo,
         [Windows.Forms.MessageBoxIcon]::Question) -eq 'Yes') {
         foreach ($profile in @($script:Config.profiles)) {
-            try { Stop-Runner $profile } catch {}
+            try {
+                Set-ProfileDesiredState $profile stopped
+                Stop-Runner $profile
+            } catch {}
         }
         Refresh-RunnerOverview -Force
     }
@@ -2025,28 +2139,31 @@ $startEphemeralRunner.add_Click({
     }
 })
 $gcEphemeralRunners.add_Click({
-    try {
-        $results = @(Invoke-JollyEphemeralGc -AppRoot $AppRoot)
-        Refresh-RunnerOverview -Force
-        $changed = @($results | Where-Object { [string]$_.Action -like 'cleaned_*' }).Count
+    if (Start-BackgroundMaintenanceIfDue -Force) {
         [Windows.Forms.MessageBox]::Show(
-            "Ephemeral GC: cleaned=$changed / inspected=$($results.Count)",
+            'Ephemeral GCをバックグラウンドで開始しました。',
             'ジョリー Runner Hub',
             [Windows.Forms.MessageBoxButtons]::OK,
             [Windows.Forms.MessageBoxIcon]::Information) | Out-Null
-    } catch { Show-Error $_.Exception.Message }
+    } else {
+        [Windows.Forms.MessageBox]::Show(
+            'Supervisorが管理中、またはGCがすでに実行中です。',
+            'ジョリー Runner Hub',
+            [Windows.Forms.MessageBoxButtons]::OK,
+            [Windows.Forms.MessageBoxIcon]::Information) | Out-Null
+    }
 })
 $dispatchDetails.add_Click({
     $profile = Get-SelectedRunnerProfile
     if ($null -eq $profile) { return }
-    [void](Start-DispatchProbeIfDue $profile -Force)
+    if (-not (Test-ManagedSupervisorHealthy)) { [void](Start-DispatchProbeIfDue $profile -Force) }
     $local = Read-RunnerRawLocalConnectionState $profile
     $dispatch = Get-DispatchPresentation $profile $local
     $probe = $dispatch.Probe
     $detail = New-Object System.Collections.Generic.List[string]
     [void]$detail.Add(('Runner: ' + [string]$profile.name))
     [void]$detail.Add(('Local: ' + [string]$local.Text + ' / ' + [string]$local.Code))
-    [void]$detail.Add(('Dispatch: ' + [string]$dispatch.Classification.Text + ' / ' + [string]$dispatch.Classification.Code))
+    [void]$detail.Add(('Dispatch: ' + (Get-DispatchDisplayText $dispatch.Classification) + ' / ' + [string]$dispatch.Classification.Code))
     [void]$detail.Add(('Reason: ' + [string]$dispatch.Classification.Evidence))
     if ($null -ne $probe) {
         [void]$detail.Add(('GitHub: status=' + [string]$probe.runnerStatus + ' busy=' + [string]$probe.runnerBusy))
@@ -2065,6 +2182,10 @@ $dispatchDetails.add_Click({
 $dispatchReconnect.add_Click({
     $profile = Get-SelectedRunnerProfile
     if ($null -eq $profile) { return }
+    if ((Get-ProfileDesiredState $profile) -eq 'stopped') {
+        [Windows.Forms.MessageBox]::Show('このRunnerは手動停止中です。先に「選択を起動」で起動希望へ戻してください。','ジョリー Runner Hub',[Windows.Forms.MessageBoxButtons]::OK,[Windows.Forms.MessageBoxIcon]::Information) | Out-Null
+        return
+    }
     $local = Read-RunnerRawLocalConnectionState $profile
     $dispatch = Get-DispatchPresentation $profile $local
     if (-not [bool]$dispatch.Classification.CanRecover) {
@@ -2160,21 +2281,36 @@ $timer.add_Tick({
             Refresh-RunnerOverview -Force
         }
 
-        if (([datetime]::UtcNow-$script:LastEphemeralGc).TotalSeconds -ge 30) {
-            try { [void](Invoke-JollyEphemeralGc -AppRoot $AppRoot) } catch {}
-            $script:LastEphemeralGc = [datetime]::UtcNow
+        [void](Start-BackgroundMaintenanceIfDue)
+
+        $supervisor = Read-ManagedSupervisorStatus
+        if ($null -ne $supervisor -and [int]$supervisor.AgeSeconds -le 30) {
+            $supervisorStatus.Value.Text = ('稼働中 / 管理 ' + [string](@($supervisor.profiles).Count) + ' / age=' + [string]$supervisor.AgeSeconds + 's')
+            $supervisorStatus.Value.ForeColor = [Drawing.Color]::FromArgb(105,228,154)
+            $supervisorStatus.Value.AccessibleDescription = ('pid=' + [string]$supervisor.processId + '; updated=' + [string]$supervisor.updatedAt)
+        } else {
+            $supervisorStatus.Value.Text = '停止 / 応答なし（GUI fallback）'
+            $supervisorStatus.Value.ForeColor = [Drawing.Color]::FromArgb(255,137,141)
+            $supervisorStatus.Value.AccessibleDescription = 'managed supervisor heartbeat is missing or stale'
         }
 
         if ($tabs.SelectedTab -eq $runnerTab) {
             Refresh-RunnerOverview
         }
 
-        if (Runner-Running $script:Profile) {
-            $runnerStatus.Value.Text = '接続中'
-            $runnerStatus.Value.ForeColor = [Drawing.Color]::FromArgb(105,228,154)
+        if ((Get-ProfileDesiredState $script:Profile) -eq 'stopped') {
+            $runnerStatus.Value.Text = '手動停止'
+            $runnerStatus.Value.ForeColor = [Drawing.Color]::FromArgb(255,205,112)
+            $runnerStatus.Value.AccessibleDescription = 'desired-state=stopped'
         } else {
-            $runnerStatus.Value.Text = '停止中'
-            $runnerStatus.Value.ForeColor = [Drawing.Color]::FromArgb(255,137,141)
+            $runnerConnection = Read-RunnerConnectionState $script:Profile
+            $runnerStatus.Value.Text = [string]$runnerConnection.Text
+            $runnerStatus.Value.AccessibleDescription = [string]$runnerConnection.Evidence
+            switch ([string]$runnerConnection.Tone) {
+                'good' { $runnerStatus.Value.ForeColor = [Drawing.Color]::FromArgb(105,228,154) }
+                'warn' { $runnerStatus.Value.ForeColor = [Drawing.Color]::FromArgb(255,205,112) }
+                default { $runnerStatus.Value.ForeColor = [Drawing.Color]::FromArgb(255,137,141) }
+            }
         }
 
         $snapshot = Read-Snapshot $script:Profile
@@ -2237,17 +2373,17 @@ $timer.add_Tick({
 $timer.Start()
 
 $form.add_Shown({
-    try { [void](Invoke-JollyEphemeralGc -AppRoot $AppRoot) } catch {}
-    $script:LastEphemeralGc = [datetime]::UtcNow
+    [void](Start-BackgroundMaintenanceIfDue -Force)
     if ($historySplit.Height -gt 420) {
         $historySplit.Panel1MinSize = 180
         $historySplit.Panel2MinSize = 140
         $historySplit.SplitterDistance = [int]($historySplit.Height * 0.64)
     }
-    if ([bool]$script:Config.autoConnect) {
+    if (-not (Test-ManagedSupervisorHealthy)) {
         $errors = New-Object System.Collections.Generic.List[string]
         foreach ($profile in @($script:Config.profiles)) {
             if (-not (Test-RunnerConfigured $profile)) { continue }
+            if ((Get-ProfileDesiredState $profile) -ne 'running') { continue }
             try { Start-Runner $profile } catch {
                 $errors.Add("$($profile.name): $($_.Exception.Message)")
             }

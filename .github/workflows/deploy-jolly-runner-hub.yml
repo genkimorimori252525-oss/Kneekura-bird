@@ -73,6 +73,16 @@ jobs:
             tools/JollyRunnerHub/RunnerDispatchWatch.ps1
             tools/JollyRunnerHub/RunnerDispatchProbe.ps1
             tools/JollyRunnerHub/Test-RunnerDispatchWatch.ps1
+            tools/JollyRunnerHub/RunnerConfig.ps1
+            tools/JollyRunnerHub/Test-RunnerConfig.ps1
+            tools/JollyRunnerHub/RunnerControlState.ps1
+            tools/JollyRunnerHub/Test-RunnerControlState.ps1
+            tools/JollyRunnerHub/ManagedRunnerSupervisorCore.ps1
+            tools/JollyRunnerHub/Test-ManagedRunnerSupervisor.ps1
+            tools/JollyRunnerHub/ManagedRunnerSupervisor.ps1
+            tools/JollyRunnerHub/Test-ManagedRunnerSupervisorRuntime.ps1
+            tools/JollyRunnerHub/RunnerMaintenance.ps1
+            tools/JollyRunnerHub/Register-ManagedRunnerSupervisor.ps1
             tools/JollyRunnerHub/Use-LocalGradle.ps1
             tools/JollyRunnerHub/RunnerLifecycle.ps1
             tools/JollyRunnerHub/profiles.default.json

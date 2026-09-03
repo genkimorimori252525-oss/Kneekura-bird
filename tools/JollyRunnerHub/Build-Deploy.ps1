@@ -26,6 +26,16 @@ $capabilitiesTestPath = Join-Path $root 'Test-RunnerCapabilities.ps1'
 $dispatchWatchPath = Join-Path $root 'RunnerDispatchWatch.ps1'
 $dispatchProbePath = Join-Path $root 'RunnerDispatchProbe.ps1'
 $dispatchTestPath = Join-Path $root 'Test-RunnerDispatchWatch.ps1'
+$configModulePath = Join-Path $root 'RunnerConfig.ps1'
+$configTestPath = Join-Path $root 'Test-RunnerConfig.ps1'
+$controlStatePath = Join-Path $root 'RunnerControlState.ps1'
+$controlStateTestPath = Join-Path $root 'Test-RunnerControlState.ps1'
+$supervisorCorePath = Join-Path $root 'ManagedRunnerSupervisorCore.ps1'
+$supervisorCoreTestPath = Join-Path $root 'Test-ManagedRunnerSupervisor.ps1'
+$supervisorPath = Join-Path $root 'ManagedRunnerSupervisor.ps1'
+$supervisorRuntimeTestPath = Join-Path $root 'Test-ManagedRunnerSupervisorRuntime.ps1'
+$maintenancePath = Join-Path $root 'RunnerMaintenance.ps1'
+$registerSupervisorPath = Join-Path $root 'Register-ManagedRunnerSupervisor.ps1'
 $localGradlePath = Join-Path $root 'Use-LocalGradle.ps1'
 $lifecyclePath = Join-Path $root 'RunnerLifecycle.ps1'
 $runtimeSourcePath = Join-Path $buildDir 'JollyRunnerHub.source.ps1'
@@ -126,6 +136,36 @@ foreach ($dispatchScript in @($dispatchWatchPath,$dispatchProbePath,$dispatchTes
     }
 }
 & $dispatchTestPath | Out-Host
+foreach ($configScript in @($configModulePath,$configTestPath)) {
+    $configText = Get-Content -LiteralPath $configScript -Raw -Encoding UTF8
+    $configTokens = $null
+    $configParseErrors = $null
+    [System.Management.Automation.Language.Parser]::ParseInput($configText,[ref]$configTokens,[ref]$configParseErrors) | Out-Null
+    if (@($configParseErrors).Count -gt 0) {
+        $details = @($configParseErrors | ForEach-Object { '{0}:{1} {2}' -f $_.Extent.StartLineNumber,$_.Extent.StartColumnNumber,$_.Message }) -join [Environment]::NewLine
+        throw "Runner config script syntax validation failed for $configScript`n$details"
+    }
+}
+& $configTestPath | Out-Host
+foreach ($headlessScript in @(
+    $dispatchWatchPath,$dispatchProbePath,$configModulePath,$controlStatePath,$supervisorCorePath,
+    $supervisorPath,$maintenancePath,$registerSupervisorPath,$controlStateTestPath,$supervisorCoreTestPath,$supervisorRuntimeTestPath
+)) {
+    $headlessText = Get-Content -LiteralPath $headlessScript -Raw -Encoding UTF8
+    $headlessTokens = $null
+    $headlessParseErrors = $null
+    [System.Management.Automation.Language.Parser]::ParseInput($headlessText,[ref]$headlessTokens,[ref]$headlessParseErrors) | Out-Null
+    if (@($headlessParseErrors).Count -gt 0) {
+        $details = @($headlessParseErrors | ForEach-Object { '{0}:{1} {2}' -f $_.Extent.StartLineNumber,$_.Extent.StartColumnNumber,$_.Message }) -join [Environment]::NewLine
+        throw "Headless Runner script syntax validation failed for $headlessScript`n$details"
+    }
+    if ($headlessText -match '[^\x00-\x7F]') {
+        throw "Headless Runner script must remain ASCII-safe for Windows PowerShell 5.1: $headlessScript"
+    }
+}
+& $controlStateTestPath | Out-Host
+& $supervisorCoreTestPath | Out-Host
+& $supervisorRuntimeTestPath | Out-Host
 $lifecycleText = Get-Content -LiteralPath $lifecyclePath -Raw -Encoding UTF8
 $lifecycleTokens = $null
 $lifecycleParseErrors = $null
@@ -195,7 +235,11 @@ foreach ($requiredMarker in @(
     'function Start-DispatchProbeIfDue',
     'Read-RunnerRawLocalConnectionState',
     'DispatchTone',
-    '$dispatchReconnect'
+    '$dispatchReconnect',
+    'Read-ManagedSupervisorStatus',
+    'Get-ProfileDesiredState',
+    'Desired = if ($desired -eq',
+    '$supervisorStatus'
 )) {
     if (-not $scriptText.Contains($requiredMarker)) {
         throw "Runner governance/UI stability contract marker is missing: $requiredMarker"
@@ -292,39 +336,42 @@ function Get-RunnerGitHubStatus($Profile) {
     if ($null -eq $script:GitHubRunnerStatusCacheAt) { $script:GitHubRunnerStatusCacheAt = @{} }
     $id = Safe-Name ([string]$Profile.id)
     $cachedAt = if ($script:GitHubRunnerStatusCacheAt.ContainsKey($id)) { [datetime]$script:GitHubRunnerStatusCacheAt[$id] } else { [datetime]::MinValue }
-    if ($script:GitHubRunnerStatusCache.ContainsKey($id) -and ([datetime]::UtcNow-$cachedAt).TotalSeconds -lt 15) {
+    if ($script:GitHubRunnerStatusCache.ContainsKey($id) -and ([datetime]::UtcNow-$cachedAt).TotalSeconds -lt 5) {
         return $script:GitHubRunnerStatusCache[$id]
     }
+
     $status = 'unknown'
-    $evidence = 'github=unknown'
+    $evidence = 'github=unknown (background probe pending)'
     try {
-        $root = [Environment]::ExpandEnvironmentVariables([string]$Profile.runnerRoot)
-        $runnerFile = Join-Path $root '.runner'
-        $runnerName = ''
-        if (Test-Path -LiteralPath $runnerFile) {
-            $runnerConfig = Get-Content -LiteralPath $runnerFile -Raw -Encoding UTF8 | ConvertFrom-Json
-            foreach ($property in @('agentName','name')) {
-                if ($runnerConfig.PSObject.Properties.Name -contains $property -and -not [string]::IsNullOrWhiteSpace([string]$runnerConfig.$property)) { $runnerName = [string]$runnerConfig.$property; break }
+        $probe = Read-DispatchSnapshot $Profile
+        if ($null -ne $probe -and [int]$probe.SnapshotAgeSeconds -le 120) {
+            if (-not [bool]$probe.apiOk) {
+                $evidence = 'github=unknown (background probe error)'
+            }
+            elseif (-not [bool]$probe.runnerFound) {
+                $status = 'offline'
+                $evidence = 'github=offline (runner not listed by background probe)'
+            }
+            elseif ([bool]$probe.runnerBusy) {
+                $status = 'busy'
+                $evidence = 'github=busy (background probe)'
+            }
+            else {
+                $candidate = [string]$probe.runnerStatus
+                if ($candidate -in @('online','offline')) {
+                    $status = $candidate
+                    $evidence = 'github=' + $candidate + ' (background probe)'
+                }
             }
         }
-        $repository = ([string]$Profile.repoUrl).TrimEnd('/') -replace '^https://github.com/',''
-        if ([string]::IsNullOrWhiteSpace($runnerName) -or [string]::IsNullOrWhiteSpace($repository)) {
-            $evidence = 'github=unknown (runner name unavailable)'
-        } else {
-            $lookup = Find-JollyGitHubRunner -Repository $repository -RunnerName $runnerName
-            if ($lookup.Ok -and $null -ne $lookup.Runner) {
-                $candidate = [string]$lookup.Runner.status
-                if ($candidate -in @('online','offline','busy')) { $status = $candidate; $evidence = 'github=' + $candidate }
-            } elseif (-not $lookup.Ok) { $evidence = 'github=unknown (query failed)' }
-            else { $status = 'offline'; $evidence = 'github=offline (runner not listed)' }
-        }
-    } catch { $evidence = 'github=unknown (query exception)' }
+    } catch {
+        $evidence = 'github=unknown (cached probe unreadable)'
+    }
     $result = [pscustomobject]@{Status=$status;Evidence=$evidence}
     $script:GitHubRunnerStatusCache[$id] = $result
     $script:GitHubRunnerStatusCacheAt[$id] = [datetime]::UtcNow
     return $result
 }
-
 function Read-RunnerConnectionState($Profile) {
     $running = Runner-Running $Profile
     $remote = Get-RunnerGitHubStatus $Profile
@@ -347,34 +394,6 @@ if (-not $runtimeScriptText.Contains($runnerAdapterTarget)) {
 $runnerRuntimeFunctions = $connectionStateText.TrimEnd() + [Environment]::NewLine +
     [Environment]::NewLine + $runnerAdapter.TrimEnd()
 $runtimeScriptText = $runtimeScriptText.Replace($runnerAdapterTarget,$runnerRuntimeFunctions)
-
-$runnerStatusPattern = @'
-(?ms)^[ \t]*if \(Runner-Running \$script:Profile\) \{\r?\n[ \t]*\$runnerStatus\.Value\.Text = '[^']*'\r?\n[ \t]*\$runnerStatus\.Value\.ForeColor = \[Drawing\.Color\]::FromArgb\(105,228,154\)\r?\n[ \t]*\} else \{\r?\n[ \t]*\$runnerStatus\.Value\.Text = '[^']*'\r?\n[ \t]*\$runnerStatus\.Value\.ForeColor = \[Drawing\.Color\]::FromArgb\(255,137,141\)\r?\n[ \t]*\}
-'@
-$runnerStatusReplacement = @'
-        $runnerConnection = Read-RunnerConnectionState $script:Profile
-        $runnerStatus.Value.Text = [string]$runnerConnection.Text
-        $runnerStatus.Value.AccessibleDescription = [string]$runnerConnection.Evidence
-        switch ([string]$runnerConnection.Tone) {
-            'good' { $runnerStatus.Value.ForeColor = [Drawing.Color]::FromArgb(105,228,154) }
-            'warn' { $runnerStatus.Value.ForeColor = [Drawing.Color]::FromArgb(255,205,112) }
-            default { $runnerStatus.Value.ForeColor = [Drawing.Color]::FromArgb(255,137,141) }
-        }
-'@
-$runnerStatusExpression = $runnerStatusPattern.Trim()
-$runnerStatusOptions = ([System.Text.RegularExpressions.RegexOptions]::Multiline -bor
-    [System.Text.RegularExpressions.RegexOptions]::Singleline)
-$runnerStatusRegex = New-Object System.Text.RegularExpressions.Regex -ArgumentList @(
-    $runnerStatusExpression,
-    $runnerStatusOptions
-)
-if (-not $runnerStatusRegex.IsMatch($runtimeScriptText)) {
-    throw 'Runner Hub connection patch target was not found: status timer.'
-}
-$runtimeScriptText = $runnerStatusRegex.Replace(
-    $runtimeScriptText,
-    $runnerStatusReplacement.TrimEnd(),
-    1)
 
 Set-Content -LiteralPath $runtimeSourcePath -Value $runtimeScriptText -Encoding UTF8
 
@@ -415,8 +434,8 @@ if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $exePath)) {
     throw "Launcher compilation failed with exit code $LASTEXITCODE"
 }
 
-foreach ($dispatchRuntimeScript in @($dispatchWatchPath,$dispatchProbePath)) {
-    Copy-Item -LiteralPath $dispatchRuntimeScript -Destination (Join-Path $appData (Split-Path -Leaf $dispatchRuntimeScript)) -Force
+foreach ($runtimeDependency in @($dispatchWatchPath,$dispatchProbePath,$configModulePath,$controlStatePath,$maintenancePath)) {
+    Copy-Item -LiteralPath $runtimeDependency -Destination (Join-Path $appData (Split-Path -Leaf $runtimeDependency)) -Force
 }
 
 $smokeDefaultConfig = Join-Path $appData 'profiles.default.json'
@@ -475,6 +494,7 @@ if ($Install) {
     $installedScriptPath = Join-Path $appData 'JollyRunnerHub.ps1'
     Set-Content -LiteralPath $installedScriptPath -Value $runtimeScriptText -Encoding UTF8
     Copy-Item -LiteralPath $lifecyclePath -Destination (Join-Path $appData 'RunnerLifecycle.ps1') -Force
+    Copy-Item -LiteralPath $connectionStatePath -Destination (Join-Path $appData 'RunnerConnectionState.ps1') -Force
     Copy-Item -LiteralPath $defaultConfig -Destination $smokeDefaultConfig -Force
     foreach ($ephemeralPath in @($ephemeralModulePath,$ephemeralWatchdogPath,$ephemeralCliPath)) {
         Copy-Item -LiteralPath $ephemeralPath -Destination (Join-Path $appData (Split-Path -Leaf $ephemeralPath)) -Force
@@ -482,13 +502,25 @@ if ($Install) {
     foreach ($capabilityScript in @($capabilitiesPath,$capabilitiesCliPath,$localGradlePath)) {
         Copy-Item -LiteralPath $capabilityScript -Destination (Join-Path $appData (Split-Path -Leaf $capabilityScript)) -Force
     }
-    foreach ($dispatchRuntimeScript in @($dispatchWatchPath,$dispatchProbePath)) {
-        Copy-Item -LiteralPath $dispatchRuntimeScript -Destination (Join-Path $appData (Split-Path -Leaf $dispatchRuntimeScript)) -Force
+    foreach ($runtimeDependency in @($dispatchWatchPath,$dispatchProbePath,$configModulePath,$controlStatePath,$supervisorCorePath,$supervisorPath,$maintenancePath,$registerSupervisorPath)) {
+        Copy-Item -LiteralPath $runtimeDependency -Destination (Join-Path $appData (Split-Path -Leaf $runtimeDependency)) -Force
     }
 
     $profilePath = $smokeProfile
     if (-not (Test-Path -LiteralPath $profilePath)) {
         Copy-Item -LiteralPath $defaultConfig -Destination $profilePath -Force
+    }
+
+    $previousTracking = $env:RUNNER_TRACKING_ID
+    $env:RUNNER_TRACKING_ID = ''
+    try {
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $appData 'Register-ManagedRunnerSupervisor.ps1') -AppRoot $appData
+        if ($LASTEXITCODE -ne 0) { throw "Managed Runner Supervisor registration failed with exit code $LASTEXITCODE" }
+    } finally {
+        $env:RUNNER_TRACKING_ID = $previousTracking
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $appData 'supervisor-registration.json') -PathType Leaf)) {
+        throw 'Managed Runner Supervisor registration proof was not written.'
     }
 
     if (-not (Test-Path -LiteralPath $desktop)) {
@@ -544,12 +576,18 @@ for ($attempt = 0; $attempt -lt 21600; $attempt++) {
         config = $profilePath
         icon_sha256 = (Get-FileHash -LiteralPath $iconPath -Algorithm SHA256).Hash.ToLowerInvariant()
         pending_restart = $pendingRestart
-        dashboard_version = 6
+        dashboard_version = 7
         startup_smoke_test = 'passed'
         dashboard_scroll = 'vertical'
         runner_connection_state = 'log-classified'
         runner_governance = 'managed-unmanaged-inventory-v1'
         runner_dispatch_watch = 'queued-job-assignment-v1'
+        config_migration = 'merge-missing-defaults-v1'
+        desired_runner_state = 'persistent-v1'
+        managed_supervisor = 'heartbeat-single-writer-v2'
+        supervisor_registration = 'startup-link-v1'
+        supervisor_restart_backoff = 'exponential-bounded-v1'
+        github_status_source = 'background-dispatch-cache-v1'
         dispatch_probe = 'background-cached-v1'
         dispatch_recovery = 'bounded-safe-reconnect-v1'
         ui_refresh = 'incremental-v1'
