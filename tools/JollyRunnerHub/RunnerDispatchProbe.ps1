@@ -2,7 +2,7 @@ param(
     [Parameter(Mandatory=$true)][string]$Repository,
     [Parameter(Mandatory=$true)][string]$RunnerRoot,
     [Parameter(Mandatory=$true)][string]$OutputPath,
-    [string[]]$RoutingLabels = @(),
+    [string]$RoutingLabelsCsv = '',
     [ValidateRange(1,30)][int]$TimeoutSeconds = 5
 )
 
@@ -26,6 +26,7 @@ function Get-ProbeRunnerName([string]$Root) {
 }
 
 $started = [datetime]::UtcNow
+$RoutingLabels = @($RoutingLabelsCsv.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 try {
     $runnerName = Get-ProbeRunnerName $RunnerRoot
     $probe = Get-JollyDispatchProbe -Repository $Repository -RunnerName $runnerName `
