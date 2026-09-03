@@ -194,7 +194,7 @@ foreach ($requiredMarker in @(
     '$script:RunnerOverviewIntervalSeconds = 3',
     'function Start-DispatchProbeIfDue',
     'Read-RunnerRawLocalConnectionState',
-    "@('Dispatch','配送',170)",
+    'DispatchTone',
     '$dispatchReconnect'
 )) {
     if (-not $scriptText.Contains($requiredMarker)) {
