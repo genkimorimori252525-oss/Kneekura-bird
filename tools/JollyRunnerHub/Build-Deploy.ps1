@@ -39,6 +39,7 @@ $registerSupervisorPath = Join-Path $root 'Register-ManagedRunnerSupervisor.ps1'
 $rootResolverPath = Join-Path $root 'RunnerRootResolver.ps1'
 $rootResolverTestPath = Join-Path $root 'Test-RunnerRootResolver.ps1'
 $supervisorDiagnosticPath = Join-Path $root 'Inspect-ManagedSupervisorStatus.ps1'
+$registerSupervisorTestPath = Join-Path $root 'Test-RegisterManagedSupervisor.ps1'
 $localGradlePath = Join-Path $root 'Use-LocalGradle.ps1'
 $lifecyclePath = Join-Path $root 'RunnerLifecycle.ps1'
 $runtimeSourcePath = Join-Path $buildDir 'JollyRunnerHub.source.ps1'
@@ -152,7 +153,7 @@ foreach ($configScript in @($configModulePath,$configTestPath)) {
 & $configTestPath | Out-Host
 foreach ($headlessScript in @(
     $dispatchWatchPath,$dispatchProbePath,$configModulePath,$controlStatePath,$supervisorCorePath,
-    $supervisorPath,$maintenancePath,$registerSupervisorPath,$rootResolverPath,$supervisorDiagnosticPath,$controlStateTestPath,$supervisorCoreTestPath,$supervisorRuntimeTestPath,$rootResolverTestPath
+    $supervisorPath,$maintenancePath,$registerSupervisorPath,$rootResolverPath,$supervisorDiagnosticPath,$controlStateTestPath,$supervisorCoreTestPath,$supervisorRuntimeTestPath,$rootResolverTestPath,$registerSupervisorTestPath
 )) {
     $headlessText = Get-Content -LiteralPath $headlessScript -Raw -Encoding UTF8
     $headlessTokens = $null
@@ -170,6 +171,7 @@ foreach ($headlessScript in @(
 & $supervisorCoreTestPath | Out-Host
 & $rootResolverTestPath | Out-Host
 & $supervisorRuntimeTestPath | Out-Host
+& $registerSupervisorTestPath | Out-Host
 $lifecycleText = Get-Content -LiteralPath $lifecyclePath -Raw -Encoding UTF8
 $lifecycleTokens = $null
 $lifecycleParseErrors = $null
@@ -518,13 +520,18 @@ if ($Install) {
     $previousTracking = $env:RUNNER_TRACKING_ID
     $env:RUNNER_TRACKING_ID = ''
     try {
-        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $appData 'Register-ManagedRunnerSupervisor.ps1') -AppRoot $appData
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $appData 'Register-ManagedRunnerSupervisor.ps1') -AppRoot $appData -RestartExisting
         if ($LASTEXITCODE -ne 0) { throw "Managed Runner Supervisor registration failed with exit code $LASTEXITCODE" }
     } finally {
         $env:RUNNER_TRACKING_ID = $previousTracking
     }
-    if (-not (Test-Path -LiteralPath (Join-Path $appData 'supervisor-registration.json') -PathType Leaf)) {
+    $registrationPath = Join-Path $appData 'supervisor-registration.json'
+    if (-not (Test-Path -LiteralPath $registrationPath -PathType Leaf)) {
         throw 'Managed Runner Supervisor registration proof was not written.'
+    }
+    $registration = Get-Content -LiteralPath $registrationPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ([int]$registration.activeProcessId -le 0 -or [bool]$registration.heartbeatObserved -ne $true) {
+        throw "Managed Runner Supervisor did not confirm the deployed generation: $($registration | ConvertTo-Json -Compress)"
     }
 
     if (-not (Test-Path -LiteralPath $desktop)) {
@@ -591,7 +598,7 @@ for ($attempt = 0; $attempt -lt 21600; $attempt++) {
         managed_supervisor = 'heartbeat-single-writer-v2'
         runner_root_binding = 'repository-identity-fallback-v1'
         supervisor_diagnostic = 'safe-live-status-v1'
-        supervisor_registration = 'startup-link-v1'
+        supervisor_registration = 'startup-link-generation-restart-v2'
         supervisor_restart_backoff = 'exponential-bounded-v1'
         github_status_source = 'background-dispatch-cache-v1'
         dispatch_probe = 'background-cached-v1'
