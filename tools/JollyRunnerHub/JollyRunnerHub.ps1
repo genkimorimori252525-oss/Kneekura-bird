@@ -1863,6 +1863,7 @@ function Refresh-RunnerOverview([switch]$Force) {
         foreach ($profile in @($script:Config.profiles)) {
             $root = [Environment]::ExpandEnvironmentVariables([string]$profile.runnerRoot)
             $repository = ([string]$profile.repoUrl).TrimEnd('/') -replace '^https://github.com/',''
+            $desired = Get-ProfileDesiredState $profile
             $configured = Test-RunnerConfigured $profile
             $stateCode = 'unregistered'
             if ($configured) {
@@ -1907,8 +1908,17 @@ function Refresh-RunnerOverview([switch]$Force) {
             } else { 'disabled' }
 
             if ($configured) {
-                $dispatch = Get-DispatchPresentation $profile $rawLocal
-                Update-DispatchRecoveryState $profile $dispatch $rawLocal
+                $observedDispatch = Get-DispatchPresentation $profile $rawLocal
+                if ($desired -eq 'stopped') {
+                    $dispatch = [pscustomobject]@{
+                        Classification=[pscustomobject]@{Code='manual_stop';Text='manual stop';Tone='warn';CanRecover=$false;Evidence=('desired-state=stopped; observed=' + [string]$observedDispatch.Classification.Code)}
+                        Probe=$observedDispatch.Probe
+                        QueueText=$observedDispatch.QueueText
+                    }
+                } else {
+                    $dispatch = $observedDispatch
+                    Update-DispatchRecoveryState $profile $dispatch $rawLocal
+                }
             } else {
                 $dispatch = [pscustomobject]@{
                     Classification=[pscustomobject]@{Code='unregistered';Text='未登録';Tone='bad';CanRecover=$false;Evidence='canonical runner root is not registered'}
@@ -1916,7 +1926,7 @@ function Refresh-RunnerOverview([switch]$Force) {
                     QueueText='-'
                 }
             }
-            if ([string]$dispatch.Classification.Tone -eq 'bad') { $dispatchIssueCount++ }
+            if ($desired -ne 'stopped' -and [string]$dispatch.Classification.Tone -eq 'bad') { $dispatchIssueCount++ }
 
             $tone = if ($stateCode -in @('listening','running_job','connected_starting')) {
                 'good'
@@ -1930,10 +1940,11 @@ function Refresh-RunnerOverview([switch]$Force) {
                 Id = [string]$profile.id
                 Name = [string]$profile.name
                 Scope = '管理'
+                Desired = if ($desired -eq 'running') { '起動希望' } else { '手動停止' }
                 Repository = $repository
                 Root = $root
                 State = $stateText
-                Dispatch = [string]$dispatch.Classification.Text
+                Dispatch = Get-DispatchDisplayText $dispatch.Classification
                 Queue = [string]$dispatch.QueueText
                 Capabilities = $capabilityText
                 Evidence = ($evidence + '; dispatch=' + [string]$dispatch.Classification.Evidence)
@@ -1949,6 +1960,7 @@ function Refresh-RunnerOverview([switch]$Force) {
                 Id = [string]$item.Id
                 Name = [string]$item.Name
                 Scope = '未管理'
+                Desired = 'Hub外'
                 Repository = if ([string]::IsNullOrWhiteSpace([string]$item.Repository)) { '(不明)' } else { [string]$item.Repository }
                 Root = [string]$item.Root
                 State = if ($item.Running) { '実行中 / 未管理' } else { '停止 / 未管理' }
