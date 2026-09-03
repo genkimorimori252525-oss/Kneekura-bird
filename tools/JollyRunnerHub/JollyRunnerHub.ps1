@@ -16,12 +16,24 @@ $UiStatePath = Join-Path $AppRoot 'ui-state.json'
 $CapabilitiesPath = Join-Path $AppRoot 'capabilities.json'
 $CapabilitiesScriptPath = Join-Path $AppRoot 'RunnerCapabilities.ps1'
 $CapabilitiesCliPath = Join-Path $AppRoot 'Inspect-RunnerCapabilities.ps1'
+$DispatchRoot = Join-Path $AppRoot 'dispatch'
+$DispatchWatchPath = Join-Path $PSScriptRoot 'RunnerDispatchWatch.ps1'
+$DispatchProbePath = Join-Path $PSScriptRoot 'RunnerDispatchProbe.ps1'
 $RunnerLifecyclePath = Join-Path $PSScriptRoot 'RunnerLifecycle.ps1'
 if (-not (Test-Path -LiteralPath $RunnerLifecyclePath)) {
     $RunnerLifecyclePath = Join-Path (Split-Path -Parent $PSScriptRoot) 'RunnerLifecycle.ps1'
 }
 if (-not (Test-Path -LiteralPath $RunnerLifecyclePath)) { throw 'RunnerLifecycle.ps1 was not found.' }
 . $RunnerLifecyclePath
+if (-not (Test-Path -LiteralPath $DispatchWatchPath)) {
+    $DispatchWatchPath = Join-Path $AppRoot 'RunnerDispatchWatch.ps1'
+}
+if (-not (Test-Path -LiteralPath $DispatchProbePath)) {
+    $DispatchProbePath = Join-Path $AppRoot 'RunnerDispatchProbe.ps1'
+}
+if (-not (Test-Path -LiteralPath $DispatchWatchPath)) { throw 'RunnerDispatchWatch.ps1 was not found.' }
+if (-not (Test-Path -LiteralPath $DispatchProbePath)) { throw 'RunnerDispatchProbe.ps1 was not found.' }
+. $DispatchWatchPath
 
 $script:Config = $null
 $script:Profile = $null
@@ -50,6 +62,10 @@ $script:RunnerInventoryCacheAt = [datetime]::MinValue
 $script:LastSnapshotKey = ''
 $script:LastLogRefresh = [datetime]::MinValue
 $script:PreferredRunnerSelectionId = ''
+$script:DispatchProbeProcesses = @{}
+$script:DispatchProbeLastLaunch = @{}
+$script:DispatchRecoveryState = @{}
+$script:DispatchRecoveryLogPath = Join-Path $AppRoot 'dispatch-recovery.jsonl'
 
 $ColorWindow = [Drawing.Color]::FromArgb(242,245,249)
 $ColorSurface = [Drawing.Color]::White
@@ -275,6 +291,139 @@ function Get-RunnerInventory([switch]$Force) {
     }
     $script:RunnerInventoryCacheAt = [datetime]::UtcNow
     return $script:RunnerInventoryCache
+}
+
+function Get-DispatchSnapshotPath($Profile) {
+    New-Item -ItemType Directory -Force -Path $DispatchRoot | Out-Null
+    $id = ConvertTo-JollySafeName ([string]$Profile.id)
+    return Join-Path $DispatchRoot ("dispatch-$id.json")
+}
+
+function Read-DispatchSnapshot($Profile) {
+    $path = Get-DispatchSnapshotPath $Profile
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $null }
+    try {
+        $snapshot = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+        $probed = [datetime]::MinValue
+        if (-not [datetime]::TryParse([string]$snapshot.probedAt,[ref]$probed)) { return $null }
+        $age = [math]::Max(0,[int][math]::Floor(([datetime]::UtcNow-$probed.ToUniversalTime()).TotalSeconds))
+        Add-Member -InputObject $snapshot -NotePropertyName SnapshotAgeSeconds -NotePropertyValue $age -Force
+        return $snapshot
+    } catch { return $null }
+}
+
+function Cleanup-DispatchProbeProcesses {
+    foreach ($key in @($script:DispatchProbeProcesses.Keys)) {
+        $process = $script:DispatchProbeProcesses[$key]
+        if ($null -eq $process -or $process.HasExited) { $script:DispatchProbeProcesses.Remove($key) }
+    }
+}
+
+function Start-DispatchProbeIfDue($Profile,[switch]$Force) {
+    if (-not (Test-JollyDispatchWatchEnabled $Profile)) { return $false }
+    Cleanup-DispatchProbeProcesses
+    $id = ConvertTo-JollySafeName ([string]$Profile.id)
+    if ($script:DispatchProbeProcesses.ContainsKey($id)) { return $false }
+    $snapshot = Read-DispatchSnapshot $Profile
+    $maxAge = Get-JollyDispatchProbeMaxAgeSeconds $Profile
+    if (-not $Force -and $null -ne $snapshot -and [int]$snapshot.SnapshotAgeSeconds -lt $maxAge) { return $false }
+    $lastLaunch = if ($script:DispatchProbeLastLaunch.ContainsKey($id)) { [datetime]$script:DispatchProbeLastLaunch[$id] } else { [datetime]::MinValue }
+    if (-not $Force -and ([datetime]::UtcNow-$lastLaunch).TotalSeconds -lt 10) { return $false }
+    $repository = Get-JollyProfileRepository $Profile
+    $root = [Environment]::ExpandEnvironmentVariables([string]$Profile.runnerRoot)
+    if (-not (Test-Path -LiteralPath (Join-Path $root '.runner') -PathType Leaf)) { return $false }
+    $output = Get-DispatchSnapshotPath $Profile
+    $routingCsv = (Get-JollyDispatchRoutingLabels $Profile) -join ','
+    $arguments = @('-NoProfile','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File',('"{0}"' -f $DispatchProbePath),'-Repository',$repository,'-RunnerRoot',('"{0}"' -f $root),'-OutputPath',('"{0}"' -f $output),'-RoutingLabelsCsv',$routingCsv,'-TimeoutSeconds','4')
+    try {
+        $process = Start-Process powershell.exe -ArgumentList $arguments -WindowStyle Hidden -PassThru
+        $script:DispatchProbeProcesses[$id] = $process
+        $script:DispatchProbeLastLaunch[$id] = [datetime]::UtcNow
+        return $true
+    } catch { return $false }
+}
+
+function Read-RunnerRawLocalConnectionState($Profile) {
+    $running = Runner-Running $Profile
+    if (-not $running) { return Get-JollyRunnerConnectionStateLegacy -ProcessRunning $false -LogLines @() }
+    $snapshot = Get-RunnerConnectionLogSnapshot $Profile
+    return Get-JollyRunnerConnectionStateLegacy -ProcessRunning $true -LogLines @($snapshot.Lines)
+}
+
+function Get-DispatchPresentation($Profile,$LocalState) {
+    if (-not (Test-JollyDispatchWatchEnabled $Profile)) {
+        return [pscustomobject]@{Classification=[pscustomobject]@{Code='disabled';Text='監視OFF';Tone='warn';CanRecover=$false;Evidence='dispatch watch disabled'};Probe=$null;QueueText='-'}
+    }
+    $probe = Read-DispatchSnapshot $Profile
+    $warn = Get-JollyDispatchWarnSeconds $Profile
+    $recover = Get-JollyDispatchRecoverSeconds $Profile
+    $age = if ($null -ne $probe) { [int]$probe.SnapshotAgeSeconds } else { 0 }
+    $classification = Get-JollyDispatchClassification -LocalCode ([string]$LocalState.Code) -Probe $probe -WarnSeconds $warn -RecoverSeconds $recover -ProbeAgeSeconds $age
+    $queueText = '-'
+    if ($null -ne $probe -and [bool]$probe.apiOk) {
+        $eligible = [int]$probe.eligibleQueuedCount
+        $oldest = [int]$probe.oldestQueuedSeconds
+        $queueText = if ($eligible -gt 0) { ([string]$eligible + ' 件 / 最長 ' + [string]$oldest + 's') } else { '0 件' }
+    }
+    return [pscustomobject]@{Classification=$classification;Probe=$probe;QueueText=$queueText}
+}
+
+function Write-DispatchRecoveryEvent($Profile,$Dispatch,[string]$Action,[string]$Result) {
+    try {
+        $probe = $Dispatch.Probe
+        $record = [ordered]@{timestamp=([datetime]::UtcNow).ToString('o');profileId=[string]$Profile.id;repository=Get-JollyProfileRepository $Profile;action=$Action;result=$Result;dispatchCode=[string]$Dispatch.Classification.Code;eligibleQueuedCount=if ($null -ne $probe) {[int]$probe.eligibleQueuedCount} else {0};oldestQueuedSeconds=if ($null -ne $probe) {[int]$probe.oldestQueuedSeconds} else {0}}
+        ($record | ConvertTo-Json -Compress) | Add-Content -LiteralPath $script:DispatchRecoveryLogPath -Encoding UTF8
+    } catch {}
+}
+
+function Get-DispatchRecoveryState($Profile) {
+    $id = ConvertTo-JollySafeName ([string]$Profile.id)
+    if (-not $script:DispatchRecoveryState.ContainsKey($id)) {
+        $script:DispatchRecoveryState[$id] = [pscustomobject]@{Consecutive=0;LastProbeAt='';LastAttempt=[datetime]::MinValue;WindowStart=[datetime]::UtcNow;AttemptsInWindow=0}
+    }
+    return $script:DispatchRecoveryState[$id]
+}
+
+function Invoke-DispatchReconnect($Profile,$LocalState,$Dispatch,[switch]$Manual) {
+    if ($null -eq $Profile -or $null -eq $Dispatch -or -not [bool]$Dispatch.Classification.CanRecover) { return $false }
+    if ([string]$LocalState.Code -eq 'running_job') { return $false }
+    if ($null -ne $Dispatch.Probe -and [bool]$Dispatch.Probe.runnerBusy) { return $false }
+    $recovery = Get-DispatchRecoveryState $Profile
+    if (-not $Manual) {
+        if (-not (Test-JollyDispatchAutoRecoverEnabled $Profile)) { return $false }
+        if ([int]$recovery.Consecutive -lt 2) { return $false }
+        if (([datetime]::UtcNow-[datetime]$recovery.LastAttempt).TotalMinutes -lt 10) { return $false }
+        if (([datetime]::UtcNow-[datetime]$recovery.WindowStart).TotalHours -ge 1) { $recovery.WindowStart=[datetime]::UtcNow; $recovery.AttemptsInWindow=0 }
+        if ([int]$recovery.AttemptsInWindow -ge 2) { return $false }
+    }
+    $action = if ($Manual) { 'manual-reconnect' } else { 'auto-reconnect' }
+    try {
+        Write-DispatchRecoveryEvent $Profile $Dispatch $action 'started'
+        Stop-Runner $Profile
+        Start-Sleep -Milliseconds 500
+        Start-Runner $Profile
+        $recovery.LastAttempt = [datetime]::UtcNow
+        $recovery.AttemptsInWindow = [int]$recovery.AttemptsInWindow + 1
+        $recovery.Consecutive = 0
+        Remove-Item -LiteralPath (Get-DispatchSnapshotPath $Profile) -Force -ErrorAction SilentlyContinue
+        [void](Start-DispatchProbeIfDue $Profile -Force)
+        Write-DispatchRecoveryEvent $Profile $Dispatch $action 'completed'
+        return $true
+    } catch {
+        Write-DispatchRecoveryEvent $Profile $Dispatch $action ('failed: ' + $_.Exception.Message)
+        if ($Manual) { throw }
+        return $false
+    }
+}
+
+function Update-DispatchRecoveryState($Profile,$Dispatch,$LocalState) {
+    $recovery = Get-DispatchRecoveryState $Profile
+    $probeAt = if ($null -ne $Dispatch.Probe) { [string]$Dispatch.Probe.probedAt } else { '' }
+    if ($probeAt -and $probeAt -ne [string]$recovery.LastProbeAt) {
+        $recovery.LastProbeAt = $probeAt
+        if ([bool]$Dispatch.Classification.CanRecover) { $recovery.Consecutive=[int]$recovery.Consecutive+1 } else { $recovery.Consecutive=0 }
+    }
+    if ([bool]$Dispatch.Classification.CanRecover) { [void](Invoke-DispatchReconnect $Profile $LocalState $Dispatch) }
 }
 
 function Get-Value($Object, [string]$Path) {
