@@ -23,6 +23,9 @@ $ephemeralTestPath = Join-Path $root 'Test-EphemeralRunnerController.ps1'
 $capabilitiesPath = Join-Path $root 'RunnerCapabilities.ps1'
 $capabilitiesCliPath = Join-Path $root 'Inspect-RunnerCapabilities.ps1'
 $capabilitiesTestPath = Join-Path $root 'Test-RunnerCapabilities.ps1'
+$dispatchWatchPath = Join-Path $root 'RunnerDispatchWatch.ps1'
+$dispatchProbePath = Join-Path $root 'RunnerDispatchProbe.ps1'
+$dispatchTestPath = Join-Path $root 'Test-RunnerDispatchWatch.ps1'
 $localGradlePath = Join-Path $root 'Use-LocalGradle.ps1'
 $lifecyclePath = Join-Path $root 'RunnerLifecycle.ps1'
 $runtimeSourcePath = Join-Path $buildDir 'JollyRunnerHub.source.ps1'
@@ -109,6 +112,20 @@ foreach ($capabilityScript in @($capabilitiesPath,$capabilitiesCliPath,$capabili
 & $capabilitiesTestPath | Out-Host
 & $localGradlePath -Version '8.8' | Out-Host
 
+foreach ($dispatchScript in @($dispatchWatchPath,$dispatchProbePath,$dispatchTestPath)) {
+    $dispatchText = Get-Content -LiteralPath $dispatchScript -Raw -Encoding UTF8
+    $dispatchTokens = $null
+    $dispatchParseErrors = $null
+    [System.Management.Automation.Language.Parser]::ParseInput(
+        $dispatchText,[ref]$dispatchTokens,[ref]$dispatchParseErrors) | Out-Null
+    if (@($dispatchParseErrors).Count -gt 0) {
+        $details = @($dispatchParseErrors | ForEach-Object {
+            '{0}:{1} {2}' -f $_.Extent.StartLineNumber,$_.Extent.StartColumnNumber,$_.Message
+        }) -join [Environment]::NewLine
+        throw "Runner dispatch script syntax validation failed for $dispatchScript`n$details"
+    }
+}
+& $dispatchTestPath | Out-Host
 $lifecycleText = Get-Content -LiteralPath $lifecyclePath -Raw -Encoding UTF8
 $lifecycleTokens = $null
 $lifecycleParseErrors = $null
@@ -166,12 +183,19 @@ $defaultConfigObject = Get-Content -LiteralPath $defaultConfig -Raw -Encoding UT
 if (@($defaultConfigObject.profiles | Where-Object { [string]$_.id -eq 'kneekura-lab' }).Count -ne 1) {
     throw 'Canonical KNEEKURA LAB runner profile is missing.'
 }
+$kneekuraProfile = @($defaultConfigObject.profiles | Where-Object { [string]$_.id -eq 'kneekura-lab' })[0]
+if (-not (@($kneekuraProfile.routingLabels) -contains 'kneekura')) { throw 'KNEEKURA dispatch routing label is missing.' }
+if (-not [bool]$kneekuraProfile.dispatchWatchEnabled) { throw 'KNEEKURA dispatch watch must be enabled.' }
 foreach ($requiredMarker in @(
     'function Get-RunnerInventory',
     "'unmanaged'",
     '$UiStatePath',
     'function Save-UiState',
-    '$script:RunnerOverviewIntervalSeconds = 3'
+    '$script:RunnerOverviewIntervalSeconds = 3',
+    'function Start-DispatchProbeIfDue',
+    'Read-RunnerRawLocalConnectionState',
+    "@('Dispatch','配送',170)",
+    '$dispatchReconnect'
 )) {
     if (-not $scriptText.Contains($requiredMarker)) {
         throw "Runner governance/UI stability contract marker is missing: $requiredMarker"
@@ -391,6 +415,10 @@ if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $exePath)) {
     throw "Launcher compilation failed with exit code $LASTEXITCODE"
 }
 
+foreach ($dispatchRuntimeScript in @($dispatchWatchPath,$dispatchProbePath)) {
+    Copy-Item -LiteralPath $dispatchRuntimeScript -Destination (Join-Path $appData (Split-Path -Leaf $dispatchRuntimeScript)) -Force
+}
+
 $smokeDefaultConfig = Join-Path $appData 'profiles.default.json'
 $smokeProfile = Join-Path $appData 'profiles.json'
 if (-not (Test-Path -LiteralPath $smokeDefaultConfig)) {
@@ -454,6 +482,9 @@ if ($Install) {
     foreach ($capabilityScript in @($capabilitiesPath,$capabilitiesCliPath,$localGradlePath)) {
         Copy-Item -LiteralPath $capabilityScript -Destination (Join-Path $appData (Split-Path -Leaf $capabilityScript)) -Force
     }
+    foreach ($dispatchRuntimeScript in @($dispatchWatchPath,$dispatchProbePath)) {
+        Copy-Item -LiteralPath $dispatchRuntimeScript -Destination (Join-Path $appData (Split-Path -Leaf $dispatchRuntimeScript)) -Force
+    }
 
     $profilePath = $smokeProfile
     if (-not (Test-Path -LiteralPath $profilePath)) {
@@ -513,11 +544,14 @@ for ($attempt = 0; $attempt -lt 21600; $attempt++) {
         config = $profilePath
         icon_sha256 = (Get-FileHash -LiteralPath $iconPath -Algorithm SHA256).Hash.ToLowerInvariant()
         pending_restart = $pendingRestart
-        dashboard_version = 5
+        dashboard_version = 6
         startup_smoke_test = 'passed'
         dashboard_scroll = 'vertical'
         runner_connection_state = 'log-classified'
         runner_governance = 'managed-unmanaged-inventory-v1'
+        runner_dispatch_watch = 'queued-job-assignment-v1'
+        dispatch_probe = 'background-cached-v1'
+        dispatch_recovery = 'bounded-safe-reconnect-v1'
         ui_refresh = 'incremental-v1'
         ui_state_persistence = 'profile-tab-runner-v1'
         ephemeral_runner_lifecycle = 'watchdog-ttl-gc'
