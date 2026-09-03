@@ -38,13 +38,19 @@ function Start-SupervisorProcess {
 }
 
 function Wait-SupervisorHeartbeat {
-    param([Parameter(Mandatory=$true)][int]$ProcessId,[int]$TimeoutSeconds = 8)
+    param(
+        [Parameter(Mandatory=$true)][int]$ProcessId,
+        [int]$TimeoutSeconds = 8,
+        [DateTimeOffset]$NotBeforeUtc = [DateTimeOffset]::MinValue
+    )
     $deadline = [datetime]::UtcNow.AddSeconds($TimeoutSeconds)
     do {
         if (Test-Path -LiteralPath $statusPath -PathType Leaf) {
             try {
                 $status = Get-Content -LiteralPath $statusPath -Raw -Encoding UTF8 | ConvertFrom-Json
-                if ([int]$status.processId -eq $ProcessId) { return $true }
+                $updatedAt = [DateTimeOffset]::MinValue
+                try { $updatedAt = [DateTimeOffset]::Parse([string]$status.updatedAt,[Globalization.CultureInfo]::InvariantCulture).ToUniversalTime() } catch {}
+                if ([int]$status.processId -eq $ProcessId -and $updatedAt -ge $NotBeforeUtc) { return $true }
             } catch {}
         }
         Start-Sleep -Milliseconds 200
@@ -73,6 +79,7 @@ $previousPids = @(Get-SupervisorProcessIds -ScriptPath $supervisor)
 $stoppedPids = @()
 $startedPid = 0
 $heartbeatObserved = $false
+$generationStartedAtUtc = $null
 
 if (-not $NoStart) {
     if ($RestartExisting -and $previousPids.Count -gt 0) {
@@ -96,11 +103,15 @@ if (-not $NoStart) {
 
     $running = @(Get-SupervisorProcessIds -ScriptPath $supervisor)
     if ($running.Count -eq 0) {
+        if (Test-Path -LiteralPath $statusPath -PathType Leaf) {
+            Remove-Item -LiteralPath $statusPath -Force -ErrorAction Stop
+        }
+        $generationStartedAtUtc = [DateTimeOffset]::UtcNow
         $started = Start-SupervisorProcess -PowerShellPath $powershell
         $startedPid = [int]$started.Id
-        $heartbeatObserved = Wait-SupervisorHeartbeat -ProcessId $startedPid -TimeoutSeconds 8
+        $heartbeatObserved = Wait-SupervisorHeartbeat -ProcessId $startedPid -TimeoutSeconds 8 -NotBeforeUtc $generationStartedAtUtc
         if (-not $heartbeatObserved) {
-            throw "New managed Supervisor PID $startedPid did not publish a heartbeat within 8 seconds"
+            throw "New managed Supervisor PID $startedPid did not publish a fresh heartbeat within 8 seconds"
         }
     } else {
         $startedPid = [int]$running[0]
@@ -117,6 +128,7 @@ if (-not $NoStart) {
     previousProcessIds=@($previousPids)
     stoppedProcessIds=@($stoppedPids)
     activeProcessId=$startedPid
+    generationStartedAtUtc=if ($null -ne $generationStartedAtUtc) { $generationStartedAtUtc.ToString('o') } else { '' }
     heartbeatObserved=[bool]$heartbeatObserved
 } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $AppRoot 'supervisor-registration.json') -Encoding UTF8
 Write-Host ('managed runner supervisor registered pid=' + [string]$startedPid + ' restarted=' + [string]([bool]$RestartExisting) + ' heartbeat=' + [string]$heartbeatObserved)
