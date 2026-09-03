@@ -12,6 +12,7 @@ $ConfigPath = Join-Path $AppRoot 'profiles.json'
 $DefaultConfigPath = Join-Path $AppRoot 'profiles.default.json'
 $IconPath = Join-Path $AppRoot 'JollyRunnerHub.ico'
 $HistoryRoot = Join-Path $AppRoot 'history'
+$UiStatePath = Join-Path $AppRoot 'ui-state.json'
 $CapabilitiesPath = Join-Path $AppRoot 'capabilities.json'
 $CapabilitiesScriptPath = Join-Path $AppRoot 'RunnerCapabilities.ps1'
 $CapabilitiesCliPath = Join-Path $AppRoot 'Inspect-RunnerCapabilities.ps1'
@@ -41,6 +42,14 @@ $script:HistorySeen = @{}
 $script:CurrentLiveRun = ''
 $script:HistoryRecords = @()
 $script:LastHistoryRefresh = [datetime]::MinValue
+$script:RunnerOverviewRefreshing = $false
+$script:LastRunnerOverviewRefresh = [datetime]::MinValue
+$script:RunnerOverviewIntervalSeconds = 3
+$script:RunnerInventoryCache = @()
+$script:RunnerInventoryCacheAt = [datetime]::MinValue
+$script:LastSnapshotKey = ''
+$script:LastLogRefresh = [datetime]::MinValue
+$script:PreferredRunnerSelectionId = ''
 
 $ColorWindow = [Drawing.Color]::FromArgb(242,245,249)
 $ColorSurface = [Drawing.Color]::White
@@ -135,6 +144,137 @@ function Load-Config {
         throw 'profiles.json にprofilesがありません。'
     }
     $script:LastConfigWrite = (Get-Item -LiteralPath $ConfigPath).LastWriteTimeUtc
+}
+
+
+function Normalize-RunnerRoot([string]$Path) {
+    if ([string]::IsNullOrWhiteSpace($Path)) { return '' }
+    try {
+        $expanded = [Environment]::ExpandEnvironmentVariables($Path)
+        return ([IO.Path]::GetFullPath($expanded)).TrimEnd([char[]]@('\','/')).ToLowerInvariant()
+    } catch {
+        return ''
+    }
+}
+
+function Read-UiState {
+    if (-not (Test-Path -LiteralPath $UiStatePath -PathType Leaf)) { return $null }
+    try {
+        return Get-Content -LiteralPath $UiStatePath -Raw -Encoding UTF8 | ConvertFrom-Json
+    } catch {
+        return $null
+    }
+}
+
+function Save-UiState {
+    try {
+        $runnerId = ''
+        if ($runnerGrid.SelectedRows.Count -gt 0) {
+            $runnerId = [string]$runnerGrid.SelectedRows[0].Cells['Id'].Value
+        }
+        $state = [ordered]@{
+            profileId = if ($null -ne $script:Profile) { [string]$script:Profile.id } else { '' }
+            tabIndex = [int]$tabs.SelectedIndex
+            runnerId = $runnerId
+        }
+        $state | ConvertTo-Json | Set-Content -LiteralPath $UiStatePath -Encoding UTF8
+    } catch {}
+}
+
+function Get-RunnerInventory([switch]$Force) {
+    if (-not $Force -and ([datetime]::UtcNow-$script:RunnerInventoryCacheAt).TotalSeconds -lt 10) {
+        return $script:RunnerInventoryCache
+    }
+
+    $managedRoots = @{}
+    foreach ($profile in @($script:Config.profiles)) {
+        $normalized = Normalize-RunnerRoot ([string]$profile.runnerRoot)
+        if ($normalized) { $managedRoots[$normalized] = [string]$profile.id }
+    }
+
+    $candidateRoots = @{}
+    foreach ($normalized in @($managedRoots.Keys)) { $candidateRoots[$normalized] = $normalized }
+
+    $localActionsRoot = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'GitHubActions'
+    if (Test-Path -LiteralPath $localActionsRoot -PathType Container) {
+        foreach ($directory in @(Get-ChildItem -LiteralPath $localActionsRoot -Directory -ErrorAction SilentlyContinue)) {
+            $normalized = Normalize-RunnerRoot $directory.FullName
+            if ($normalized) { $candidateRoots[$normalized] = $normalized }
+        }
+    }
+
+    $driveRoot = [IO.Path]::GetPathRoot($AppRoot)
+    if (Test-Path -LiteralPath $driveRoot -PathType Container) {
+        foreach ($directory in @(Get-ChildItem -LiteralPath $driveRoot -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -like 'actions-runner*' })) {
+            $normalized = Normalize-RunnerRoot $directory.FullName
+            if ($normalized) { $candidateRoots[$normalized] = $normalized }
+        }
+    }
+
+    $listenerRoots = @{}
+    try {
+        foreach ($process in @(Get-CimInstance Win32_Process -Filter "Name='Runner.Listener.exe'" -ErrorAction SilentlyContinue)) {
+            if ([string]::IsNullOrWhiteSpace([string]$process.ExecutablePath)) { continue }
+            $root = Split-Path -Parent (Split-Path -Parent ([string]$process.ExecutablePath))
+            $normalized = Normalize-RunnerRoot $root
+            if ($normalized) { $listenerRoots[$normalized] = $true }
+        }
+    } catch {}
+
+    $items = New-Object System.Collections.Generic.List[object]
+    foreach ($normalized in @($candidateRoots.Keys | Sort-Object)) {
+        $root = $candidateRoots[$normalized]
+        if (-not (Test-Path -LiteralPath (Join-Path $root 'run.cmd')) -and
+            -not (Test-Path -LiteralPath (Join-Path $root '.runner'))) { continue }
+
+        $scope = if ($managedRoots.ContainsKey($normalized)) {
+            'managed'
+        } elseif (Test-JollyEphemeralOwnedPath -Path $root -AppRoot $AppRoot) {
+            'ephemeral'
+        } else {
+            'unmanaged'
+        }
+
+        $runnerName = Split-Path -Leaf $root
+        $repository = ''
+        $runnerFile = Join-Path $root '.runner'
+        if (Test-Path -LiteralPath $runnerFile -PathType Leaf) {
+            try {
+                $runnerConfig = Get-Content -LiteralPath $runnerFile -Raw -Encoding UTF8 | ConvertFrom-Json
+                foreach ($property in @('agentName','name')) {
+                    if ($runnerConfig.PSObject.Properties.Name -contains $property -and
+                        -not [string]::IsNullOrWhiteSpace([string]$runnerConfig.$property)) {
+                        $runnerName = [string]$runnerConfig.$property
+                        break
+                    }
+                }
+                foreach ($property in @('gitHubUrl','serverUrl')) {
+                    if ($runnerConfig.PSObject.Properties.Name -contains $property -and
+                        -not [string]::IsNullOrWhiteSpace([string]$runnerConfig.$property)) {
+                        $repository = ([string]$runnerConfig.$property).TrimEnd('/') -replace '^https://github.com/',''
+                        break
+                    }
+                }
+            } catch {}
+        }
+
+        [void]$items.Add([pscustomobject]@{
+            Id = if ($scope -eq 'managed') { [string]$managedRoots[$normalized] } else { "$scope::$normalized" }
+            Name = $runnerName
+            Repository = $repository
+            Root = $root
+            Scope = $scope
+            Running = $listenerRoots.ContainsKey($normalized)
+        })
+    }
+
+    $script:RunnerInventoryCache = @()
+    foreach ($inventoryItem in $items) {
+        $script:RunnerInventoryCache += $inventoryItem
+    }
+    $script:RunnerInventoryCacheAt = [datetime]::UtcNow
+    return $script:RunnerInventoryCache
 }
 
 function Get-Value($Object, [string]$Path) {
@@ -1042,7 +1182,7 @@ $runnerTab.Controls.Add($runnerLayout)
 
 $runnerIntro = New-Object Windows.Forms.Label
 $runnerIntro.Dock = 'Fill'
-$runnerIntro.Text = 'Love-Github と Durable Workflow の GitHub Actions runner を一画面で管理します。Warfare Wings runner も既存のまま表示します。'
+$runnerIntro.Text = 'Hub管理Runnerを一元管理します。未管理Runnerを検出した場合はここに警告表示し、自動操作の対象にはしません。'
 $runnerIntro.Font = New-Object Drawing.Font('Segoe UI',10)
 $runnerIntro.ForeColor = $ColorText
 $runnerIntro.TextAlign = 'MiddleLeft'
@@ -1056,6 +1196,7 @@ Style-Grid $runnerGrid
 foreach ($columnInfo in @(
     @('Id','ID',160),
     @('Name','Runner',210),
+    @('Scope','管轄',105),
     @('Repository','Repository',300),
     @('Root','ローカル配置',330),
     @('State','状態',180),
@@ -1099,7 +1240,6 @@ $refreshRunners = New-RunnerButton '状態を更新' 112
 $refreshCapabilities = New-RunnerButton '能力を更新' 112
 $startEphemeralRunner = New-RunnerButton 'Ephemeral起動' 122
 $gcEphemeralRunners = New-RunnerButton 'Ephemeral GC' 112
-$refreshCapabilities = New-RunnerButton '能力を更新' 112
 foreach ($button in @($startSelectedRunner,$stopSelectedRunner,$startAllRunners,$stopAllRunners,$startEphemeralRunner,$gcEphemeralRunners,$refreshRunners,$refreshCapabilities)) {
     $runnerButtons.Controls.Add($button)
 }
@@ -1402,6 +1542,7 @@ function Select-Profile {
     Fill-MetricCombo $chartBBox.Combo $script:Profile 'agl'
     Fill-MetricCombo $historyMetric $script:Profile 'speed'
     Reset-LiveSamples ''
+    $script:LastSnapshotKey = ''
     Prune-History $script:Profile
     Refresh-HistoryList ''
 
@@ -1414,29 +1555,87 @@ function Select-Profile {
     Reset-RunnerCache $script:Profile
 }
 
-function Refresh-RunnerOverview {
-    $selectedId = ''
-    if ($runnerGrid.SelectedRows.Count -gt 0) {
-        $selectedId = [string]$runnerGrid.SelectedRows[0].Cells['Id'].Value
+
+function Find-RunnerGridRow([string]$Id) {
+    foreach ($row in @($runnerGrid.Rows)) {
+        if ($row.IsNewRow) { continue }
+        if ([string]$row.Cells['Id'].Value -eq $Id) { return $row }
     }
-    $runnerGrid.SuspendLayout()
+    return $null
+}
+
+function Set-RunnerGridRow($Model) {
+    $row = Find-RunnerGridRow ([string]$Model.Id)
+    if ($null -eq $row) {
+        $index = $runnerGrid.Rows.Add()
+        $row = $runnerGrid.Rows[$index]
+    }
+    foreach ($cellName in @('Id','Name','Scope','Repository','Root','State','Capabilities','Evidence','Ephemeral')) {
+        $value = [string]$Model.$cellName
+        if ([string]$row.Cells[$cellName].Value -ne $value) {
+            $row.Cells[$cellName].Value = $value
+        }
+    }
+    $row.Cells['State'].Style.ForeColor = switch ([string]$Model.Tone) {
+        'good' { $ColorGood }
+        'bad' { $ColorBad }
+        default { $ColorWarn }
+    }
+    if ([string]$Model.Scope -eq '未管理') {
+        $row.Cells['Scope'].Style.ForeColor = $ColorBad
+        $row.Cells['Scope'].Style.Font = New-Object Drawing.Font('Segoe UI',9,[Drawing.FontStyle]::Bold)
+    } else {
+        $row.Cells['Scope'].Style.ForeColor = $ColorGood
+    }
+    return $row
+}
+
+function Update-RunnerActionAvailability {
+    $managed = $null -ne (Get-SelectedRunnerProfile)
+    $startSelectedRunner.Enabled = $managed
+    $stopSelectedRunner.Enabled = $managed
+    $startEphemeralRunner.Enabled = $managed
+}
+
+function Refresh-RunnerOverview([switch]$Force) {
+    if ($script:RunnerOverviewRefreshing) { return }
+    if (-not $Force -and
+        ([datetime]::UtcNow-$script:LastRunnerOverviewRefresh).TotalSeconds -lt $script:RunnerOverviewIntervalSeconds) {
+        return
+    }
+
+    $script:RunnerOverviewRefreshing = $true
     try {
-        $runnerGrid.Rows.Clear()
+        $selectedId = ''
+        if ($runnerGrid.SelectedRows.Count -gt 0) {
+            $selectedId = [string]$runnerGrid.SelectedRows[0].Cells['Id'].Value
+        } elseif (-not [string]::IsNullOrWhiteSpace($script:PreferredRunnerSelectionId)) {
+            $selectedId = $script:PreferredRunnerSelectionId
+        }
+
+        $firstDisplayedRow = -1
+        try { $firstDisplayedRow = $runnerGrid.FirstDisplayedScrollingRowIndex } catch {}
+
+        $models = New-Object System.Collections.Generic.List[object]
+        $capabilitySnapshot = Read-CapabilitySnapshot
+
         foreach ($profile in @($script:Config.profiles)) {
             $root = [Environment]::ExpandEnvironmentVariables([string]$profile.runnerRoot)
             $repository = ([string]$profile.repoUrl).TrimEnd('/') -replace '^https://github.com/',''
+            $stateCode = 'unregistered'
             if (Test-RunnerConfigured $profile) {
                 $state = Read-RunnerConnectionState $profile
                 Invoke-RunnerAutoRecovery $profile $state
                 $stateText = [string]$state.Text
+                $stateCode = [string]$state.Code
                 $evidence = [string]$state.Evidence
             } else {
                 $stateText = '未登録'
                 $evidence = 'run.cmd または .runner がありません'
             }
+
             $cachedCapabilities = Get-CachedRunnerCapabilities $profile
             $capabilityText = [string]$cachedCapabilities.Summary
-            $capabilitySnapshot = Read-CapabilitySnapshot
             if ($null -ne $capabilitySnapshot) {
                 $required = if ($profile.PSObject.Properties.Name -contains 'requiredCapabilities') {
                     @($profile.requiredCapabilities)
@@ -1457,35 +1656,89 @@ function Refresh-RunnerOverview {
             } else {
                 $capabilityText = '能力情報を再取得中'
             }
+
             $ephemeral = if (Test-JollyEphemeralEnabled $profile) {
                 Get-JollyEphemeralSummary -AppRoot $AppRoot -ProfileId ([string]$profile.id)
             } else { 'disabled' }
-            $index = $runnerGrid.Rows.Add(
-                [string]$profile.id,
-                [string]$profile.name,
-                $repository,
-                $root,
-                $stateText,
-                $capabilityText,
-                $evidence,
-                $ephemeral)
-            $row = $runnerGrid.Rows[$index]
-            if ([string]$state.Code -in @('listening','running_job','connected_starting')) {
-                $row.Cells['State'].Style.ForeColor = $ColorGood
-            } elseif ([string]$state.Code -in @('stopped','reconnecting')) {
-                $row.Cells['State'].Style.ForeColor = $ColorBad
+
+            $tone = if ($stateCode -in @('listening','running_job','connected_starting')) {
+                'good'
+            } elseif ($stateCode -in @('stopped','reconnecting','unregistered')) {
+                'bad'
             } else {
-                $row.Cells['State'].Style.ForeColor = $ColorWarn
+                'warn'
             }
-            if ([string]$profile.id -eq $selectedId) {
-                $row.Selected = $true
+
+            [void]$models.Add([pscustomobject]@{
+                Id = [string]$profile.id
+                Name = [string]$profile.name
+                Scope = '管理'
+                Repository = $repository
+                Root = $root
+                State = $stateText
+                Capabilities = $capabilityText
+                Evidence = $evidence
+                Ephemeral = $ephemeral
+                Tone = $tone
+            })
+        }
+
+        $unmanaged = @(Get-RunnerInventory -Force:$Force | Where-Object { $_.Scope -eq 'unmanaged' })
+        foreach ($item in $unmanaged) {
+            [void]$models.Add([pscustomobject]@{
+                Id = [string]$item.Id
+                Name = [string]$item.Name
+                Scope = '未管理'
+                Repository = if ([string]::IsNullOrWhiteSpace([string]$item.Repository)) { '(不明)' } else { [string]$item.Repository }
+                Root = [string]$item.Root
+                State = if ($item.Running) { '実行中 / 未管理' } else { '停止 / 未管理' }
+                Capabilities = '-'
+                Evidence = 'Hub profileに未登録。自動起動・停止・復旧の対象外'
+                Ephemeral = 'Hub外'
+                Tone = 'bad'
+            })
+        }
+
+        $desiredIds = @{}
+        $runnerGrid.SuspendLayout()
+        try {
+            foreach ($model in $models) {
+                $desiredIds[[string]$model.Id] = $true
+                $row = Set-RunnerGridRow $model
+                if ([string]$model.Id -eq $selectedId) { $row.Selected = $true }
             }
+
+            for ($i=$runnerGrid.Rows.Count-1; $i -ge 0; $i--) {
+                $row = $runnerGrid.Rows[$i]
+                if ($row.IsNewRow) { continue }
+                $id = [string]$row.Cells['Id'].Value
+                if (-not $desiredIds.ContainsKey($id)) {
+                    $runnerGrid.Rows.RemoveAt($i)
+                }
+            }
+
+            if ($runnerGrid.SelectedRows.Count -eq 0 -and $runnerGrid.Rows.Count -gt 0) {
+                $runnerGrid.Rows[0].Selected = $true
+            }
+            if ($firstDisplayedRow -ge 0 -and $firstDisplayedRow -lt $runnerGrid.Rows.Count) {
+                try { $runnerGrid.FirstDisplayedScrollingRowIndex = $firstDisplayedRow } catch {}
+            }
+        } finally {
+            $runnerGrid.ResumeLayout()
         }
-        if ($runnerGrid.SelectedRows.Count -eq 0 -and $runnerGrid.Rows.Count -gt 0) {
-            $runnerGrid.Rows[0].Selected = $true
+
+        $managedCount = @($script:Config.profiles).Count
+        $runnerIntro.Text = if ($unmanaged.Count -gt 0) {
+            "管理Runner $managedCount 件 / 未管理Runner $($unmanaged.Count) 件を検出。未管理RunnerはHubから操作せず、整理または正式プロファイル化してください。"
+        } else {
+            "管理Runner $managedCount 件 / 未管理Runner 0 件。新しい一時RunnerはEphemeral起動から作成するとHub管理下で自動GCされます。"
         }
+        $runnerIntro.ForeColor = if ($unmanaged.Count -gt 0) { $ColorBad } else { $ColorText }
+        $script:PreferredRunnerSelectionId = ''
+        $script:LastRunnerOverviewRefresh = [datetime]::UtcNow
+        Update-RunnerActionAvailability
     } finally {
-        $runnerGrid.ResumeLayout()
+        $script:RunnerOverviewRefreshing = $false
     }
 }
 
@@ -1494,6 +1747,7 @@ function Get-SelectedRunnerProfile {
     return Get-ProfileById ([string]$runnerGrid.SelectedRows[0].Cells['Id'].Value)
 }
 
+$runnerGrid.add_SelectionChanged({ Update-RunnerActionAvailability })
 $profiles.add_SelectedIndexChanged({
     if (-not $script:ReloadingProfiles) { Select-Profile }
 })
@@ -1532,7 +1786,7 @@ $disconnect.add_Click({
 $startSelectedRunner.add_Click({
     $profile = Get-SelectedRunnerProfile
     if ($null -ne $profile) {
-        try { Start-Runner $profile; Refresh-RunnerOverview } catch { Show-Error $_.Exception.Message }
+        try { Start-Runner $profile; Refresh-RunnerOverview -Force } catch { Show-Error $_.Exception.Message }
     }
 })
 $stopSelectedRunner.add_Click({
@@ -1542,7 +1796,7 @@ $stopSelectedRunner.add_Click({
         'ジョリー Runner Hub',
         [Windows.Forms.MessageBoxButtons]::YesNo,
         [Windows.Forms.MessageBoxIcon]::Question) -eq 'Yes') {
-        try { Stop-Runner $profile; Refresh-RunnerOverview } catch { Show-Error $_.Exception.Message }
+        try { Stop-Runner $profile; Refresh-RunnerOverview -Force } catch { Show-Error $_.Exception.Message }
     }
 })
 $startAllRunners.add_Click({
@@ -1551,7 +1805,7 @@ $startAllRunners.add_Click({
         if (-not (Test-RunnerConfigured $profile)) { continue }
         try { Start-Runner $profile } catch { $errors.Add("$($profile.name): $($_.Exception.Message)") }
     }
-    Refresh-RunnerOverview
+    Refresh-RunnerOverview -Force
     if ($errors.Count -gt 0) { Show-Error ($errors -join [Environment]::NewLine) }
 })
 $stopAllRunners.add_Click({
@@ -1563,7 +1817,7 @@ $stopAllRunners.add_Click({
         foreach ($profile in @($script:Config.profiles)) {
             try { Stop-Runner $profile } catch {}
         }
-        Refresh-RunnerOverview
+        Refresh-RunnerOverview -Force
     }
 })
 $startEphemeralRunner.add_Click({
@@ -1576,7 +1830,7 @@ $startEphemeralRunner.add_Click({
         [Windows.Forms.MessageBoxIcon]::Question) -eq 'Yes') {
         try {
             $state = Start-JollyEphemeralRunner -Profile $profile -AppRoot $AppRoot
-            Refresh-RunnerOverview
+            Refresh-RunnerOverview -Force
             [Windows.Forms.MessageBox]::Show(
                 "作成しました: $($state.runnerName)`nTTL=$($state.ttlMinutes)分`nLabels=$(@($state.labels) -join ',')",
                 'ジョリー Runner Hub',
@@ -1588,7 +1842,7 @@ $startEphemeralRunner.add_Click({
 $gcEphemeralRunners.add_Click({
     try {
         $results = @(Invoke-JollyEphemeralGc -AppRoot $AppRoot)
-        Refresh-RunnerOverview
+        Refresh-RunnerOverview -Force
         $changed = @($results | Where-Object { [string]$_.Action -like 'cleaned_*' }).Count
         [Windows.Forms.MessageBox]::Show(
             "Ephemeral GC: cleaned=$changed / inspected=$($results.Count)",
@@ -1599,7 +1853,7 @@ $gcEphemeralRunners.add_Click({
 })
 $refreshRunners.add_Click({
     foreach ($profile in @($script:Config.profiles)) { Reset-RunnerCapabilityCache $profile }
-    Refresh-RunnerOverview
+    Refresh-RunnerOverview -Force
 })
 $refreshCapabilities.add_Click({
     try {
@@ -1614,7 +1868,7 @@ $refreshCapabilities.add_Click({
             -RunnerRoots $roots -OutputPath $CapabilitiesPath | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "Capability probe failed with exit code $LASTEXITCODE" }
         foreach ($profile in @($script:Config.profiles)) { Reset-RunnerCapabilityCache $profile }
-        Refresh-RunnerOverview
+        Refresh-RunnerOverview -Force
     } catch { Show-Error $_.Exception.Message }
 })
 $configButton.add_Click({
@@ -1650,8 +1904,20 @@ $historyFolder.add_Click({
     Start-Process explorer.exe -ArgumentList ('"{0}"' -f $path)
 })
 
-Reload-Profiles ''
-Refresh-RunnerOverview
+$uiState = Read-UiState
+$initialProfileId = if ($null -ne $uiState -and $uiState.PSObject.Properties.Name -contains 'profileId') { [string]$uiState.profileId } else { '' }
+if ($null -ne $uiState -and $uiState.PSObject.Properties.Name -contains 'runnerId') {
+    $script:PreferredRunnerSelectionId = [string]$uiState.runnerId
+}
+Reload-Profiles $initialProfileId
+Refresh-RunnerOverview -Force
+if ($null -ne $uiState -and $uiState.PSObject.Properties.Name -contains 'tabIndex') {
+    $savedTab = 0
+    if ([int]::TryParse([string]$uiState.tabIndex,[ref]$savedTab) -and
+        $savedTab -ge 0 -and $savedTab -lt $tabs.TabPages.Count) {
+        $tabs.SelectedIndex = $savedTab
+    }
+}
 
 $timer = New-Object Windows.Forms.Timer
 $timer.Interval = 1000
@@ -1662,7 +1928,7 @@ $timer.add_Tick({
             $id = [string]$script:Profile.id
             Load-Config
             Reload-Profiles $id
-            Refresh-RunnerOverview
+            Refresh-RunnerOverview -Force
         }
 
         if (([datetime]::UtcNow-$script:LastEphemeralGc).TotalSeconds -ge 30) {
@@ -1670,7 +1936,9 @@ $timer.add_Tick({
             $script:LastEphemeralGc = [datetime]::UtcNow
         }
 
-        Refresh-RunnerOverview
+        if ($tabs.SelectedTab -eq $runnerTab) {
+            Refresh-RunnerOverview
+        }
 
         if (Runner-Running $script:Profile) {
             $runnerStatus.Value.Text = '接続中'
@@ -1681,9 +1949,13 @@ $timer.add_Tick({
         }
 
         $snapshot = Read-Snapshot $script:Profile
-        Fill-Telemetry $snapshot $script:Profile $grid
-        Fill-Cards $snapshot $cardsPanel
-        Fill-Events $snapshot $eventGrid
+        $snapshotKey = '{0}|{1}|{2}|{3}' -f [string]$script:Profile.id,[string]$snapshot.Run,[string]$snapshot.Active,[string]$snapshot.Updated
+        if ($snapshotKey -ne $script:LastSnapshotKey) {
+            Fill-Telemetry $snapshot $script:Profile $grid
+            Fill-Cards $snapshot $cardsPanel
+            Fill-Events $snapshot $eventGrid
+            $script:LastSnapshotKey = $snapshotKey
+        }
 
         $historyWritten = Record-Snapshot $snapshot $script:Profile
         if ($historyWritten) {
@@ -1713,13 +1985,20 @@ $timer.add_Tick({
             Refresh-HistoryList $keep
         }
 
-        $logPath = Log-Path $script:Profile
-        if (Test-Path $logPath) {
-            $logBox.Text = (Tail-Lines $logPath 262144) -join [Environment]::NewLine
-            $logBox.SelectionStart = $logBox.TextLength
-            $logBox.ScrollToCaret()
-        } else {
-            $logBox.Text = 'Runner Hubから起動すると、ここにRunnerログが表示されます。'
+        if ($tabs.SelectedTab -eq $logTab -and
+            (([datetime]::UtcNow-$script:LastLogRefresh).TotalSeconds -ge 2)) {
+            $logPath = Log-Path $script:Profile
+            $newLogText = if (Test-Path $logPath) {
+                (Tail-Lines $logPath 262144) -join [Environment]::NewLine
+            } else {
+                'Runner Hubから起動すると、ここにRunnerログが表示されます。'
+            }
+            if ($logBox.Text -ne $newLogText) {
+                $logBox.Text = $newLogText
+                $logBox.SelectionStart = $logBox.TextLength
+                $logBox.ScrollToCaret()
+            }
+            $script:LastLogRefresh = [datetime]::UtcNow
         }
     } catch {
         $validationStatus.Value.Text = '読込エラー: ' + $_.Exception.Message
@@ -1744,9 +2023,12 @@ $form.add_Shown({
                 $errors.Add("$($profile.name): $($_.Exception.Message)")
             }
         }
-        Refresh-RunnerOverview
+        Refresh-RunnerOverview -Force
         if ($errors.Count -gt 0) { Show-Error ($errors -join [Environment]::NewLine) }
     }
 })
-$form.add_FormClosed({ $timer.Stop() })
+$form.add_FormClosed({
+    Save-UiState
+    $timer.Stop()
+})
 [void]$form.ShowDialog()

@@ -162,7 +162,21 @@ catch {
     throw 'System.Windows.Forms.DataVisualization is required for the real-time dashboard charts.'
 }
 
-$null = Get-Content -LiteralPath $defaultConfig -Raw -Encoding UTF8 | ConvertFrom-Json
+$defaultConfigObject = Get-Content -LiteralPath $defaultConfig -Raw -Encoding UTF8 | ConvertFrom-Json
+if (@($defaultConfigObject.profiles | Where-Object { [string]$_.id -eq 'kneekura-lab' }).Count -ne 1) {
+    throw 'Canonical KNEEKURA LAB runner profile is missing.'
+}
+foreach ($requiredMarker in @(
+    'function Get-RunnerInventory',
+    "'unmanaged'",
+    '$UiStatePath',
+    'function Save-UiState',
+    '$script:RunnerOverviewIntervalSeconds = 3'
+)) {
+    if (-not $scriptText.Contains($requiredMarker)) {
+        throw "Runner governance/UI stability contract marker is missing: $requiredMarker"
+    }
+}
 
 New-Item -ItemType Directory -Force -Path $buildDir | Out-Null
 New-Item -ItemType Directory -Force -Path $appData | Out-Null
@@ -499,10 +513,13 @@ for ($attempt = 0; $attempt -lt 21600; $attempt++) {
         config = $profilePath
         icon_sha256 = (Get-FileHash -LiteralPath $iconPath -Algorithm SHA256).Hash.ToLowerInvariant()
         pending_restart = $pendingRestart
-        dashboard_version = 4
+        dashboard_version = 5
         startup_smoke_test = 'passed'
         dashboard_scroll = 'vertical'
         runner_connection_state = 'log-classified'
+        runner_governance = 'managed-unmanaged-inventory-v1'
+        ui_refresh = 'incremental-v1'
+        ui_state_persistence = 'profile-tab-runner-v1'
         ephemeral_runner_lifecycle = 'watchdog-ttl-gc'
         runner_ephemeral_lifecycle = 'ttl-gc-v1'
         runner_capabilities = 'cached-v1'
