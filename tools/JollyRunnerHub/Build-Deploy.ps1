@@ -25,6 +25,7 @@ $capabilitiesCliPath = Join-Path $root 'Inspect-RunnerCapabilities.ps1'
 $capabilitiesTestPath = Join-Path $root 'Test-RunnerCapabilities.ps1'
 $localGradlePath = Join-Path $root 'Use-LocalGradle.ps1'
 $lifecyclePath = Join-Path $root 'RunnerLifecycle.ps1'
+$commandCenterTestPath = Join-Path $root 'Test-CommandCenterContract.ps1'
 $runtimeSourcePath = Join-Path $buildDir 'JollyRunnerHub.source.ps1'
 
 $scriptText = Get-Content -LiteralPath $scriptPath -Raw -Encoding UTF8
@@ -107,6 +108,20 @@ foreach ($capabilityScript in @($capabilitiesPath,$capabilitiesCliPath,$capabili
     }
 }
 & $capabilitiesTestPath | Out-Host
+
+$commandCenterTestText = Get-Content -LiteralPath $commandCenterTestPath -Raw -Encoding UTF8
+$commandCenterTokens = $null
+$commandCenterParseErrors = $null
+[System.Management.Automation.Language.Parser]::ParseInput(
+    $commandCenterTestText,[ref]$commandCenterTokens,[ref]$commandCenterParseErrors) | Out-Null
+if (@($commandCenterParseErrors).Count -gt 0) {
+    $details = @($commandCenterParseErrors | ForEach-Object {
+        '{0}:{1} {2}' -f $_.Extent.StartLineNumber,$_.Extent.StartColumnNumber,$_.Message
+    }) -join [Environment]::NewLine
+    throw ('Command Center contract test syntax validation failed:' + [Environment]::NewLine + $details)
+}
+& $commandCenterTestPath | Out-Host
+
 & $localGradlePath -Version '8.8' | Out-Host
 
 $lifecycleText = Get-Content -LiteralPath $lifecyclePath -Raw -Encoding UTF8
