@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$AppRoot = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'JollyRunnerHub'),
+    [string]$StartupDirectory = '',
     [switch]$NoStart,
     [switch]$RestartExisting
 )
@@ -51,7 +52,11 @@ function Wait-SupervisorHeartbeat {
     return $false
 }
 
-$startup = [Environment]::GetFolderPath([Environment+SpecialFolder]::Startup)
+$startup = if ([string]::IsNullOrWhiteSpace($StartupDirectory)) {
+    [Environment]::GetFolderPath([Environment+SpecialFolder]::Startup)
+} else {
+    [Environment]::ExpandEnvironmentVariables($StartupDirectory)
+}
 New-Item -ItemType Directory -Force -Path $startup | Out-Null
 $linkPath = Join-Path $startup 'Jolly Runner Hub Supervisor.lnk'
 $powershell = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
