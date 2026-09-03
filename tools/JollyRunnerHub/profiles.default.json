@@ -1,5 +1,5 @@
 {
-  "version": 6,
+  "version": 7,
   "autoConnect": true,
   "profiles": [
     {
@@ -176,6 +176,16 @@
       "ephemeralTtlMinutes": 30,
       "ephemeralLabels": [
         "jolly-ephemeral"
+      ],
+      "dispatchWatchEnabled": true,
+      "dispatchAutoRecover": true,
+      "dispatchWarnSeconds": 45,
+      "dispatchRecoverSeconds": 180,
+      "dispatchProbeMaxAgeSeconds": 45,
+      "routingLabels": [
+        "self-hosted",
+        "Windows",
+        "X64"
       ]
     },
     {
@@ -201,6 +211,17 @@
       "ephemeralTtlMinutes": 30,
       "ephemeralLabels": [
         "jolly-ephemeral"
+      ],
+      "dispatchWatchEnabled": true,
+      "dispatchAutoRecover": true,
+      "dispatchWarnSeconds": 45,
+      "dispatchRecoverSeconds": 180,
+      "dispatchProbeMaxAgeSeconds": 45,
+      "routingLabels": [
+        "self-hosted",
+        "Windows",
+        "X64",
+        "love-github"
       ]
     },
     {
@@ -229,6 +250,17 @@
       "ephemeralLabels": [
         "kneekura",
         "jolly-ephemeral"
+      ],
+      "dispatchWatchEnabled": true,
+      "dispatchAutoRecover": true,
+      "dispatchWarnSeconds": 45,
+      "dispatchRecoverSeconds": 180,
+      "dispatchProbeMaxAgeSeconds": 45,
+      "routingLabels": [
+        "self-hosted",
+        "Windows",
+        "X64",
+        "kneekura"
       ]
     },
     {
@@ -256,6 +288,17 @@
       "ephemeralTtlMinutes": 30,
       "ephemeralLabels": [
         "jolly-ephemeral"
+      ],
+      "dispatchWatchEnabled": true,
+      "dispatchAutoRecover": true,
+      "dispatchWarnSeconds": 45,
+      "dispatchRecoverSeconds": 180,
+      "dispatchProbeMaxAgeSeconds": 45,
+      "routingLabels": [
+        "self-hosted",
+        "Windows",
+        "X64",
+        "kneekura-code-lab"
       ]
     },
     {
@@ -281,6 +324,17 @@
       "ephemeralTtlMinutes": 30,
       "ephemeralLabels": [
         "jolly-ephemeral"
+      ],
+      "dispatchWatchEnabled": true,
+      "dispatchAutoRecover": true,
+      "dispatchWarnSeconds": 45,
+      "dispatchRecoverSeconds": 180,
+      "dispatchProbeMaxAgeSeconds": 45,
+      "routingLabels": [
+        "self-hosted",
+        "Windows",
+        "X64",
+        "durable-workflow"
       ]
     }
   ]

@@ -16,12 +16,24 @@ $UiStatePath = Join-Path $AppRoot 'ui-state.json'
 $CapabilitiesPath = Join-Path $AppRoot 'capabilities.json'
 $CapabilitiesScriptPath = Join-Path $AppRoot 'RunnerCapabilities.ps1'
 $CapabilitiesCliPath = Join-Path $AppRoot 'Inspect-RunnerCapabilities.ps1'
+$DispatchRoot = Join-Path $AppRoot 'dispatch'
+$DispatchWatchPath = Join-Path $PSScriptRoot 'RunnerDispatchWatch.ps1'
+$DispatchProbePath = Join-Path $PSScriptRoot 'RunnerDispatchProbe.ps1'
 $RunnerLifecyclePath = Join-Path $PSScriptRoot 'RunnerLifecycle.ps1'
 if (-not (Test-Path -LiteralPath $RunnerLifecyclePath)) {
     $RunnerLifecyclePath = Join-Path (Split-Path -Parent $PSScriptRoot) 'RunnerLifecycle.ps1'
 }
 if (-not (Test-Path -LiteralPath $RunnerLifecyclePath)) { throw 'RunnerLifecycle.ps1 was not found.' }
 . $RunnerLifecyclePath
+if (-not (Test-Path -LiteralPath $DispatchWatchPath)) {
+    $DispatchWatchPath = Join-Path $AppRoot 'RunnerDispatchWatch.ps1'
+}
+if (-not (Test-Path -LiteralPath $DispatchProbePath)) {
+    $DispatchProbePath = Join-Path $AppRoot 'RunnerDispatchProbe.ps1'
+}
+if (-not (Test-Path -LiteralPath $DispatchWatchPath)) { throw 'RunnerDispatchWatch.ps1 was not found.' }
+if (-not (Test-Path -LiteralPath $DispatchProbePath)) { throw 'RunnerDispatchProbe.ps1 was not found.' }
+. $DispatchWatchPath
 
 $script:Config = $null
 $script:Profile = $null
@@ -50,6 +62,10 @@ $script:RunnerInventoryCacheAt = [datetime]::MinValue
 $script:LastSnapshotKey = ''
 $script:LastLogRefresh = [datetime]::MinValue
 $script:PreferredRunnerSelectionId = ''
+$script:DispatchProbeProcesses = @{}
+$script:DispatchProbeLastLaunch = @{}
+$script:DispatchRecoveryState = @{}
+$script:DispatchRecoveryLogPath = Join-Path $AppRoot 'dispatch-recovery.jsonl'
 
 $ColorWindow = [Drawing.Color]::FromArgb(242,245,249)
 $ColorSurface = [Drawing.Color]::White
@@ -275,6 +291,139 @@ function Get-RunnerInventory([switch]$Force) {
     }
     $script:RunnerInventoryCacheAt = [datetime]::UtcNow
     return $script:RunnerInventoryCache
+}
+
+function Get-DispatchSnapshotPath($Profile) {
+    New-Item -ItemType Directory -Force -Path $DispatchRoot | Out-Null
+    $id = ConvertTo-JollySafeName ([string]$Profile.id)
+    return Join-Path $DispatchRoot ("dispatch-$id.json")
+}
+
+function Read-DispatchSnapshot($Profile) {
+    $path = Get-DispatchSnapshotPath $Profile
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $null }
+    try {
+        $snapshot = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+        $probed = [datetime]::MinValue
+        if (-not [datetime]::TryParse([string]$snapshot.probedAt,[ref]$probed)) { return $null }
+        $age = [math]::Max(0,[int][math]::Floor(([datetime]::UtcNow-$probed.ToUniversalTime()).TotalSeconds))
+        Add-Member -InputObject $snapshot -NotePropertyName SnapshotAgeSeconds -NotePropertyValue $age -Force
+        return $snapshot
+    } catch { return $null }
+}
+
+function Cleanup-DispatchProbeProcesses {
+    foreach ($key in @($script:DispatchProbeProcesses.Keys)) {
+        $process = $script:DispatchProbeProcesses[$key]
+        if ($null -eq $process -or $process.HasExited) { $script:DispatchProbeProcesses.Remove($key) }
+    }
+}
+
+function Start-DispatchProbeIfDue($Profile,[switch]$Force) {
+    if (-not (Test-JollyDispatchWatchEnabled $Profile)) { return $false }
+    Cleanup-DispatchProbeProcesses
+    $id = ConvertTo-JollySafeName ([string]$Profile.id)
+    if ($script:DispatchProbeProcesses.ContainsKey($id)) { return $false }
+    $snapshot = Read-DispatchSnapshot $Profile
+    $maxAge = Get-JollyDispatchProbeMaxAgeSeconds $Profile
+    if (-not $Force -and $null -ne $snapshot -and [int]$snapshot.SnapshotAgeSeconds -lt $maxAge) { return $false }
+    $lastLaunch = if ($script:DispatchProbeLastLaunch.ContainsKey($id)) { [datetime]$script:DispatchProbeLastLaunch[$id] } else { [datetime]::MinValue }
+    if (-not $Force -and ([datetime]::UtcNow-$lastLaunch).TotalSeconds -lt 10) { return $false }
+    $repository = Get-JollyProfileRepository $Profile
+    $root = [Environment]::ExpandEnvironmentVariables([string]$Profile.runnerRoot)
+    if (-not (Test-Path -LiteralPath (Join-Path $root '.runner') -PathType Leaf)) { return $false }
+    $output = Get-DispatchSnapshotPath $Profile
+    $routingCsv = (Get-JollyDispatchRoutingLabels $Profile) -join ','
+    $arguments = @('-NoProfile','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File',('"{0}"' -f $DispatchProbePath),'-Repository',$repository,'-RunnerRoot',('"{0}"' -f $root),'-OutputPath',('"{0}"' -f $output),'-RoutingLabelsCsv',$routingCsv,'-TimeoutSeconds','4')
+    try {
+        $process = Start-Process powershell.exe -ArgumentList $arguments -WindowStyle Hidden -PassThru
+        $script:DispatchProbeProcesses[$id] = $process
+        $script:DispatchProbeLastLaunch[$id] = [datetime]::UtcNow
+        return $true
+    } catch { return $false }
+}
+
+function Read-RunnerRawLocalConnectionState($Profile) {
+    $running = Runner-Running $Profile
+    if (-not $running) { return Get-JollyRunnerConnectionStateLegacy -ProcessRunning $false -LogLines @() }
+    $snapshot = Get-RunnerConnectionLogSnapshot $Profile
+    return Get-JollyRunnerConnectionStateLegacy -ProcessRunning $true -LogLines @($snapshot.Lines)
+}
+
+function Get-DispatchPresentation($Profile,$LocalState) {
+    if (-not (Test-JollyDispatchWatchEnabled $Profile)) {
+        return [pscustomobject]@{Classification=[pscustomobject]@{Code='disabled';Text='監視OFF';Tone='warn';CanRecover=$false;Evidence='dispatch watch disabled'};Probe=$null;QueueText='-'}
+    }
+    $probe = Read-DispatchSnapshot $Profile
+    $warn = Get-JollyDispatchWarnSeconds $Profile
+    $recover = Get-JollyDispatchRecoverSeconds $Profile
+    $age = if ($null -ne $probe) { [int]$probe.SnapshotAgeSeconds } else { 0 }
+    $classification = Get-JollyDispatchClassification -LocalCode ([string]$LocalState.Code) -Probe $probe -WarnSeconds $warn -RecoverSeconds $recover -ProbeAgeSeconds $age
+    $queueText = '-'
+    if ($null -ne $probe -and [bool]$probe.apiOk) {
+        $eligible = [int]$probe.eligibleQueuedCount
+        $oldest = [int]$probe.oldestQueuedSeconds
+        $queueText = if ($eligible -gt 0) { ([string]$eligible + ' 件 / 最長 ' + [string]$oldest + 's') } else { '0 件' }
+    }
+    return [pscustomobject]@{Classification=$classification;Probe=$probe;QueueText=$queueText}
+}
+
+function Write-DispatchRecoveryEvent($Profile,$Dispatch,[string]$Action,[string]$Result) {
+    try {
+        $probe = $Dispatch.Probe
+        $record = [ordered]@{timestamp=([datetime]::UtcNow).ToString('o');profileId=[string]$Profile.id;repository=Get-JollyProfileRepository $Profile;action=$Action;result=$Result;dispatchCode=[string]$Dispatch.Classification.Code;eligibleQueuedCount=if ($null -ne $probe) {[int]$probe.eligibleQueuedCount} else {0};oldestQueuedSeconds=if ($null -ne $probe) {[int]$probe.oldestQueuedSeconds} else {0}}
+        ($record | ConvertTo-Json -Compress) | Add-Content -LiteralPath $script:DispatchRecoveryLogPath -Encoding UTF8
+    } catch {}
+}
+
+function Get-DispatchRecoveryState($Profile) {
+    $id = ConvertTo-JollySafeName ([string]$Profile.id)
+    if (-not $script:DispatchRecoveryState.ContainsKey($id)) {
+        $script:DispatchRecoveryState[$id] = [pscustomobject]@{Consecutive=0;LastProbeAt='';LastAttempt=[datetime]::MinValue;WindowStart=[datetime]::UtcNow;AttemptsInWindow=0}
+    }
+    return $script:DispatchRecoveryState[$id]
+}
+
+function Invoke-DispatchReconnect($Profile,$LocalState,$Dispatch,[switch]$Manual) {
+    if ($null -eq $Profile -or $null -eq $Dispatch -or -not [bool]$Dispatch.Classification.CanRecover) { return $false }
+    if ([string]$LocalState.Code -eq 'running_job') { return $false }
+    if ($null -ne $Dispatch.Probe -and [bool]$Dispatch.Probe.runnerBusy) { return $false }
+    $recovery = Get-DispatchRecoveryState $Profile
+    if (-not $Manual) {
+        if (-not (Test-JollyDispatchAutoRecoverEnabled $Profile)) { return $false }
+        if ([int]$recovery.Consecutive -lt 2) { return $false }
+        if (([datetime]::UtcNow-[datetime]$recovery.LastAttempt).TotalMinutes -lt 10) { return $false }
+        if (([datetime]::UtcNow-[datetime]$recovery.WindowStart).TotalHours -ge 1) { $recovery.WindowStart=[datetime]::UtcNow; $recovery.AttemptsInWindow=0 }
+        if ([int]$recovery.AttemptsInWindow -ge 2) { return $false }
+    }
+    $action = if ($Manual) { 'manual-reconnect' } else { 'auto-reconnect' }
+    try {
+        Write-DispatchRecoveryEvent $Profile $Dispatch $action 'started'
+        Stop-Runner $Profile
+        Start-Sleep -Milliseconds 500
+        Start-Runner $Profile
+        $recovery.LastAttempt = [datetime]::UtcNow
+        $recovery.AttemptsInWindow = [int]$recovery.AttemptsInWindow + 1
+        $recovery.Consecutive = 0
+        Remove-Item -LiteralPath (Get-DispatchSnapshotPath $Profile) -Force -ErrorAction SilentlyContinue
+        [void](Start-DispatchProbeIfDue $Profile -Force)
+        Write-DispatchRecoveryEvent $Profile $Dispatch $action 'completed'
+        return $true
+    } catch {
+        Write-DispatchRecoveryEvent $Profile $Dispatch $action ('failed: ' + $_.Exception.Message)
+        if ($Manual) { throw }
+        return $false
+    }
+}
+
+function Update-DispatchRecoveryState($Profile,$Dispatch,$LocalState) {
+    $recovery = Get-DispatchRecoveryState $Profile
+    $probeAt = if ($null -ne $Dispatch.Probe) { [string]$Dispatch.Probe.probedAt } else { '' }
+    if ($probeAt -and $probeAt -ne [string]$recovery.LastProbeAt) {
+        $recovery.LastProbeAt = $probeAt
+        if ([bool]$Dispatch.Classification.CanRecover) { $recovery.Consecutive=[int]$recovery.Consecutive+1 } else { $recovery.Consecutive=0 }
+    }
+    if ([bool]$Dispatch.Classification.CanRecover) { [void](Invoke-DispatchReconnect $Profile $LocalState $Dispatch) }
 }
 
 function Get-Value($Object, [string]$Path) {
@@ -1200,6 +1349,8 @@ foreach ($columnInfo in @(
     @('Repository','Repository',300),
     @('Root','ローカル配置',330),
     @('State','状態',180),
+    @('Dispatch','配送',170),
+    @('Queue','Queue',150),
     @('Capabilities','能力',260),
     @('Evidence','判定根拠',320),
     @('Ephemeral','Ephemeral / TTL',230)
@@ -1217,6 +1368,7 @@ $runnerButtons = New-Object Windows.Forms.FlowLayoutPanel
 $runnerButtons.Dock = 'Fill'
 $runnerButtons.FlowDirection = 'LeftToRight'
 $runnerButtons.WrapContents = $false
+$runnerButtons.AutoScroll = $true
 $runnerButtons.Padding = New-Object Windows.Forms.Padding(0,8,0,0)
 $runnerButtons.BackColor = $ColorWindow
 $runnerLayout.Controls.Add($runnerButtons,0,2)
@@ -1240,7 +1392,9 @@ $refreshRunners = New-RunnerButton '状態を更新' 112
 $refreshCapabilities = New-RunnerButton '能力を更新' 112
 $startEphemeralRunner = New-RunnerButton 'Ephemeral起動' 122
 $gcEphemeralRunners = New-RunnerButton 'Ephemeral GC' 112
-foreach ($button in @($startSelectedRunner,$stopSelectedRunner,$startAllRunners,$stopAllRunners,$startEphemeralRunner,$gcEphemeralRunners,$refreshRunners,$refreshCapabilities)) {
+$dispatchDetails = New-RunnerButton '配送診断' 100
+$dispatchReconnect = New-RunnerButton '安全再接続' 112
+foreach ($button in @($startSelectedRunner,$stopSelectedRunner,$startAllRunners,$stopAllRunners,$startEphemeralRunner,$gcEphemeralRunners,$dispatchDetails,$dispatchReconnect,$refreshRunners,$refreshCapabilities)) {
     $runnerButtons.Controls.Add($button)
 }
 
@@ -1570,13 +1724,18 @@ function Set-RunnerGridRow($Model) {
         $index = $runnerGrid.Rows.Add()
         $row = $runnerGrid.Rows[$index]
     }
-    foreach ($cellName in @('Id','Name','Scope','Repository','Root','State','Capabilities','Evidence','Ephemeral')) {
+    foreach ($cellName in @('Id','Name','Scope','Repository','Root','State','Dispatch','Queue','Capabilities','Evidence','Ephemeral')) {
         $value = [string]$Model.$cellName
         if ([string]$row.Cells[$cellName].Value -ne $value) {
             $row.Cells[$cellName].Value = $value
         }
     }
     $row.Cells['State'].Style.ForeColor = switch ([string]$Model.Tone) {
+        'good' { $ColorGood }
+        'bad' { $ColorBad }
+        default { $ColorWarn }
+    }
+    $row.Cells['Dispatch'].Style.ForeColor = switch ([string]$Model.DispatchTone) {
         'good' { $ColorGood }
         'bad' { $ColorBad }
         default { $ColorWarn }
@@ -1595,6 +1754,8 @@ function Update-RunnerActionAvailability {
     $startSelectedRunner.Enabled = $managed
     $stopSelectedRunner.Enabled = $managed
     $startEphemeralRunner.Enabled = $managed
+    $dispatchDetails.Enabled = $managed
+    $dispatchReconnect.Enabled = $managed
 }
 
 function Refresh-RunnerOverview([switch]$Force) {
@@ -1618,18 +1779,24 @@ function Refresh-RunnerOverview([switch]$Force) {
 
         $models = New-Object System.Collections.Generic.List[object]
         $capabilitySnapshot = Read-CapabilitySnapshot
+        $probeLaunchBudget = 1
+        $dispatchIssueCount = 0
 
         foreach ($profile in @($script:Config.profiles)) {
             $root = [Environment]::ExpandEnvironmentVariables([string]$profile.runnerRoot)
             $repository = ([string]$profile.repoUrl).TrimEnd('/') -replace '^https://github.com/',''
+            $configured = Test-RunnerConfigured $profile
             $stateCode = 'unregistered'
-            if (Test-RunnerConfigured $profile) {
+            if ($configured) {
+                if ($probeLaunchBudget -gt 0 -and (Start-DispatchProbeIfDue $profile -Force:$Force)) { $probeLaunchBudget-- }
+                $rawLocal = Read-RunnerRawLocalConnectionState $profile
                 $state = Read-RunnerConnectionState $profile
                 Invoke-RunnerAutoRecovery $profile $state
                 $stateText = [string]$state.Text
                 $stateCode = [string]$state.Code
                 $evidence = [string]$state.Evidence
             } else {
+                $rawLocal = [pscustomobject]@{Code='stopped';Text='未登録';Tone='bad';Evidence='runner not configured'}
                 $stateText = '未登録'
                 $evidence = 'run.cmd または .runner がありません'
             }
@@ -1661,6 +1828,18 @@ function Refresh-RunnerOverview([switch]$Force) {
                 Get-JollyEphemeralSummary -AppRoot $AppRoot -ProfileId ([string]$profile.id)
             } else { 'disabled' }
 
+            if ($configured) {
+                $dispatch = Get-DispatchPresentation $profile $rawLocal
+                Update-DispatchRecoveryState $profile $dispatch $rawLocal
+            } else {
+                $dispatch = [pscustomobject]@{
+                    Classification=[pscustomobject]@{Code='unregistered';Text='未登録';Tone='bad';CanRecover=$false;Evidence='canonical runner root is not registered'}
+                    Probe=$null
+                    QueueText='-'
+                }
+            }
+            if ([string]$dispatch.Classification.Tone -eq 'bad') { $dispatchIssueCount++ }
+
             $tone = if ($stateCode -in @('listening','running_job','connected_starting')) {
                 'good'
             } elseif ($stateCode -in @('stopped','reconnecting','unregistered')) {
@@ -1676,10 +1855,13 @@ function Refresh-RunnerOverview([switch]$Force) {
                 Repository = $repository
                 Root = $root
                 State = $stateText
+                Dispatch = [string]$dispatch.Classification.Text
+                Queue = [string]$dispatch.QueueText
                 Capabilities = $capabilityText
-                Evidence = $evidence
+                Evidence = ($evidence + '; dispatch=' + [string]$dispatch.Classification.Evidence)
                 Ephemeral = $ephemeral
                 Tone = $tone
+                DispatchTone = [string]$dispatch.Classification.Tone
             })
         }
 
@@ -1692,10 +1874,13 @@ function Refresh-RunnerOverview([switch]$Force) {
                 Repository = if ([string]::IsNullOrWhiteSpace([string]$item.Repository)) { '(不明)' } else { [string]$item.Repository }
                 Root = [string]$item.Root
                 State = if ($item.Running) { '実行中 / 未管理' } else { '停止 / 未管理' }
+                Dispatch = 'Hub外'
+                Queue = '-'
                 Capabilities = '-'
                 Evidence = 'Hub profileに未登録。自動起動・停止・復旧の対象外'
                 Ephemeral = 'Hub外'
                 Tone = 'bad'
+                DispatchTone = 'bad'
             })
         }
 
@@ -1728,12 +1913,12 @@ function Refresh-RunnerOverview([switch]$Force) {
         }
 
         $managedCount = @($script:Config.profiles).Count
-        $runnerIntro.Text = if ($unmanaged.Count -gt 0) {
-            "管理Runner $managedCount 件 / 未管理Runner $($unmanaged.Count) 件を検出。未管理RunnerはHubから操作せず、整理または正式プロファイル化してください。"
+        $runnerIntro.Text = if ($unmanaged.Count -gt 0 -or $dispatchIssueCount -gt 0) {
+            "管理Runner $managedCount 件 / 未管理 $($unmanaged.Count) 件 / 配送異常 $dispatchIssueCount 件。赤い配送欄または判定根拠を確認してください。"
         } else {
-            "管理Runner $managedCount 件 / 未管理Runner 0 件。新しい一時RunnerはEphemeral起動から作成するとHub管理下で自動GCされます。"
+            "管理Runner $managedCount 件 / 未管理 0 件 / 配送異常 0 件。RunnerとGitHub配送経路は正常です。"
         }
-        $runnerIntro.ForeColor = if ($unmanaged.Count -gt 0) { $ColorBad } else { $ColorText }
+        $runnerIntro.ForeColor = if ($unmanaged.Count -gt 0 -or $dispatchIssueCount -gt 0) { $ColorBad } else { $ColorText }
         $script:PreferredRunnerSelectionId = ''
         $script:LastRunnerOverviewRefresh = [datetime]::UtcNow
         Update-RunnerActionAvailability
@@ -1850,6 +2035,50 @@ $gcEphemeralRunners.add_Click({
             [Windows.Forms.MessageBoxButtons]::OK,
             [Windows.Forms.MessageBoxIcon]::Information) | Out-Null
     } catch { Show-Error $_.Exception.Message }
+})
+$dispatchDetails.add_Click({
+    $profile = Get-SelectedRunnerProfile
+    if ($null -eq $profile) { return }
+    [void](Start-DispatchProbeIfDue $profile -Force)
+    $local = Read-RunnerRawLocalConnectionState $profile
+    $dispatch = Get-DispatchPresentation $profile $local
+    $probe = $dispatch.Probe
+    $detail = New-Object System.Collections.Generic.List[string]
+    [void]$detail.Add(('Runner: ' + [string]$profile.name))
+    [void]$detail.Add(('Local: ' + [string]$local.Text + ' / ' + [string]$local.Code))
+    [void]$detail.Add(('Dispatch: ' + [string]$dispatch.Classification.Text + ' / ' + [string]$dispatch.Classification.Code))
+    [void]$detail.Add(('Reason: ' + [string]$dispatch.Classification.Evidence))
+    if ($null -ne $probe) {
+        [void]$detail.Add(('GitHub: status=' + [string]$probe.runnerStatus + ' busy=' + [string]$probe.runnerBusy))
+        [void]$detail.Add(('Eligible queue: ' + [string]$probe.eligibleQueuedCount + ' / oldest=' + [string]$probe.oldestQueuedSeconds + 's'))
+        [void]$detail.Add(('Assigned queued: ' + [string]$probe.assignedQueuedCount))
+        [void]$detail.Add(('Route candidates: ' + [string]$probe.routeCandidateCount))
+        [void]$detail.Add(('Probe age: ' + [string]$probe.SnapshotAgeSeconds + 's / duration=' + [string]$probe.durationMs + 'ms'))
+        if ([int64]$probe.oldestRunId -gt 0) {
+            [void]$detail.Add(('Oldest run: ' + [string]$probe.oldestRunId + ' / job=' + [string]$probe.oldestJobName))
+        }
+    } else {
+        [void]$detail.Add('Background probe started. The Runner table will update when it completes.')
+    }
+    [Windows.Forms.MessageBox]::Show(($detail -join [Environment]::NewLine),'ジョリー Runner Hub - 配送診断',[Windows.Forms.MessageBoxButtons]::OK,[Windows.Forms.MessageBoxIcon]::Information) | Out-Null
+})
+$dispatchReconnect.add_Click({
+    $profile = Get-SelectedRunnerProfile
+    if ($null -eq $profile) { return }
+    $local = Read-RunnerRawLocalConnectionState $profile
+    $dispatch = Get-DispatchPresentation $profile $local
+    if (-not [bool]$dispatch.Classification.CanRecover) {
+        $message = '安全再接続条件を満たしていません。' + [Environment]::NewLine + [string]$dispatch.Classification.Text + [Environment]::NewLine + [string]$dispatch.Classification.Evidence
+        [Windows.Forms.MessageBox]::Show($message,'ジョリー Runner Hub',[Windows.Forms.MessageBoxButtons]::OK,[Windows.Forms.MessageBoxIcon]::Information) | Out-Null
+        return
+    }
+    $confirm = [string]$profile.name + ' のlistenerを安全に再接続しますか？' + [Environment]::NewLine + 'GitHub busy=true またはローカル実行中jobは再起動しません。' + [Environment]::NewLine + [string]$dispatch.Classification.Evidence
+    if ([Windows.Forms.MessageBox]::Show($confirm,'ジョリー Runner Hub',[Windows.Forms.MessageBoxButtons]::YesNo,[Windows.Forms.MessageBoxIcon]::Question) -eq 'Yes') {
+        try {
+            [void](Invoke-DispatchReconnect $profile $local $dispatch -Manual)
+            Refresh-RunnerOverview -Force
+        } catch { Show-Error $_.Exception.Message }
+    }
 })
 $refreshRunners.add_Click({
     foreach ($profile in @($script:Config.profiles)) { Reset-RunnerCapabilityCache $profile }
@@ -2030,5 +2259,8 @@ $form.add_Shown({
 $form.add_FormClosed({
     Save-UiState
     $timer.Stop()
+    foreach ($process in @($script:DispatchProbeProcesses.Values)) {
+        try { if ($null -ne $process -and -not $process.HasExited) { $process.Kill() } } catch {}
+    }
 })
 [void]$form.ShowDialog()
