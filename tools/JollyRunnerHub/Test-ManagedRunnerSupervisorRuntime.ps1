@@ -6,7 +6,7 @@ try {
     New-Item -ItemType Directory -Force -Path $root | Out-Null
     foreach ($name in @(
         'RunnerConfig.ps1','RunnerControlState.ps1','RunnerDispatchWatch.ps1','RunnerDispatchProbe.ps1',
-        'RunnerConnectionState.ps1','ManagedRunnerSupervisorCore.ps1','RunnerMaintenance.ps1'
+        'RunnerConnectionState.ps1','ManagedRunnerSupervisorCore.ps1','RunnerRootResolver.ps1','RunnerMaintenance.ps1'
     )) {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination (Join-Path $root $name) -Force
     }
