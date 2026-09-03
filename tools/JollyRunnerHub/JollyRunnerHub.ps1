@@ -77,6 +77,8 @@ $script:DispatchProbeProcesses = @{}
 $script:DispatchProbeLastLaunch = @{}
 $script:DispatchRecoveryState = @{}
 $script:DispatchRecoveryLogPath = Join-Path $AppRoot 'dispatch-recovery.jsonl'
+$script:MaintenanceFallbackProcess = $null
+$script:LastBackgroundMaintenance = [datetime]::MinValue
 
 $ColorWindow = [Drawing.Color]::FromArgb(242,245,249)
 $ColorSurface = [Drawing.Color]::White
@@ -133,6 +135,66 @@ function Test-ManagedSupervisorHealthy {
 
 function Get-ProfileDesiredState($Profile) {
     return Get-JollyDesiredRunnerState -AppRoot $AppRoot -Profile $Profile -Config $script:Config
+}
+
+function Set-ProfileDesiredState($Profile,[ValidateSet('running','stopped')][string]$State) {
+    if ($null -eq $Profile) { return }
+    [void](Set-JollyDesiredRunnerState -AppRoot $AppRoot -ProfileId ([string]$Profile.id) -State $State)
+}
+
+function Get-DispatchDisplayText($Classification) {
+    if ($null -eq $Classification) { return '診断待ち' }
+    switch ([string]$Classification.Code) {
+        'probe_pending' { return '診断待ち' }
+        'probe_stale' { return '診断が古い' }
+        'api_error' { return 'GitHub診断失敗' }
+        'route_duplicate' { return '配送先が重複' }
+        'registration_missing' { return 'GitHub登録なし' }
+        'running' { return 'ジョブ実行中' }
+        'github_offline' { return 'GitHub側オフライン' }
+        'ghost_online' { return 'Ghost online疑い' }
+        'ready' { return '配送待機OK' }
+        'idle_unknown' { return '待機状態確認中' }
+        'assigned' { return 'Runnerへ配送済み' }
+        'dispatch_stalled' {
+            if ([string]$Classification.Evidence -match 'oldest=(\d+)s') { return ('配送停止疑い ' + $Matches[1] + 's') }
+            return '配送停止疑い'
+        }
+        'dispatch_slow' {
+            if ([string]$Classification.Text -match '(\d+)s') { return ('配送遅延 ' + $Matches[1] + 's') }
+            return '配送遅延'
+        }
+        'queue_waiting' {
+            if ([string]$Classification.Text -match '(\d+)s') { return ('配送待ち ' + $Matches[1] + 's') }
+            return '配送待ち'
+        }
+        'manual_stop' { return '手動停止' }
+        'unregistered' { return '未登録' }
+        'disabled' { return '監視OFF' }
+        default { return [string]$Classification.Text }
+    }
+}
+
+function Start-BackgroundMaintenanceIfDue([switch]$Force) {
+    if (Test-ManagedSupervisorHealthy) { return $false }
+    if (-not (Test-Path -LiteralPath $MaintenancePath -PathType Leaf)) { return $false }
+    if ($null -ne $script:MaintenanceFallbackProcess -and -not $script:MaintenanceFallbackProcess.HasExited) { return $false }
+    if (-not $Force -and ([datetime]::UtcNow-$script:LastBackgroundMaintenance).TotalSeconds -lt 120) { return $false }
+    $previousTracking = $env:RUNNER_TRACKING_ID
+    $env:RUNNER_TRACKING_ID = ''
+    try {
+        $script:MaintenanceFallbackProcess = Start-Process powershell.exe -ArgumentList @(
+            '-NoProfile','-ExecutionPolicy','Bypass','-WindowStyle','Hidden',
+            '-File',('"{0}"' -f $MaintenancePath),
+            '-AppRoot',('"{0}"' -f $AppRoot)
+        ) -WindowStyle Hidden -PassThru
+        $script:LastBackgroundMaintenance = [datetime]::UtcNow
+        return $true
+    } catch {
+        return $false
+    } finally {
+        $env:RUNNER_TRACKING_ID = $previousTracking
+    }
 }
 
 function Invoke-RunnerAutoRecovery($Profile,$State) {
@@ -435,7 +497,7 @@ function Update-DispatchRecoveryState($Profile,$Dispatch,$LocalState) {
         $recovery.LastProbeAt = $probeAt
         if ([bool]$Dispatch.Classification.CanRecover) { $recovery.Consecutive=[int]$recovery.Consecutive+1 } else { $recovery.Consecutive=0 }
     }
-    if ([bool]$Dispatch.Classification.CanRecover) { [void](Invoke-DispatchReconnect $Profile $LocalState $Dispatch) }
+    if ([bool]$Dispatch.Classification.CanRecover -and -not (Test-ManagedSupervisorHealthy)) { [void](Invoke-DispatchReconnect $Profile $LocalState $Dispatch) }
 }
 
 function Get-Value($Object, [string]$Path) {
@@ -1308,17 +1370,20 @@ $statusFlow = New-Object Windows.Forms.FlowLayoutPanel
 $statusFlow.Dock = 'Fill'
 $statusFlow.FlowDirection = 'LeftToRight'
 $statusFlow.WrapContents = $false
+$statusFlow.AutoScroll = $true
 $statusFlow.Padding = New-Object Windows.Forms.Padding(6,0,8,0)
 $statusFlow.BackColor = $ColorHeader
 $header.Controls.Add($statusFlow,0,1)
 $header.SetColumnSpan($statusFlow,2)
 
-$runnerStatus = New-StatusPanel 'Runner' 250
-$validationStatus = New-StatusPanel 'Validation' 590
-$historyStatus = New-StatusPanel 'History' 300
+$runnerStatus = New-StatusPanel 'Runner' 220
+$validationStatus = New-StatusPanel 'Validation' 430
+$historyStatus = New-StatusPanel 'History' 250
+$supervisorStatus = New-StatusPanel 'Supervisor' 270
 $statusFlow.Controls.Add($runnerStatus.Panel)
 $statusFlow.Controls.Add($validationStatus.Panel)
 $statusFlow.Controls.Add($historyStatus.Panel)
+$statusFlow.Controls.Add($supervisorStatus.Panel)
 
 $tabs = New-Object Windows.Forms.TabControl
 $tabs.Dock = 'Fill'
@@ -1358,6 +1423,7 @@ foreach ($columnInfo in @(
     @('Id','ID',160),
     @('Name','Runner',210),
     @('Scope','管轄',105),
+    @('Desired','希望',100),
     @('Repository','Repository',300),
     @('Root','ローカル配置',330),
     @('State','状態',180),
@@ -1736,7 +1802,7 @@ function Set-RunnerGridRow($Model) {
         $index = $runnerGrid.Rows.Add()
         $row = $runnerGrid.Rows[$index]
     }
-    foreach ($cellName in @('Id','Name','Scope','Repository','Root','State','Dispatch','Queue','Capabilities','Evidence','Ephemeral')) {
+    foreach ($cellName in @('Id','Name','Scope','Desired','Repository','Root','State','Dispatch','Queue','Capabilities','Evidence','Ephemeral')) {
         $value = [string]$Model.$cellName
         if ([string]$row.Cells[$cellName].Value -ne $value) {
             $row.Cells[$cellName].Value = $value
