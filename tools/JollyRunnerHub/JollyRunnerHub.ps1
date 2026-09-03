@@ -15,6 +15,17 @@ $HistoryRoot = Join-Path $AppRoot 'history'
 $CapabilitiesPath = Join-Path $AppRoot 'capabilities.json'
 $CapabilitiesScriptPath = Join-Path $AppRoot 'RunnerCapabilities.ps1'
 $CapabilitiesCliPath = Join-Path $AppRoot 'Inspect-RunnerCapabilities.ps1'
+$DurableRuntimeRoot = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'DurableWorkflow'
+$CommandCenterSettingsPath = Join-Path $DurableRuntimeRoot 'ui-settings.json'
+$CommandCenterHealthUrl = 'http://127.0.0.1:8000/health'
+$CommandCenterStateUrl = 'http://127.0.0.1:8000/command-center/state'
+$CommandCenterUiUrl = 'http://127.0.0.1:8000/command-center'
+$script:CommandCenterApplyProcess = $null
+$script:CommandCenterApplyRequested = $null
+$script:CommandCenterApplyMessage = ''
+$script:CommandCenterApplyStdout = Join-Path $AppRoot 'command-center-apply.stdout.log'
+$script:CommandCenterApplyStderr = Join-Path $AppRoot 'command-center-apply.stderr.log'
+$script:LastCommandCenterRefresh = [datetime]::MinValue
 $RunnerLifecyclePath = Join-Path $PSScriptRoot 'RunnerLifecycle.ps1'
 if (-not (Test-Path -LiteralPath $RunnerLifecyclePath)) {
     $RunnerLifecyclePath = Join-Path (Split-Path -Parent $PSScriptRoot) 'RunnerLifecycle.ps1'
@@ -899,6 +910,367 @@ function Selected-MetricKey($Combo,[string]$Default) {
     return $Default
 }
 
+
+function Read-CommandCenterDesiredState {
+    $fallback = [pscustomobject][ordered]@{
+        Enabled = $false
+        Valid = $true
+        Source = 'default'
+        Error = $null
+    }
+    if (-not (Test-Path -LiteralPath $CommandCenterSettingsPath -PathType Leaf)) {
+        return $fallback
+    }
+    try {
+        $raw = Get-Content -LiteralPath $CommandCenterSettingsPath -Raw -Encoding UTF8 -ErrorAction Stop
+        if ([string]::IsNullOrWhiteSpace($raw)) { throw 'ui-settings.json が空です。' }
+        $config = $raw | ConvertFrom-Json -ErrorAction Stop
+        if ($null -eq $config.PSObject.Properties['schemaVersion'] -or [int]$config.schemaVersion -ne 1) {
+            throw 'ui-settings.json のschemaVersionが未対応です。'
+        }
+        if ($null -eq $config.PSObject.Properties['commandCenterEnabled'] -or $config.commandCenterEnabled -isnot [bool]) {
+            throw 'commandCenterEnabled がJSON booleanではありません。'
+        }
+        return [pscustomobject][ordered]@{
+            Enabled = [bool]$config.commandCenterEnabled
+            Valid = $true
+            Source = 'local-settings'
+            Error = $null
+        }
+    } catch {
+        return [pscustomobject][ordered]@{
+            Enabled = $false
+            Valid = $false
+            Source = 'invalid-settings'
+            Error = $_.Exception.Message
+        }
+    }
+}
+
+function Invoke-LoopbackJson([string]$Url,[int]$TimeoutMilliseconds = 600) {
+    try {
+        $request = [Net.HttpWebRequest]::Create($Url)
+        $request.Method = 'GET'
+        $request.Timeout = $TimeoutMilliseconds
+        $request.ReadWriteTimeout = $TimeoutMilliseconds
+        $request.Proxy = $null
+        $response = $request.GetResponse()
+        try {
+            $stream = $response.GetResponseStream()
+            $reader = New-Object IO.StreamReader($stream,[Text.Encoding]::UTF8)
+            try {
+                $json = $reader.ReadToEnd()
+            } finally {
+                $reader.Dispose()
+                $stream.Dispose()
+            }
+        } finally {
+            $response.Dispose()
+        }
+        if ([string]::IsNullOrWhiteSpace($json)) { return $null }
+        return ($json | ConvertFrom-Json)
+    } catch {
+        return $null
+    }
+}
+
+function Resolve-DurableCommandCenterHelper {
+    $supervisorPath = $null
+    try {
+        $task = Get-ScheduledTask -TaskName 'Durable Workflow for ChatGPT' -ErrorAction SilentlyContinue
+        if ($null -ne $task -and @($task.Actions).Count -gt 0) {
+            $arguments = [string]$task.Actions[0].Arguments
+            $match = [regex]::Match(
+                $arguments,
+                '(?i)-File\s+"([^"]*supervise_chatgpt_app\.ps1)"'
+            )
+            if ($match.Success) {
+                $supervisorPath = [Environment]::ExpandEnvironmentVariables($match.Groups[1].Value)
+            }
+        }
+    } catch {}
+
+    if ([string]::IsNullOrWhiteSpace($supervisorPath)) {
+        $pidPath = Join-Path $DurableRuntimeRoot 'supervisor.pid'
+        if (Test-Path -LiteralPath $pidPath -PathType Leaf) {
+            try {
+                $processId = [int](Get-Content -LiteralPath $pidPath -Raw)
+                $process = Get-CimInstance Win32_Process -Filter "ProcessId = $processId" -ErrorAction Stop
+                $match = [regex]::Match(
+                    [string]$process.CommandLine,
+                    '(?i)-File\s+"([^"]*supervise_chatgpt_app\.ps1)"'
+                )
+                if ($match.Success) {
+                    $supervisorPath = [Environment]::ExpandEnvironmentVariables($match.Groups[1].Value)
+                }
+            } catch {}
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($supervisorPath)) { return $null }
+    $helper = Join-Path (Split-Path -Parent $supervisorPath) 'Set-CommandCenter.ps1'
+    if (-not (Test-Path -LiteralPath $helper -PathType Leaf)) { return $null }
+    return $helper
+}
+
+function Read-CommandCenterRuntimeState {
+    $health = Invoke-LoopbackJson $CommandCenterHealthUrl
+    if ($null -eq $health -or [string]$health.service -ne 'durable-workflow-chatgpt') {
+        return [pscustomobject][ordered]@{
+            Online = $false
+            Supported = $false
+            Enabled = $null
+            Source = 'offline'
+            Browser = 'unavailable'
+            Notification = 'unavailable'
+        }
+    }
+
+    if (
+        $null -eq $health.PSObject.Properties['commandCenterEnabled'] -or
+        $null -eq $health.PSObject.Properties['commandCenterSource']
+    ) {
+        return [pscustomobject][ordered]@{
+            Online = $true
+            Supported = $false
+            Enabled = $null
+            Source = 'legacy'
+            Browser = 'unknown'
+            Notification = 'unknown'
+        }
+    }
+
+    $browser = 'unknown'
+    $notification = 'unknown'
+    if ([bool]$health.commandCenterEnabled) {
+        $state = Invoke-LoopbackJson $CommandCenterStateUrl
+        if ($null -ne $state -and $null -ne $state.PSObject.Properties['sensors']) {
+            $browserProperty = $state.sensors.PSObject.Properties['browser']
+            if ($null -ne $browserProperty -and $null -ne $browserProperty.Value) {
+                $browser = [string]$browserProperty.Value.status
+            }
+            $notificationProperty = $state.sensors.PSObject.Properties['windowsNotification']
+            if ($null -eq $notificationProperty) {
+                $notificationProperty = $state.sensors.PSObject.Properties['notification']
+            }
+            if ($null -ne $notificationProperty -and $null -ne $notificationProperty.Value) {
+                $notification = [string]$notificationProperty.Value.status
+            }
+        }
+    } else {
+        $browser = 'disabled'
+        $notification = 'disabled'
+    }
+
+    return [pscustomobject][ordered]@{
+        Online = $true
+        Supported = $true
+        Enabled = [bool]$health.commandCenterEnabled
+        Source = [string]$health.commandCenterSource
+        Browser = $browser
+        Notification = $notification
+    }
+}
+
+function Start-CommandCenterApply([bool]$Enable) {
+    if ($null -ne $script:CommandCenterApplyProcess) {
+        try {
+            $script:CommandCenterApplyProcess.Refresh()
+            if (-not $script:CommandCenterApplyProcess.HasExited) {
+                return
+            }
+        } catch {}
+    }
+
+    $helper = Resolve-DurableCommandCenterHelper
+    if ([string]::IsNullOrWhiteSpace([string]$helper)) {
+        throw '現在のDurable Workflowはワンクリック設定に未対応です。先に対応版へ更新してください。'
+    }
+
+    Remove-Item -LiteralPath $script:CommandCenterApplyStdout -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $script:CommandCenterApplyStderr -Force -ErrorAction SilentlyContinue
+    $state = if ($Enable) { 'on' } else { 'off' }
+    $arguments = @(
+        '-NoLogo',
+        '-NoProfile',
+        '-NonInteractive',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-WindowStyle',
+        'Hidden',
+        '-File',
+        ('"{0}"' -f $helper),
+        '-State',
+        $state,
+        '-TimeoutSeconds',
+        '30'
+    ) -join ' '
+
+    $process = Start-Process powershell.exe -ArgumentList $arguments -WindowStyle Hidden -PassThru -RedirectStandardOutput $script:CommandCenterApplyStdout -RedirectStandardError $script:CommandCenterApplyStderr
+    $script:CommandCenterApplyProcess = $process
+    $script:CommandCenterApplyRequested = $Enable
+    $script:CommandCenterApplyMessage = '適用中...'
+}
+
+function Complete-CommandCenterApply {
+    if ($null -eq $script:CommandCenterApplyProcess) { return }
+    try {
+        $script:CommandCenterApplyProcess.Refresh()
+        if (-not $script:CommandCenterApplyProcess.HasExited) { return }
+        $exitCode = $script:CommandCenterApplyProcess.ExitCode
+        $message = ''
+        if (Test-Path -LiteralPath $script:CommandCenterApplyStdout -PathType Leaf) {
+            $lines = @(Get-Content -LiteralPath $script:CommandCenterApplyStdout -Encoding UTF8 -ErrorAction SilentlyContinue)
+            $last = $lines | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Last 1
+            if (-not [string]::IsNullOrWhiteSpace([string]$last)) {
+                try {
+                    $result = [string]$last | ConvertFrom-Json
+                    $message = [string]$result.message
+                } catch {
+                    $message = [string]$last
+                }
+            }
+        }
+        if ($exitCode -ne 0) {
+            $stderr = ''
+            if (Test-Path -LiteralPath $script:CommandCenterApplyStderr -PathType Leaf) {
+                $stderr = (Get-Content -LiteralPath $script:CommandCenterApplyStderr -Raw -Encoding UTF8 -ErrorAction SilentlyContinue).Trim()
+            }
+            if ([string]::IsNullOrWhiteSpace($message)) { $message = $stderr }
+            if ([string]::IsNullOrWhiteSpace($message)) { $message = "適用に失敗しました (exit=$exitCode)" }
+            $script:CommandCenterApplyMessage = $message
+            Show-Error $message
+        } else {
+            if ([string]::IsNullOrWhiteSpace($message)) { $message = '設定を反映しました。' }
+            $script:CommandCenterApplyMessage = $message
+        }
+    } finally {
+        try { $script:CommandCenterApplyProcess.Dispose() } catch {}
+        $script:CommandCenterApplyProcess = $null
+        $script:CommandCenterApplyRequested = $null
+    }
+}
+
+function Set-CommandCenterStateLabel($Label,[string]$Text,[Drawing.Color]$Color) {
+    $Label.Text = $Text
+    $Label.ForeColor = $Color
+}
+
+function Update-CommandCenterUi {
+    Complete-CommandCenterApply
+
+    $desired = Read-CommandCenterDesiredState
+    $runtime = Read-CommandCenterRuntimeState
+    $helper = Resolve-DurableCommandCenterHelper
+    $applying = $false
+    if ($null -ne $script:CommandCenterApplyProcess) {
+        try {
+            $script:CommandCenterApplyProcess.Refresh()
+            $applying = -not $script:CommandCenterApplyProcess.HasExited
+        } catch {}
+    }
+
+    if ($desired.Valid) {
+        Set-CommandCenterStateLabel $commandCenterDesired.Value (
+            if ($desired.Enabled) { 'ON' } else { 'OFF' }
+        ) (
+            if ($desired.Enabled) { $ColorGood } else { $ColorMuted }
+        )
+    } else {
+        Set-CommandCenterStateLabel $commandCenterDesired.Value '設定破損' $ColorBad
+    }
+
+    if (-not $runtime.Online) {
+        Set-CommandCenterStateLabel $commandCenterObserved.Value '停止中' $ColorBad
+    } elseif (-not $runtime.Supported) {
+        Set-CommandCenterStateLabel $commandCenterObserved.Value '旧版 / 未対応' $ColorWarn
+    } elseif ($runtime.Enabled) {
+        Set-CommandCenterStateLabel $commandCenterObserved.Value 'ON（実測）' $ColorGood
+    } else {
+        Set-CommandCenterStateLabel $commandCenterObserved.Value 'OFF（実測）' $ColorMuted
+    }
+
+    $browserText = switch ([string]$runtime.Browser) {
+        'ok' { '接続中' }
+        'degraded' { '不安定' }
+        'disabled' { '停止' }
+        'unavailable' { '未接続' }
+        default { '確認待ち' }
+    }
+    $browserColor = if ($runtime.Browser -eq 'ok') { $ColorGood } elseif ($runtime.Browser -in @('degraded','unknown')) { $ColorWarn } else { $ColorMuted }
+    Set-CommandCenterStateLabel $commandCenterBrowser.Value $browserText $browserColor
+
+    $notificationText = switch ([string]$runtime.Notification) {
+        'ok' { '正常' }
+        'degraded' { '不安定' }
+        'disabled' { '停止' }
+        'unavailable' { '未接続' }
+        default { '確認待ち' }
+    }
+    $notificationColor = if ($runtime.Notification -eq 'ok') { $ColorGood } elseif ($runtime.Notification -in @('degraded','unknown')) { $ColorWarn } else { $ColorMuted }
+    Set-CommandCenterStateLabel $commandCenterNotification.Value $notificationText $notificationColor
+
+    $summaryText = ''
+    $summaryColor = $ColorMuted
+    if ($applying) {
+        $summaryText = '適用中...'
+        $summaryColor = $ColorWarn
+    } elseif (-not $desired.Valid) {
+        $summaryText = '設定ファイルを修復してください'
+        $summaryColor = $ColorBad
+    } elseif ($runtime.Online -and $runtime.Supported -and ([bool]$runtime.Enabled -eq [bool]$desired.Enabled)) {
+        $summaryText = if ($runtime.Enabled) { '利用できます' } else { '停止しています' }
+        $summaryColor = if ($runtime.Enabled) { $ColorGood } else { $ColorMuted }
+    } elseif ($runtime.Online -and -not $runtime.Supported) {
+        $summaryText = 'Durable Workflowを対応版へ更新'
+        $summaryColor = $ColorWarn
+    } elseif (-not $runtime.Online) {
+        $summaryText = 'Durable Workflow停止中'
+        $summaryColor = $ColorBad
+    } else {
+        $summaryText = '希望値と実測値が不一致'
+        $summaryColor = $ColorWarn
+    }
+    Set-CommandCenterStateLabel $commandCenterSummary.Value $summaryText $summaryColor
+
+    $commandCenterToggle.Text = if ($desired.Enabled) { 'OFFにする' } else { 'ONにする' }
+    $commandCenterToggle.Enabled = (
+        -not $applying -and
+        -not [string]::IsNullOrWhiteSpace([string]$helper)
+    )
+    $commandCenterOpen.Enabled = (
+        -not $applying -and
+        $runtime.Online -and
+        $runtime.Supported -and
+        [bool]$runtime.Enabled
+    )
+}
+
+function New-CommandCenterValue([string]$Caption,[int]$Width) {
+    $panel = New-Object Windows.Forms.Panel
+    $panel.Width = $Width
+    $panel.Height = 58
+    $panel.Margin = New-Object Windows.Forms.Padding(6,4,0,4)
+    $panel.BackColor = $ColorSurface
+
+    $captionLabel = New-Object Windows.Forms.Label
+    $captionLabel.Text = $Caption
+    $captionLabel.Font = New-Object Drawing.Font('Segoe UI',7.5,[Drawing.FontStyle]::Bold)
+    $captionLabel.ForeColor = $ColorMuted
+    $captionLabel.Location = New-Object Drawing.Point(8,4)
+    $captionLabel.Size = New-Object Drawing.Size(($Width-16),16)
+    [void]$panel.Controls.Add($captionLabel)
+
+    $valueLabel = New-Object Windows.Forms.Label
+    $valueLabel.Text = '-'
+    $valueLabel.Font = New-Object Drawing.Font('Segoe UI',9.5,[Drawing.FontStyle]::Bold)
+    $valueLabel.ForeColor = $ColorText
+    $valueLabel.Location = New-Object Drawing.Point(8,23)
+    $valueLabel.Size = New-Object Drawing.Size(($Width-16),28)
+    [void]$panel.Controls.Add($valueLabel)
+    return [pscustomobject]@{Panel=$panel;Value=$valueLabel}
+}
+
 function Create-ToolbarButton([string]$Text,[int]$Width) {
     $button = New-Object Windows.Forms.Button
     $button.Text = $Text
@@ -1032,10 +1404,11 @@ $runnerTab.BackColor = $ColorWindow
 
 $runnerLayout = New-Object Windows.Forms.TableLayoutPanel
 $runnerLayout.Dock = 'Fill'
-$runnerLayout.RowCount = 3
+$runnerLayout.RowCount = 4
 $runnerLayout.ColumnCount = 1
 $runnerLayout.Padding = New-Object Windows.Forms.Padding(12)
 [void]$runnerLayout.RowStyles.Add((New-Object Windows.Forms.RowStyle('Absolute',58)))
+[void]$runnerLayout.RowStyles.Add((New-Object Windows.Forms.RowStyle('Absolute',92)))
 [void]$runnerLayout.RowStyles.Add((New-Object Windows.Forms.RowStyle('Percent',100)))
 [void]$runnerLayout.RowStyles.Add((New-Object Windows.Forms.RowStyle('Absolute',52)))
 $runnerTab.Controls.Add($runnerLayout)
@@ -1047,6 +1420,39 @@ $runnerIntro.Font = New-Object Drawing.Font('Segoe UI',10)
 $runnerIntro.ForeColor = $ColorText
 $runnerIntro.TextAlign = 'MiddleLeft'
 $runnerLayout.Controls.Add($runnerIntro,0,0)
+
+$commandCenterBox = New-Object Windows.Forms.GroupBox
+$commandCenterBox.Dock = 'Fill'
+$commandCenterBox.Text = 'Jolly Command Center'
+$commandCenterBox.Font = New-Object Drawing.Font('Segoe UI',9,[Drawing.FontStyle]::Bold)
+$commandCenterBox.ForeColor = $ColorText
+$commandCenterBox.BackColor = $ColorSurface
+$commandCenterBox.Padding = New-Object Windows.Forms.Padding(8,4,8,4)
+$runnerLayout.Controls.Add($commandCenterBox,0,1)
+
+$commandCenterFlow = New-Object Windows.Forms.FlowLayoutPanel
+$commandCenterFlow.Dock = 'Fill'
+$commandCenterFlow.FlowDirection = 'LeftToRight'
+$commandCenterFlow.WrapContents = $false
+$commandCenterFlow.BackColor = $ColorSurface
+$commandCenterFlow.Padding = New-Object Windows.Forms.Padding(4,6,4,0)
+[void]$commandCenterBox.Controls.Add($commandCenterFlow)
+
+$commandCenterSummary = New-CommandCenterValue '状態' 210
+$commandCenterDesired = New-CommandCenterValue '希望' 110
+$commandCenterObserved = New-CommandCenterValue '実測' 140
+$commandCenterBrowser = New-CommandCenterValue 'Browser Companion' 150
+$commandCenterNotification = New-CommandCenterValue '通知' 120
+foreach ($valuePanel in @($commandCenterSummary,$commandCenterDesired,$commandCenterObserved,$commandCenterBrowser,$commandCenterNotification)) {
+    [void]$commandCenterFlow.Controls.Add($valuePanel.Panel)
+}
+
+$commandCenterToggle = Create-ToolbarButton 'ONにする' 108
+$commandCenterToggle.Margin = New-Object Windows.Forms.Padding(14,15,0,8)
+$commandCenterOpen = Create-ToolbarButton '開く' 90
+$commandCenterOpen.Margin = New-Object Windows.Forms.Padding(8,15,0,8)
+[void]$commandCenterFlow.Controls.Add($commandCenterToggle)
+[void]$commandCenterFlow.Controls.Add($commandCenterOpen)
 
 $runnerGrid = New-Object Windows.Forms.DataGridView
 $runnerGrid.Dock = 'Fill'
@@ -1070,7 +1476,7 @@ foreach ($columnInfo in @(
     [void]$runnerGrid.Columns.Add($column)
 }
 $runnerGrid.Columns['Id'].Visible = $false
-$runnerLayout.Controls.Add($runnerGrid,0,1)
+$runnerLayout.Controls.Add($runnerGrid,0,2)
 
 $runnerButtons = New-Object Windows.Forms.FlowLayoutPanel
 $runnerButtons.Dock = 'Fill'
@@ -1078,7 +1484,7 @@ $runnerButtons.FlowDirection = 'LeftToRight'
 $runnerButtons.WrapContents = $false
 $runnerButtons.Padding = New-Object Windows.Forms.Padding(0,8,0,0)
 $runnerButtons.BackColor = $ColorWindow
-$runnerLayout.Controls.Add($runnerButtons,0,2)
+$runnerLayout.Controls.Add($runnerButtons,0,3)
 
 function New-RunnerButton([string]$Text,[int]$Width) {
     $button = New-Object Windows.Forms.Button
@@ -1617,6 +2023,26 @@ $refreshCapabilities.add_Click({
         Refresh-RunnerOverview
     } catch { Show-Error $_.Exception.Message }
 })
+$commandCenterToggle.add_Click({
+    try {
+        $desired = Read-CommandCenterDesiredState
+        Start-CommandCenterApply -Enable (-not [bool]$desired.Enabled)
+        Update-CommandCenterUi
+    } catch {
+        Show-Error $_.Exception.Message
+    }
+})
+$commandCenterOpen.add_Click({
+    try {
+        if ($CommandCenterUiUrl -ne 'http://127.0.0.1:8000/command-center') {
+            throw 'Command Center URL contract is invalid.'
+        }
+        Start-Process $CommandCenterUiUrl
+    } catch {
+        Show-Error $_.Exception.Message
+    }
+})
+
 $configButton.add_Click({
     Start-Process notepad.exe -ArgumentList ('"{0}"' -f $ConfigPath)
 })
@@ -1652,6 +2078,7 @@ $historyFolder.add_Click({
 
 Reload-Profiles ''
 Refresh-RunnerOverview
+Update-CommandCenterUi
 
 $timer = New-Object Windows.Forms.Timer
 $timer.Interval = 1000
@@ -1671,6 +2098,14 @@ $timer.add_Tick({
         }
 
         Refresh-RunnerOverview
+
+        if (
+            $null -ne $script:CommandCenterApplyProcess -or
+            (([datetime]::UtcNow-$script:LastCommandCenterRefresh).TotalSeconds -ge 2)
+        ) {
+            Update-CommandCenterUi
+            $script:LastCommandCenterRefresh = [datetime]::UtcNow
+        }
 
         if (Runner-Running $script:Profile) {
             $runnerStatus.Value.Text = '接続中'
@@ -1730,6 +2165,7 @@ $timer.Start()
 
 $form.add_Shown({
     try { [void](Invoke-JollyEphemeralGc -AppRoot $AppRoot) } catch {}
+    try { Update-CommandCenterUi } catch {}
     $script:LastEphemeralGc = [datetime]::UtcNow
     if ($historySplit.Height -gt 420) {
         $historySplit.Panel1MinSize = 180
