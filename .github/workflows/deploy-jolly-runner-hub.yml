@@ -39,11 +39,11 @@ jobs:
         env:
           INSTALL_DESKTOP_APP: ${{ github.event_name != 'pull_request' }}
         run: |
-          $log = '.\tools\JollyRunnerHub\build\deploy.log'
+          $log = '.\\tools\\JollyRunnerHub\\build\\deploy.log'
           New-Item -ItemType Directory -Force -Path (Split-Path -Parent $log) | Out-Null
           $install = $env:INSTALL_DESKTOP_APP -eq 'true'
           try {
-            & .\tools\JollyRunnerHub\Build-Deploy.ps1 -Install:$install *>&1 |
+            & .\\tools\\JollyRunnerHub\\Build-Deploy.ps1 -Install:$install *>&1 |
               Tee-Object -FilePath $log
           }
           catch {
@@ -53,14 +53,22 @@ jobs:
 
       - name: Validate Supervisor diagnostic contract
         run: |
-          & .\tools\JollyRunnerHub\Test-InspectManagedSupervisorStatus.ps1
+          & .\\tools\\JollyRunnerHub\\Test-InspectManagedSupervisorStatus.ps1
 
       - name: Inspect installed managed Supervisor
         if: always()
         continue-on-error: true
         timeout-minutes: 1
         run: |
-          & .\tools\JollyRunnerHub\Inspect-ManagedSupervisorStatus.ps1
+          & .\\tools\\JollyRunnerHub\\Inspect-ManagedSupervisorStatus.ps1
+
+      - name: Inspect settled managed Supervisor
+        if: always() && github.event_name == 'pull_request'
+        continue-on-error: true
+        timeout-minutes: 2
+        run: |
+          Start-Sleep -Seconds 30
+          & .\\tools\\JollyRunnerHub\\Inspect-ManagedSupervisorStatus.ps1
 
       - name: Upload portable launcher and diagnostics
         if: always()
