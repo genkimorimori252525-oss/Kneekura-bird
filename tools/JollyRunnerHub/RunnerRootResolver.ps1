@@ -39,7 +39,7 @@ function Get-JollyRunnerRootCandidates {
     foreach ($raw in @($AdditionalRoots)) {
         if ([string]::IsNullOrWhiteSpace([string]$raw)) { continue }
         try {
-            $root = [IO.Path]::GetFullPath([Environment]::ExpandEnvironmentVariables([string]$raw)).TrimEnd('\','/')
+            $root = [IO.Path]::GetFullPath([Environment]::ExpandEnvironmentVariables([string]$raw)).TrimEnd([char[]]@('\','/'))
             $roots[$root.ToLowerInvariant()] = $root
         } catch {}
     }
@@ -48,7 +48,7 @@ function Get-JollyRunnerRootCandidates {
     if (Test-Path -LiteralPath $localActions -PathType Container) {
         foreach ($directory in @(Get-ChildItem -LiteralPath $localActions -Directory -ErrorAction SilentlyContinue)) {
             try {
-                $root = $directory.FullName.TrimEnd('\','/')
+                $root = $directory.FullName.TrimEnd([char[]]@('\','/'))
                 $roots[$root.ToLowerInvariant()] = $root
             } catch {}
         }
@@ -57,7 +57,7 @@ function Get-JollyRunnerRootCandidates {
     $driveRoot = [IO.Path]::GetPathRoot($env:SystemDrive + '\')
     if (Test-Path -LiteralPath $driveRoot -PathType Container) {
         foreach ($directory in @(Get-ChildItem -LiteralPath $driveRoot -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -like 'actions-runner*' })) {
-            $root = $directory.FullName.TrimEnd('\','/')
+            $root = $directory.FullName.TrimEnd([char[]]@('\','/'))
             $roots[$root.ToLowerInvariant()] = $root
         }
     }
