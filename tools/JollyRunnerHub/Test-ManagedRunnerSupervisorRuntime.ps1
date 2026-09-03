@@ -16,16 +16,28 @@ try {
         autoConnect=$false
         profiles=@(
             [ordered]@{
-                id='runtime-test'
-                name='Runtime Test'
-                repoUrl='https://github.com/example/example'
-                runnerRoot=(Join-Path $root 'missing-runner')
+                id='runtime-test-a'
+                name='Runtime Test A'
+                repoUrl='https://github.com/example/example-a'
+                runnerRoot=(Join-Path $root 'missing-runner-a')
                 dispatchWatchEnabled=$true
                 dispatchAutoRecover=$true
                 dispatchWarnSeconds=45
                 dispatchRecoverSeconds=180
                 dispatchProbeMaxAgeSeconds=45
-                routingLabels=@('self-hosted','Windows','X64','runtime-test')
+                routingLabels=@('self-hosted','Windows','X64','runtime-test-a')
+            },
+            [ordered]@{
+                id='runtime-test-b'
+                name='Runtime Test B'
+                repoUrl='https://github.com/example/example-b'
+                runnerRoot=(Join-Path $root 'missing-runner-b')
+                dispatchWatchEnabled=$true
+                dispatchAutoRecover=$true
+                dispatchWarnSeconds=45
+                dispatchRecoverSeconds=180
+                dispatchProbeMaxAgeSeconds=45
+                routingLabels=@('self-hosted','Windows','X64','runtime-test-b')
             }
         )
     }
@@ -46,12 +58,14 @@ try {
     $status = Get-Content -LiteralPath $statusPath -Raw -Encoding UTF8 | ConvertFrom-Json
     if ([string]$status.schema -ne 'jolly.managed-supervisor') { throw 'Supervisor status schema mismatch.' }
     if ([int]$status.version -ne 2) { throw 'Supervisor status version mismatch.' }
-    if (@($status.profiles).Count -ne 1) { throw 'Supervisor runtime profile count mismatch.' }
-    $profile = @($status.profiles)[0]
-    if ([string]$profile.id -ne 'runtime-test') { throw 'Supervisor runtime profile id mismatch.' }
-    if ([string]$profile.desiredState -ne 'stopped') { throw 'autoConnect=false must default desired state to stopped.' }
-    if ([bool]$profile.configured) { throw 'Missing fixture runner must remain unconfigured.' }
-    if ([string]$profile.action -ne 'none') { throw 'Unconfigured fixture must not trigger a process action.' }
+    if (@($status.profiles).Count -ne 2) { throw 'Supervisor runtime profile count mismatch.' }
+    $profiles = @($status.profiles)
+    if (($profiles.id -join ',') -ne 'runtime-test-a,runtime-test-b') { throw 'Supervisor runtime profile ids mismatch.' }
+    foreach ($profile in $profiles) {
+        if ([string]$profile.desiredState -ne 'stopped') { throw 'autoConnect=false must default desired state to stopped.' }
+        if ([bool]$profile.configured) { throw 'Missing fixture runner must remain unconfigured.' }
+        if ([string]$profile.action -ne 'none') { throw 'Unconfigured fixture must not trigger a process action.' }
+    }
     Write-Host 'managed runner supervisor runtime tests: ok'
 } finally {
     Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
