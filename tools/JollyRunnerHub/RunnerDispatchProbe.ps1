@@ -12,7 +12,7 @@ $ErrorActionPreference = 'Stop'
 
 # RunnerDispatchWatch also contains the shared classifications. Override only the
 # gh process adapter here so every real background probe uses StrictMode-safe
-# text handling without changing the classification contract.
+# process/text handling without changing the classification contract.
 function Read-ProbeTextFile([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return '' }
     $value = Get-Content -LiteralPath $Path -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
@@ -42,20 +42,41 @@ function Invoke-JollyGhApiJson {
             try { Start-Process taskkill.exe -ArgumentList '/PID',[string]$process.Id,'/T','/F' -Wait -WindowStyle Hidden | Out-Null } catch {}
             return [pscustomobject]@{Ok=$false;Payload=$null;Error=('gh timeout after {0}s' -f $TimeoutSeconds);TimedOut=$true}
         }
+        try { $process.WaitForExit() } catch {}
         try { $process.Refresh() } catch {}
 
         [string]$outText = Read-ProbeTextFile $stdout
         [string]$errText = Read-ProbeTextFile $stderr
-        if ($process.ExitCode -ne 0) {
+        $exitCode = $null
+        try {
+            $rawExitCode = $process.ExitCode
+            if ($null -ne $rawExitCode -and -not [string]::IsNullOrWhiteSpace([string]$rawExitCode)) {
+                $parsedExitCode = 0
+                if ([int]::TryParse([string]$rawExitCode,[ref]$parsedExitCode)) { $exitCode = $parsedExitCode }
+            }
+        } catch {}
+
+        if ($null -ne $exitCode -and [int]$exitCode -ne 0) {
             if ($errText.Length -gt 800) { $errText = $errText.Substring(0,800) }
             $detail = $errText.Trim()
             if ([string]::IsNullOrWhiteSpace($detail)) { $detail = 'no stderr' }
-            return [pscustomobject]@{Ok=$false;Payload=$null;Error=('gh exit={0}: {1}' -f $process.ExitCode,$detail);TimedOut=$false}
+            return [pscustomobject]@{Ok=$false;Payload=$null;Error=('gh exit={0}: {1}' -f $exitCode,$detail);TimedOut=$false}
         }
         if ([string]::IsNullOrWhiteSpace($outText)) {
+            if ($null -eq $exitCode) {
+                $detail = $errText.Trim()
+                if ([string]::IsNullOrWhiteSpace($detail)) { $detail = 'no stderr' }
+                return [pscustomobject]@{Ok=$false;Payload=$null;Error=('gh exit unavailable: {0}' -f $detail);TimedOut=$false}
+            }
             return [pscustomobject]@{Ok=$false;Payload=$null;Error='gh returned empty response';TimedOut=$false}
         }
-        return [pscustomobject]@{Ok=$true;Payload=($outText | ConvertFrom-Json);Error='';TimedOut=$false}
+
+        try {
+            $payload = $outText | ConvertFrom-Json
+        } catch {
+            return [pscustomobject]@{Ok=$false;Payload=$null;Error=('gh returned invalid JSON: {0}' -f $_.Exception.Message);TimedOut=$false}
+        }
+        return [pscustomobject]@{Ok=$true;Payload=$payload;Error='';TimedOut=$false}
     }
     catch {
         return [pscustomobject]@{Ok=$false;Payload=$null;Error=$_.Exception.Message;TimedOut=$false}
