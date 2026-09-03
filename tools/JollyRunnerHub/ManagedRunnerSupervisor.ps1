@@ -2,6 +2,7 @@
 param(
     [string]$AppRoot = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'JollyRunnerHub'),
     [ValidateRange(5,300)][int]$IntervalSeconds = 10,
+    [string]$MutexName = 'Local\JollyRunnerHub-ManagedSupervisor-v1',
     [switch]$Once
 )
 
@@ -34,7 +35,7 @@ foreach ($required in @($ConfigModulePath,$ControlStatePath,$DispatchWatchPath,$
 . $RootResolverPath
 
 New-Item -ItemType Directory -Force -Path $AppRoot,$DispatchRoot | Out-Null
-$mutex = New-Object Threading.Mutex($false,'Local\JollyRunnerHub-ManagedSupervisor-v1')
+$mutex = New-Object Threading.Mutex($false,$MutexName)
 if (-not $mutex.WaitOne([TimeSpan]::FromSeconds(2))) { exit 0 }
 
 $script:Recovery = @{}
