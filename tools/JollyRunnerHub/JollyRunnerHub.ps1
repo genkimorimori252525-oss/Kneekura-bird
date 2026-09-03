@@ -1702,7 +1702,7 @@ function Refresh-RunnerOverview([switch]$Force) {
         $desiredIds = @{}
         $runnerGrid.SuspendLayout()
         try {
-            foreach ($model in @($models)) {
+            foreach ($model in $models) {
                 $desiredIds[[string]$model.Id] = $true
                 $row = Set-RunnerGridRow $model
                 if ([string]$model.Id -eq $selectedId) { $row.Selected = $true }
