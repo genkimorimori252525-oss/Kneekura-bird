@@ -38,7 +38,7 @@ New-Item -ItemType Directory -Force -Path $AppRoot,$DispatchRoot | Out-Null
 $mutex = New-Object Threading.Mutex($false,$MutexName)
 if (-not $mutex.WaitOne([TimeSpan]::FromSeconds(2))) { exit 0 }
 
-$script:Recovery = @{}
+$script:RecoveryByProfile = @{}
 $script:ProbeProcesses = @{}
 $script:MaintenanceProcess = $null
 $script:LastMaintenance = [datetime]::MinValue
@@ -205,8 +205,8 @@ function Start-SupervisorDispatchProbe {
 function Get-SupervisorRecoveryState {
     param($Profile)
     $id = [string]$Profile.id
-    if (-not $script:Recovery.ContainsKey($id)) {
-        $script:Recovery[$id] = [pscustomobject]@{
+    if (-not $script:RecoveryByProfile.ContainsKey($id)) {
+        $script:RecoveryByProfile[$id] = [pscustomobject]@{
             Consecutive=0
             LastProbeAt=''
             LastRecoveryAttempt=[datetime]::MinValue
@@ -216,7 +216,7 @@ function Get-SupervisorRecoveryState {
             StartFailureCount=0
         }
     }
-    return $script:Recovery[$id]
+    return $script:RecoveryByProfile[$id]
 }
 
 function Write-SupervisorStatus {
@@ -296,20 +296,20 @@ try {
                     [pscustomobject]@{Code='unregistered';Text='unregistered';Tone='bad';CanRecover=$false;Evidence='runner not configured'}
                 }
 
-                $recovery = Get-SupervisorRecoveryState $profile
-                if ($processRunning) { $recovery.StartFailureCount = 0 }
+                $recoveryState = Get-SupervisorRecoveryState $profile
+                if ($processRunning) { $recoveryState.StartFailureCount = 0 }
                 $probeAt = if ($null -ne $probe) { [string]$probe.probedAt } else { '' }
-                if ($probeAt -and $probeAt -ne [string]$recovery.LastProbeAt) {
-                    $recovery.LastProbeAt = $probeAt
-                    if ([bool]$dispatch.CanRecover) { $recovery.Consecutive=[int]$recovery.Consecutive+1 } else { $recovery.Consecutive=0 }
+                if ($probeAt -and $probeAt -ne [string]$recoveryState.LastProbeAt) {
+                    $recoveryState.LastProbeAt = $probeAt
+                    if ([bool]$dispatch.CanRecover) { $recoveryState.Consecutive=[int]$recoveryState.Consecutive+1 } else { $recoveryState.Consecutive=0 }
                 }
-                if (([datetime]::UtcNow-[datetime]$recovery.RecoveryWindowStart).TotalHours -ge 1) {
-                    $recovery.RecoveryWindowStart=[datetime]::UtcNow
-                    $recovery.RecoveryAttemptsInWindow=0
+                if (([datetime]::UtcNow-[datetime]$recoveryState.RecoveryWindowStart).TotalHours -ge 1) {
+                    $recoveryState.RecoveryWindowStart=[datetime]::UtcNow
+                    $recoveryState.RecoveryAttemptsInWindow=0
                 }
 
                 $busy = if ($null -ne $probe) { [bool]$probe.runnerBusy } else { $false }
-                $decision = Get-JollyManagedSupervisorDecision -Configured $configured -DesiredState $desired -ProcessRunning $processRunning -LocalCode ([string]$local.Code) -DispatchCode ([string]$dispatch.Code) -DispatchCanRecover ([bool]$dispatch.CanRecover) -RunnerBusy $busy -ConsecutiveRecoverableProbes ([int]$recovery.Consecutive) -MinutesSinceLastRecoveryAttempt (([datetime]::UtcNow-[datetime]$recovery.LastRecoveryAttempt).TotalMinutes) -RecoveryAttemptsInWindow ([int]$recovery.RecoveryAttemptsInWindow) -SecondsSinceLastStartAttempt (([datetime]::UtcNow-[datetime]$recovery.LastStartAttempt).TotalSeconds) -StartFailureCount ([int]$recovery.StartFailureCount)
+                $decision = Get-JollyManagedSupervisorDecision -Configured $configured -DesiredState $desired -ProcessRunning $processRunning -LocalCode ([string]$local.Code) -DispatchCode ([string]$dispatch.Code) -DispatchCanRecover ([bool]$dispatch.CanRecover) -RunnerBusy $busy -ConsecutiveRecoverableProbes ([int]$recoveryState.Consecutive) -MinutesSinceLastRecoveryAttempt (([datetime]::UtcNow-[datetime]$recoveryState.LastRecoveryAttempt).TotalMinutes) -RecoveryAttemptsInWindow ([int]$recoveryState.RecoveryAttemptsInWindow) -SecondsSinceLastStartAttempt (([datetime]::UtcNow-[datetime]$recoveryState.LastStartAttempt).TotalSeconds) -StartFailureCount ([int]$recoveryState.StartFailureCount)
 
                 $actionResult = 'none'
                 if ([string]$decision.Action -eq 'stop') {
@@ -324,8 +324,8 @@ try {
                     }
                 }
                 elseif ([string]$decision.Action -eq 'start') {
-                    $recovery.LastStartAttempt=[datetime]::UtcNow
-                    $recovery.StartFailureCount=[math]::Min(5,[int]$recovery.StartFailureCount+1)
+                    $recoveryState.LastStartAttempt=[datetime]::UtcNow
+                    $recoveryState.StartFailureCount=[math]::Min(5,[int]$recoveryState.StartFailureCount+1)
                     try {
                         Start-SupervisorRunner $effectiveProfile
                         $actionResult='start-issued'
@@ -341,9 +341,9 @@ try {
                         Start-Sleep -Milliseconds 600
                         Refresh-SupervisorProcessInventory
                         Start-SupervisorRunner $profile
-                        $recovery.LastRecoveryAttempt=[datetime]::UtcNow
-                        $recovery.RecoveryAttemptsInWindow=[int]$recovery.RecoveryAttemptsInWindow+1
-                        $recovery.Consecutive=0
+                        $recoveryState.LastRecoveryAttempt=[datetime]::UtcNow
+                        $recoveryState.RecoveryAttemptsInWindow=[int]$recoveryState.RecoveryAttemptsInWindow+1
+                        $recoveryState.Consecutive=0
                         $actionResult='reconnect-issued'
                         Write-SupervisorEvent $profileId 'reconnect' 'issued' ([string]$decision.Reason)
                     } catch {
@@ -366,8 +366,8 @@ try {
                     runnerBusy=[bool]$busy
                     eligibleQueuedCount=if ($null -ne $probe) {[int]$probe.eligibleQueuedCount} else {0}
                     oldestQueuedSeconds=if ($null -ne $probe) {[int]$probe.oldestQueuedSeconds} else {0}
-                    recoveryConsecutive=[int]$recovery.Consecutive
-                    startFailureCount=[int]$recovery.StartFailureCount
+                    recoveryConsecutive=[int]$recoveryState.Consecutive
+                    startFailureCount=[int]$recoveryState.StartFailureCount
                     action=$actionResult
                     decisionReason=[string]$decision.Reason
                 }
