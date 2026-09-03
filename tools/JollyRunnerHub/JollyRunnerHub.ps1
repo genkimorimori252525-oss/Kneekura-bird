@@ -269,9 +269,12 @@ function Get-RunnerInventory([switch]$Force) {
         })
     }
 
-    $script:RunnerInventoryCache = @($items)
+    $script:RunnerInventoryCache = @()
+    foreach ($inventoryItem in $items) {
+        $script:RunnerInventoryCache += $inventoryItem
+    }
     $script:RunnerInventoryCacheAt = [datetime]::UtcNow
-    return @($script:RunnerInventoryCache)
+    return $script:RunnerInventoryCache
 }
 
 function Get-Value($Object, [string]$Path) {
