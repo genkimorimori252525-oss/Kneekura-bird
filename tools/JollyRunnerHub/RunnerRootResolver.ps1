@@ -98,3 +98,20 @@ function Resolve-JollyRunnerRootBinding {
     }
     return [pscustomobject]@{Status='missing';Root='';ConfiguredRoot=$configuredRoot;Repository=$expectedRepo;Candidates=@()}
 }
+
+function New-JollyProfileWithRunnerRoot {
+    param(
+        [Parameter(Mandatory=$true)]$Profile,
+        [Parameter(Mandatory=$true)][string]$RunnerRoot
+    )
+    $copy = [pscustomobject]@{}
+    foreach ($property in @($Profile.PSObject.Properties)) {
+        Add-Member -InputObject $copy -NotePropertyName ([string]$property.Name) -NotePropertyValue $property.Value
+    }
+    if ($null -eq $copy.PSObject.Properties['runnerRoot']) {
+        Add-Member -InputObject $copy -NotePropertyName runnerRoot -NotePropertyValue $RunnerRoot
+    } else {
+        $copy.runnerRoot = $RunnerRoot
+    }
+    return $copy
+}
