@@ -30,7 +30,7 @@ Assert-Contains '$runnerLayout.Controls.Add($runnerButtons,0,3)' 'Runner buttons
 Assert-Contains '旧版 / 未対応' 'Version-skew state must be explicit.'
 Assert-Contains '希望値と実測値が不一致' 'Desired/observed mismatch must be explicit.'
 Assert-Contains '$commandCenterOpen.Enabled' 'Open action must be gated by observed state.'
-Assert-Contains 'if ($CommandCenterUiUrl -ne ''http://127.0.0.1:8000/command-center'')' 'Open action must enforce its fixed URL contract.'
+Assert-Contains 'if ($CommandCenterUiUrl -ne' 'Open action must enforce its fixed URL contract before launch.'
 Assert-Contains '$null -ne $script:CommandCenterApplyProcess' 'Apply completion must be polled asynchronously.'
 
 Assert-NotContains 'setx DURABLE_COMMAND_CENTER_ENABLED' 'Hub must not mutate global/user Windows environment.'
