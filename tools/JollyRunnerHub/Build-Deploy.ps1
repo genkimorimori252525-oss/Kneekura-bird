@@ -238,7 +238,7 @@ foreach ($requiredMarker in @(
     '$dispatchReconnect',
     'Read-ManagedSupervisorStatus',
     'Get-ProfileDesiredState',
-    "@('Desired','希望',100)",
+    'Desired = if ($desired -eq',
     '$supervisorStatus'
 )) {
     if (-not $scriptText.Contains($requiredMarker)) {
