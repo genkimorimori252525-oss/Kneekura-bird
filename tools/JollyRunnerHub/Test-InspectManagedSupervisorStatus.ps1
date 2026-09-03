@@ -13,6 +13,12 @@ try {
         gitHubUrl = 'https://github.com/example/diag-runner'
     } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $runnerRoot '.runner') -Encoding UTF8
 
+    $runnerDiagRoot = Join-Path $runnerRoot '_diag'
+    New-Item -ItemType Directory -Force -Path $runnerDiagRoot | Out-Null
+    $runnerDiagPath = Join-Path $runnerDiagRoot 'Runner_fixture.log'
+    Set-Content -LiteralPath $runnerDiagPath -Value 'runner connect error fixture' -Encoding UTF8
+    (Get-Item -LiteralPath $runnerDiagPath).LastWriteTimeUtc = [datetime]::UtcNow.AddSeconds(-300)
+
     [ordered]@{
         version = 1
         profiles = @(
@@ -57,7 +63,7 @@ try {
     if ($line.Count -ne 1) { throw 'Supervisor diagnostic output marker was not emitted exactly once.' }
     $diag = ([string]$line[0]).Substring('SUPERVISOR_DIAG='.Length) | ConvertFrom-Json
 
-    if ([string]$diag.schema -ne 'jolly.managed-supervisor-diagnostic' -or [int]$diag.version -ne 3) {
+    if ([string]$diag.schema -ne 'jolly.managed-supervisor-diagnostic' -or [int]$diag.version -ne 4) {
         throw 'Supervisor diagnostic schema/version mismatch.'
     }
     if ([int]$diag.supervisorProcessId -ne 4321) { throw 'Supervisor diagnostic process id mismatch.' }
@@ -73,6 +79,11 @@ try {
     if ([string]$profile.binding -ne 'configured') { throw 'Configured diagnostic profile binding mismatch.' }
     if ([string]$profile.configuredRootLeaf -ne 'runner-fixture' -or [string]$profile.effectiveRootLeaf -ne 'runner-fixture') {
         throw 'Diagnostic profile root leaf projection mismatch.'
+    }
+    if (-not [bool]$profile.localDiagnosticsPresent) { throw 'Local Runner diagnostic file presence was not projected.' }
+    if ([string]$profile.localDiagnosticsFreshness -ne 'stale') { throw 'Five-minute-old Runner diagnostic file must project as stale.' }
+    if ($null -eq $profile.localDiagnosticsAgeSeconds -or [int]$profile.localDiagnosticsAgeSeconds -lt 240 -or [int]$profile.localDiagnosticsAgeSeconds -gt 420) {
+        throw ('Local Runner diagnostic age was not bounded: ' + [string]$profile.localDiagnosticsAgeSeconds)
     }
     if ([bool]$profile.dispatchProbePresent -ne $true -or [bool]$profile.dispatchProbeApiOk -ne $false) {
         throw 'Dispatch probe health projection mismatch.'
