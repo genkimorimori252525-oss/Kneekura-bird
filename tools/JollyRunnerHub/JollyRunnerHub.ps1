@@ -1368,6 +1368,7 @@ $runnerButtons = New-Object Windows.Forms.FlowLayoutPanel
 $runnerButtons.Dock = 'Fill'
 $runnerButtons.FlowDirection = 'LeftToRight'
 $runnerButtons.WrapContents = $false
+$runnerButtons.AutoScroll = $true
 $runnerButtons.Padding = New-Object Windows.Forms.Padding(0,8,0,0)
 $runnerButtons.BackColor = $ColorWindow
 $runnerLayout.Controls.Add($runnerButtons,0,2)
@@ -2035,6 +2036,50 @@ $gcEphemeralRunners.add_Click({
             [Windows.Forms.MessageBoxIcon]::Information) | Out-Null
     } catch { Show-Error $_.Exception.Message }
 })
+$dispatchDetails.add_Click({
+    $profile = Get-SelectedRunnerProfile
+    if ($null -eq $profile) { return }
+    [void](Start-DispatchProbeIfDue $profile -Force)
+    $local = Read-RunnerRawLocalConnectionState $profile
+    $dispatch = Get-DispatchPresentation $profile $local
+    $probe = $dispatch.Probe
+    $detail = New-Object System.Collections.Generic.List[string]
+    [void]$detail.Add(('Runner: ' + [string]$profile.name))
+    [void]$detail.Add(('Local: ' + [string]$local.Text + ' / ' + [string]$local.Code))
+    [void]$detail.Add(('Dispatch: ' + [string]$dispatch.Classification.Text + ' / ' + [string]$dispatch.Classification.Code))
+    [void]$detail.Add(('Reason: ' + [string]$dispatch.Classification.Evidence))
+    if ($null -ne $probe) {
+        [void]$detail.Add(('GitHub: status=' + [string]$probe.runnerStatus + ' busy=' + [string]$probe.runnerBusy))
+        [void]$detail.Add(('Eligible queue: ' + [string]$probe.eligibleQueuedCount + ' / oldest=' + [string]$probe.oldestQueuedSeconds + 's'))
+        [void]$detail.Add(('Assigned queued: ' + [string]$probe.assignedQueuedCount))
+        [void]$detail.Add(('Route candidates: ' + [string]$probe.routeCandidateCount))
+        [void]$detail.Add(('Probe age: ' + [string]$probe.SnapshotAgeSeconds + 's / duration=' + [string]$probe.durationMs + 'ms'))
+        if ([int64]$probe.oldestRunId -gt 0) {
+            [void]$detail.Add(('Oldest run: ' + [string]$probe.oldestRunId + ' / job=' + [string]$probe.oldestJobName))
+        }
+    } else {
+        [void]$detail.Add('Background probe started. The Runner table will update when it completes.')
+    }
+    [Windows.Forms.MessageBox]::Show(($detail -join [Environment]::NewLine),'ジョリー Runner Hub - 配送診断',[Windows.Forms.MessageBoxButtons]::OK,[Windows.Forms.MessageBoxIcon]::Information) | Out-Null
+})
+$dispatchReconnect.add_Click({
+    $profile = Get-SelectedRunnerProfile
+    if ($null -eq $profile) { return }
+    $local = Read-RunnerRawLocalConnectionState $profile
+    $dispatch = Get-DispatchPresentation $profile $local
+    if (-not [bool]$dispatch.Classification.CanRecover) {
+        $message = '安全再接続条件を満たしていません。' + [Environment]::NewLine + [string]$dispatch.Classification.Text + [Environment]::NewLine + [string]$dispatch.Classification.Evidence
+        [Windows.Forms.MessageBox]::Show($message,'ジョリー Runner Hub',[Windows.Forms.MessageBoxButtons]::OK,[Windows.Forms.MessageBoxIcon]::Information) | Out-Null
+        return
+    }
+    $confirm = [string]$profile.name + ' のlistenerを安全に再接続しますか？' + [Environment]::NewLine + 'GitHub busy=true またはローカル実行中jobは再起動しません。' + [Environment]::NewLine + [string]$dispatch.Classification.Evidence
+    if ([Windows.Forms.MessageBox]::Show($confirm,'ジョリー Runner Hub',[Windows.Forms.MessageBoxButtons]::YesNo,[Windows.Forms.MessageBoxIcon]::Question) -eq 'Yes') {
+        try {
+            [void](Invoke-DispatchReconnect $profile $local $dispatch -Manual)
+            Refresh-RunnerOverview -Force
+        } catch { Show-Error $_.Exception.Message }
+    }
+})
 $refreshRunners.add_Click({
     foreach ($profile in @($script:Config.profiles)) { Reset-RunnerCapabilityCache $profile }
     Refresh-RunnerOverview -Force
@@ -2214,5 +2259,8 @@ $form.add_Shown({
 $form.add_FormClosed({
     Save-UiState
     $timer.Stop()
+    foreach ($process in @($script:DispatchProbeProcesses.Values)) {
+        try { if ($null -ne $process -and -not $process.HasExited) { $process.Kill() } } catch {}
+    }
 })
 [void]$form.ShowDialog()
