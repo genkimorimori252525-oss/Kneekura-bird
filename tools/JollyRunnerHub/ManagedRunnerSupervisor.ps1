@@ -246,10 +246,12 @@ try {
             Cleanup-SupervisorProbeProcesses
             Refresh-SupervisorProcessInventory
             $config = Read-JollyRunnerConfig -ConfigPath $ConfigPath -DefaultConfigPath $DefaultConfigPath
+            $configuredRoots = @($config.profiles | ForEach-Object { [string]$_.runnerRoot } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+            $candidateRoots = @(Get-JollyRunnerRootCandidates -AdditionalRoots $configuredRoots)
             $probeBudget = 1
             foreach ($profile in @($config.profiles)) {
                 $profileId = [string]$profile.id
-                $binding = Resolve-JollyRunnerRootBinding -Profile $profile
+                $binding = Resolve-JollyRunnerRootBinding -Profile $profile -CandidateRoots $candidateRoots
                 $effectiveProfile = if (-not [string]::IsNullOrWhiteSpace([string]$binding.Root)) {
                     New-JollyProfileWithRunnerRoot -Profile $profile -RunnerRoot ([string]$binding.Root)
                 } else {
