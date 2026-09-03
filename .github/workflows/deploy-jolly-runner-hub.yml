@@ -70,6 +70,44 @@ jobs:
           Start-Sleep -Seconds 30
           & .\\tools\\JollyRunnerHub\\Inspect-ManagedSupervisorStatus.ps1
 
+      - name: Inspect safe local runner markers
+        if: always() && github.event_name == 'pull_request'
+        continue-on-error: true
+        timeout-minutes: 1
+        run: |
+          $targets = @(
+            [pscustomobject]@{ id='love-github'; root='C:\\actions-runner-love-github' },
+            [pscustomobject]@{ id='kneekura-code-lab'; root='C:\\actions-runner-kneekura-code-lab' }
+          )
+          $rows = @()
+          foreach ($target in $targets) {
+            $diagRoot = Join-Path $target.root '_diag'
+            $latest = $null
+            if (Test-Path -LiteralPath $diagRoot -PathType Container) {
+              $latest = Get-ChildItem -LiteralPath $diagRoot -Filter 'Runner_*.log' -File -ErrorAction SilentlyContinue |
+                Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+            }
+            $markers = @()
+            if ($null -ne $latest) {
+              foreach ($line in @(Get-Content -LiteralPath $latest.FullName -Tail 400 -Encoding UTF8 -ErrorAction SilentlyContinue)) {
+                $text = [string]$line
+                if ($text -match '(?i)Running job:') { $markers += 'running_job'; continue }
+                if ($text -match '(?i)Listening for Jobs') { $markers += 'listening'; continue }
+                if ($text -match '(?i)(failed to create a session|runner connect error|session for this runner already exists|disconnected from the server|connection.*(?:failed|timed out|refused|reset)|http request timed out|name resolution|no such host|shutdown signal|runner listener exit)') { $markers += 'reconnecting'; continue }
+                if ($text -match '(?i)(Connected to GitHub|session.*established|message queue listen loop started)') { $markers += 'connected'; continue }
+              }
+            }
+            $age = if ($null -ne $latest) { [math]::Max(0,[int]([datetime]::UtcNow-$latest.LastWriteTimeUtc).TotalSeconds) } else { $null }
+            $rows += [pscustomobject]@{
+              id = $target.id
+              logPresent = ($null -ne $latest)
+              logAgeSeconds = $age
+              lastMarker = if ($markers.Count -gt 0) { [string]$markers[-1] } else { '' }
+              markerTail = @($markers | Select-Object -Last 8)
+            }
+          }
+          Write-Output ('RUNNER_DIAG_MARKERS=' + ($rows | ConvertTo-Json -Depth 5 -Compress))
+
       - name: Upload portable launcher and diagnostics
         if: always()
         uses: actions/upload-artifact@v4
