@@ -81,7 +81,7 @@ if (-not $NoStart) {
                 Stop-Process -Id $processId -Force -ErrorAction Stop
                 $stoppedPids += $processId
             } catch {
-                throw "Failed to stop old managed Supervisor PID $processId: $($_.Exception.Message)"
+                throw ("Failed to stop old managed Supervisor PID {0}: {1}" -f $processId,$_.Exception.Message)
             }
         }
         $deadline = [datetime]::UtcNow.AddSeconds(5)
