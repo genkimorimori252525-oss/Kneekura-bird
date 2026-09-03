@@ -2301,12 +2301,16 @@ $timer.add_Tick({
         if ((Get-ProfileDesiredState $script:Profile) -eq 'stopped') {
             $runnerStatus.Value.Text = '手動停止'
             $runnerStatus.Value.ForeColor = [Drawing.Color]::FromArgb(255,205,112)
-        } elseif (Runner-Running $script:Profile) {
-            $runnerStatus.Value.Text = '接続中'
-            $runnerStatus.Value.ForeColor = [Drawing.Color]::FromArgb(105,228,154)
+            $runnerStatus.Value.AccessibleDescription = 'desired-state=stopped'
         } else {
-            $runnerStatus.Value.Text = '停止 / 復旧待ち'
-            $runnerStatus.Value.ForeColor = [Drawing.Color]::FromArgb(255,137,141)
+            $runnerConnection = Read-RunnerConnectionState $script:Profile
+            $runnerStatus.Value.Text = [string]$runnerConnection.Text
+            $runnerStatus.Value.AccessibleDescription = [string]$runnerConnection.Evidence
+            switch ([string]$runnerConnection.Tone) {
+                'good' { $runnerStatus.Value.ForeColor = [Drawing.Color]::FromArgb(105,228,154) }
+                'warn' { $runnerStatus.Value.ForeColor = [Drawing.Color]::FromArgb(255,205,112) }
+                default { $runnerStatus.Value.ForeColor = [Drawing.Color]::FromArgb(255,137,141) }
+            }
         }
 
         $snapshot = Read-Snapshot $script:Profile
