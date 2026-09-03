@@ -46,6 +46,18 @@ try {
     $json | Set-Content -LiteralPath (Join-Path $root 'profiles.json') -Encoding UTF8
 
     $supervisor = Join-Path $PSScriptRoot 'ManagedRunnerSupervisor.ps1'
+    $supervisorSource = Get-Content -LiteralPath $supervisor -Raw -Encoding UTF8
+    $reconnectMarker = "elseif ([string]`$decision.Action -eq 'reconnect') {"
+    $cycleMarker = '$cycleProfiles += [pscustomobject]@{'
+    $reconnectStart = $supervisorSource.IndexOf($reconnectMarker,[StringComparison]::Ordinal)
+    if ($reconnectStart -lt 0) { throw 'Supervisor reconnect branch start marker was not found.' }
+    $reconnectEnd = $supervisorSource.IndexOf($cycleMarker,$reconnectStart,[StringComparison]::Ordinal)
+    if ($reconnectEnd -lt 0) { throw 'Supervisor reconnect branch end marker was not found.' }
+    $reconnectBody = $supervisorSource.Substring($reconnectStart,$reconnectEnd-$reconnectStart)
+    if ($reconnectBody -notmatch 'Stop-SupervisorRunner\s+\$effectiveProfile') { throw 'Reconnect must stop the resolved effective profile.' }
+    if ($reconnectBody -notmatch 'Start-SupervisorRunner\s+\$effectiveProfile') { throw 'Reconnect must start the resolved effective profile.' }
+    if ($reconnectBody -match '(Stop|Start)-SupervisorRunner\s+\$profile(?:\s|$)') { throw 'Reconnect must never target the stale configured profile root.' }
+
     $process = Start-Process powershell.exe -ArgumentList @(
         '-NoProfile','-ExecutionPolicy','Bypass','-File',('"{0}"' -f $supervisor),
         '-AppRoot',('"{0}"' -f $root),'-IntervalSeconds','5',
