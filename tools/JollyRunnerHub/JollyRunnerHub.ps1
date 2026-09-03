@@ -1778,18 +1778,24 @@ function Refresh-RunnerOverview([switch]$Force) {
 
         $models = New-Object System.Collections.Generic.List[object]
         $capabilitySnapshot = Read-CapabilitySnapshot
+        $probeLaunchBudget = 1
+        $dispatchIssueCount = 0
 
         foreach ($profile in @($script:Config.profiles)) {
             $root = [Environment]::ExpandEnvironmentVariables([string]$profile.runnerRoot)
             $repository = ([string]$profile.repoUrl).TrimEnd('/') -replace '^https://github.com/',''
+            $configured = Test-RunnerConfigured $profile
             $stateCode = 'unregistered'
-            if (Test-RunnerConfigured $profile) {
+            if ($configured) {
+                if ($probeLaunchBudget -gt 0 -and (Start-DispatchProbeIfDue $profile -Force:$Force)) { $probeLaunchBudget-- }
+                $rawLocal = Read-RunnerRawLocalConnectionState $profile
                 $state = Read-RunnerConnectionState $profile
                 Invoke-RunnerAutoRecovery $profile $state
                 $stateText = [string]$state.Text
                 $stateCode = [string]$state.Code
                 $evidence = [string]$state.Evidence
             } else {
+                $rawLocal = [pscustomobject]@{Code='stopped';Text='未登録';Tone='bad';Evidence='runner not configured'}
                 $stateText = '未登録'
                 $evidence = 'run.cmd または .runner がありません'
             }
@@ -1821,6 +1827,18 @@ function Refresh-RunnerOverview([switch]$Force) {
                 Get-JollyEphemeralSummary -AppRoot $AppRoot -ProfileId ([string]$profile.id)
             } else { 'disabled' }
 
+            if ($configured) {
+                $dispatch = Get-DispatchPresentation $profile $rawLocal
+                Update-DispatchRecoveryState $profile $dispatch $rawLocal
+            } else {
+                $dispatch = [pscustomobject]@{
+                    Classification=[pscustomobject]@{Code='unregistered';Text='未登録';Tone='bad';CanRecover=$false;Evidence='canonical runner root is not registered'}
+                    Probe=$null
+                    QueueText='-'
+                }
+            }
+            if ([string]$dispatch.Classification.Tone -eq 'bad') { $dispatchIssueCount++ }
+
             $tone = if ($stateCode -in @('listening','running_job','connected_starting')) {
                 'good'
             } elseif ($stateCode -in @('stopped','reconnecting','unregistered')) {
@@ -1836,10 +1854,13 @@ function Refresh-RunnerOverview([switch]$Force) {
                 Repository = $repository
                 Root = $root
                 State = $stateText
+                Dispatch = [string]$dispatch.Classification.Text
+                Queue = [string]$dispatch.QueueText
                 Capabilities = $capabilityText
-                Evidence = $evidence
+                Evidence = ($evidence + '; dispatch=' + [string]$dispatch.Classification.Evidence)
                 Ephemeral = $ephemeral
                 Tone = $tone
+                DispatchTone = [string]$dispatch.Classification.Tone
             })
         }
 
@@ -1852,10 +1873,13 @@ function Refresh-RunnerOverview([switch]$Force) {
                 Repository = if ([string]::IsNullOrWhiteSpace([string]$item.Repository)) { '(不明)' } else { [string]$item.Repository }
                 Root = [string]$item.Root
                 State = if ($item.Running) { '実行中 / 未管理' } else { '停止 / 未管理' }
+                Dispatch = 'Hub外'
+                Queue = '-'
                 Capabilities = '-'
                 Evidence = 'Hub profileに未登録。自動起動・停止・復旧の対象外'
                 Ephemeral = 'Hub外'
                 Tone = 'bad'
+                DispatchTone = 'bad'
             })
         }
 
@@ -1888,12 +1912,12 @@ function Refresh-RunnerOverview([switch]$Force) {
         }
 
         $managedCount = @($script:Config.profiles).Count
-        $runnerIntro.Text = if ($unmanaged.Count -gt 0) {
-            "管理Runner $managedCount 件 / 未管理Runner $($unmanaged.Count) 件を検出。未管理RunnerはHubから操作せず、整理または正式プロファイル化してください。"
+        $runnerIntro.Text = if ($unmanaged.Count -gt 0 -or $dispatchIssueCount -gt 0) {
+            "管理Runner $managedCount 件 / 未管理 $($unmanaged.Count) 件 / 配送異常 $dispatchIssueCount 件。赤い配送欄または判定根拠を確認してください。"
         } else {
-            "管理Runner $managedCount 件 / 未管理Runner 0 件。新しい一時RunnerはEphemeral起動から作成するとHub管理下で自動GCされます。"
+            "管理Runner $managedCount 件 / 未管理 0 件 / 配送異常 0 件。RunnerとGitHub配送経路は正常です。"
         }
-        $runnerIntro.ForeColor = if ($unmanaged.Count -gt 0) { $ColorBad } else { $ColorText }
+        $runnerIntro.ForeColor = if ($unmanaged.Count -gt 0 -or $dispatchIssueCount -gt 0) { $ColorBad } else { $ColorText }
         $script:PreferredRunnerSelectionId = ''
         $script:LastRunnerOverviewRefresh = [datetime]::UtcNow
         Update-RunnerActionAvailability
