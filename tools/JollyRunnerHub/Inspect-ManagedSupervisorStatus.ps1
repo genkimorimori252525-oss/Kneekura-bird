@@ -14,10 +14,14 @@ if (-not (Test-Path -LiteralPath $resolver -PathType Leaf)) { throw 'RunnerRootR
 $configPath = Join-Path $AppRoot 'profiles.json'
 $statusPath = Join-Path $AppRoot 'supervisor-status.json'
 $eventPath = Join-Path $AppRoot 'managed-supervisor.jsonl'
+$trimChars = [char[]]@([IO.Path]::DirectorySeparatorChar,[IO.Path]::AltDirectorySeparatorChar)
 
 function Leaf([string]$Value) {
     if ([string]::IsNullOrWhiteSpace($Value)) { return '' }
-    try { return Split-Path -Leaf ([Environment]::ExpandEnvironmentVariables($Value).TrimEnd([char[]]@('\\','/'))) } catch { return '' }
+    try {
+        $expanded = [Environment]::ExpandEnvironmentVariables($Value).TrimEnd($trimChars)
+        return Split-Path -Leaf $expanded
+    } catch { return '' }
 }
 
 function Read-Json([string]$Path) {
@@ -47,7 +51,8 @@ try {
         if ([string]::IsNullOrWhiteSpace([string]$process.ExecutablePath)) { continue }
         try {
             $root = Split-Path -Parent (Split-Path -Parent ([string]$process.ExecutablePath))
-            $listenerRoots[[IO.Path]::GetFullPath($root).TrimEnd([char[]]@('\\','/')).ToLowerInvariant()] = $true
+            $key = [IO.Path]::GetFullPath($root).TrimEnd($trimChars).ToLowerInvariant()
+            $listenerRoots[$key] = $true
         } catch {}
     }
 } catch {}
@@ -56,7 +61,7 @@ $candidateSummary = @()
 foreach ($root in $candidateRoots) {
     if (-not (Test-JollyConfiguredRunnerRoot $root)) { continue }
     $key = ''
-    try { $key = [IO.Path]::GetFullPath($root).TrimEnd([char[]]@('\\','/')).ToLowerInvariant() } catch {}
+    try { $key = [IO.Path]::GetFullPath($root).TrimEnd($trimChars).ToLowerInvariant() } catch {}
     $candidateSummary += [pscustomobject]@{
         rootLeaf = Leaf $root
         repository = Get-JollyRunnerRepositoryFromRoot $root
@@ -121,4 +126,4 @@ $result = [ordered]@{
     candidates = $candidateSummary
     recentEvents = @($events | Select-Object -Last 20)
 }
-Write-Host ('SUPERVISOR_DIAG=' + ($result | ConvertTo-Json -Depth 8 -Compress))
+Write-Output ('SUPERVISOR_DIAG=' + ($result | ConvertTo-Json -Depth 8 -Compress))
