@@ -183,7 +183,7 @@ function Save-UiState {
 
 function Get-RunnerInventory([switch]$Force) {
     if (-not $Force -and ([datetime]::UtcNow-$script:RunnerInventoryCacheAt).TotalSeconds -lt 10) {
-        return @($script:RunnerInventoryCache)
+        return $script:RunnerInventoryCache
     }
 
     $managedRoots = @{}
