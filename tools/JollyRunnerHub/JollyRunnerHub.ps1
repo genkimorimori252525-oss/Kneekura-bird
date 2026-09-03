@@ -1867,7 +1867,7 @@ function Refresh-RunnerOverview([switch]$Force) {
             $configured = Test-RunnerConfigured $profile
             $stateCode = 'unregistered'
             if ($configured) {
-                if ($probeLaunchBudget -gt 0 -and (Start-DispatchProbeIfDue $profile -Force:$Force)) { $probeLaunchBudget-- }
+                if (-not (Test-ManagedSupervisorHealthy) -and $probeLaunchBudget -gt 0 -and (Start-DispatchProbeIfDue $profile -Force:$Force)) { $probeLaunchBudget-- }
                 $rawLocal = Read-RunnerRawLocalConnectionState $profile
                 $state = Read-RunnerConnectionState $profile
                 Invoke-RunnerAutoRecovery $profile $state
@@ -2047,7 +2047,11 @@ $historyMetric.add_SelectedIndexChanged({
 })
 
 $connect.add_Click({
-    try { Start-Runner $script:Profile } catch { Show-Error $_.Exception.Message }
+    try {
+        Set-ProfileDesiredState $script:Profile running
+        Start-Runner $script:Profile
+        Refresh-RunnerOverview -Force
+    } catch { Show-Error $_.Exception.Message }
 })
 $disconnect.add_Click({
     if ([Windows.Forms.MessageBox]::Show(
@@ -2055,13 +2059,21 @@ $disconnect.add_Click({
         'ジョリー Runner Hub',
         [Windows.Forms.MessageBoxButtons]::YesNo,
         [Windows.Forms.MessageBoxIcon]::Question) -eq 'Yes') {
-        try { Stop-Runner $script:Profile } catch { Show-Error $_.Exception.Message }
+        try {
+            Set-ProfileDesiredState $script:Profile stopped
+            Stop-Runner $script:Profile
+            Refresh-RunnerOverview -Force
+        } catch { Show-Error $_.Exception.Message }
     }
 })
 $startSelectedRunner.add_Click({
     $profile = Get-SelectedRunnerProfile
     if ($null -ne $profile) {
-        try { Start-Runner $profile; Refresh-RunnerOverview -Force } catch { Show-Error $_.Exception.Message }
+        try {
+            Set-ProfileDesiredState $profile running
+            Start-Runner $profile
+            Refresh-RunnerOverview -Force
+        } catch { Show-Error $_.Exception.Message }
     }
 })
 $stopSelectedRunner.add_Click({
@@ -2071,14 +2083,21 @@ $stopSelectedRunner.add_Click({
         'ジョリー Runner Hub',
         [Windows.Forms.MessageBoxButtons]::YesNo,
         [Windows.Forms.MessageBoxIcon]::Question) -eq 'Yes') {
-        try { Stop-Runner $profile; Refresh-RunnerOverview -Force } catch { Show-Error $_.Exception.Message }
+        try {
+            Set-ProfileDesiredState $profile stopped
+            Stop-Runner $profile
+            Refresh-RunnerOverview -Force
+        } catch { Show-Error $_.Exception.Message }
     }
 })
 $startAllRunners.add_Click({
     $errors = New-Object System.Collections.Generic.List[string]
     foreach ($profile in @($script:Config.profiles)) {
         if (-not (Test-RunnerConfigured $profile)) { continue }
-        try { Start-Runner $profile } catch { $errors.Add("$($profile.name): $($_.Exception.Message)") }
+        try {
+            Set-ProfileDesiredState $profile running
+            Start-Runner $profile
+        } catch { $errors.Add("$($profile.name): $($_.Exception.Message)") }
     }
     Refresh-RunnerOverview -Force
     if ($errors.Count -gt 0) { Show-Error ($errors -join [Environment]::NewLine) }
@@ -2090,7 +2109,10 @@ $stopAllRunners.add_Click({
         [Windows.Forms.MessageBoxButtons]::YesNo,
         [Windows.Forms.MessageBoxIcon]::Question) -eq 'Yes') {
         foreach ($profile in @($script:Config.profiles)) {
-            try { Stop-Runner $profile } catch {}
+            try {
+                Set-ProfileDesiredState $profile stopped
+                Stop-Runner $profile
+            } catch {}
         }
         Refresh-RunnerOverview -Force
     }
@@ -2115,16 +2137,19 @@ $startEphemeralRunner.add_Click({
     }
 })
 $gcEphemeralRunners.add_Click({
-    try {
-        $results = @(Invoke-JollyEphemeralGc -AppRoot $AppRoot)
-        Refresh-RunnerOverview -Force
-        $changed = @($results | Where-Object { [string]$_.Action -like 'cleaned_*' }).Count
+    if (Start-BackgroundMaintenanceIfDue -Force) {
         [Windows.Forms.MessageBox]::Show(
-            "Ephemeral GC: cleaned=$changed / inspected=$($results.Count)",
+            'Ephemeral GCをバックグラウンドで開始しました。',
             'ジョリー Runner Hub',
             [Windows.Forms.MessageBoxButtons]::OK,
             [Windows.Forms.MessageBoxIcon]::Information) | Out-Null
-    } catch { Show-Error $_.Exception.Message }
+    } else {
+        [Windows.Forms.MessageBox]::Show(
+            'Supervisorが管理中、またはGCがすでに実行中です。',
+            'ジョリー Runner Hub',
+            [Windows.Forms.MessageBoxButtons]::OK,
+            [Windows.Forms.MessageBoxIcon]::Information) | Out-Null
+    }
 })
 $dispatchDetails.add_Click({
     $profile = Get-SelectedRunnerProfile
@@ -2136,7 +2161,7 @@ $dispatchDetails.add_Click({
     $detail = New-Object System.Collections.Generic.List[string]
     [void]$detail.Add(('Runner: ' + [string]$profile.name))
     [void]$detail.Add(('Local: ' + [string]$local.Text + ' / ' + [string]$local.Code))
-    [void]$detail.Add(('Dispatch: ' + [string]$dispatch.Classification.Text + ' / ' + [string]$dispatch.Classification.Code))
+    [void]$detail.Add(('Dispatch: ' + (Get-DispatchDisplayText $dispatch.Classification) + ' / ' + [string]$dispatch.Classification.Code))
     [void]$detail.Add(('Reason: ' + [string]$dispatch.Classification.Evidence))
     if ($null -ne $probe) {
         [void]$detail.Add(('GitHub: status=' + [string]$probe.runnerStatus + ' busy=' + [string]$probe.runnerBusy))
@@ -2250,9 +2275,17 @@ $timer.add_Tick({
             Refresh-RunnerOverview -Force
         }
 
-        if (([datetime]::UtcNow-$script:LastEphemeralGc).TotalSeconds -ge 30) {
-            try { [void](Invoke-JollyEphemeralGc -AppRoot $AppRoot) } catch {}
-            $script:LastEphemeralGc = [datetime]::UtcNow
+        [void](Start-BackgroundMaintenanceIfDue)
+
+        $supervisor = Read-ManagedSupervisorStatus
+        if ($null -ne $supervisor -and [int]$supervisor.AgeSeconds -le 30) {
+            $supervisorStatus.Value.Text = ('稼働中 / 管理 ' + [string](@($supervisor.profiles).Count) + ' / age=' + [string]$supervisor.AgeSeconds + 's')
+            $supervisorStatus.Value.ForeColor = [Drawing.Color]::FromArgb(105,228,154)
+            $supervisorStatus.Value.AccessibleDescription = ('pid=' + [string]$supervisor.processId + '; updated=' + [string]$supervisor.updatedAt)
+        } else {
+            $supervisorStatus.Value.Text = '停止 / 応答なし（GUI fallback）'
+            $supervisorStatus.Value.ForeColor = [Drawing.Color]::FromArgb(255,137,141)
+            $supervisorStatus.Value.AccessibleDescription = 'managed supervisor heartbeat is missing or stale'
         }
 
         if ($tabs.SelectedTab -eq $runnerTab) {
@@ -2327,17 +2360,17 @@ $timer.add_Tick({
 $timer.Start()
 
 $form.add_Shown({
-    try { [void](Invoke-JollyEphemeralGc -AppRoot $AppRoot) } catch {}
-    $script:LastEphemeralGc = [datetime]::UtcNow
+    [void](Start-BackgroundMaintenanceIfDue -Force)
     if ($historySplit.Height -gt 420) {
         $historySplit.Panel1MinSize = 180
         $historySplit.Panel2MinSize = 140
         $historySplit.SplitterDistance = [int]($historySplit.Height * 0.64)
     }
-    if ([bool]$script:Config.autoConnect) {
+    if (-not (Test-ManagedSupervisorHealthy)) {
         $errors = New-Object System.Collections.Generic.List[string]
         foreach ($profile in @($script:Config.profiles)) {
             if (-not (Test-RunnerConfigured $profile)) { continue }
+            if ((Get-ProfileDesiredState $profile) -ne 'running') { continue }
             try { Start-Runner $profile } catch {
                 $errors.Add("$($profile.name): $($_.Exception.Message)")
             }
