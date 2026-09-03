@@ -34,6 +34,17 @@ try {
         profiles = @()
     } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $root 'supervisor-status.json') -Encoding UTF8
 
+    $dispatchRoot = Join-Path $root 'dispatch'
+    New-Item -ItemType Directory -Force -Path $dispatchRoot | Out-Null
+    [ordered]@{
+        schema = 'jolly.dispatch-probe'
+        version = 1
+        repository = 'example/diag-runner'
+        apiOk = $false
+        error = 'gh exit=4: authentication failed for github_pat_TEST_SECRET_123456789'
+        probedAt = ([DateTimeOffset]::UtcNow.AddSeconds(-4).ToString('o'))
+    } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $dispatchRoot 'dispatch-diag-runner.json') -Encoding UTF8
+
     $events = @(
         ([ordered]@{timestamp=([DateTimeOffset]::UtcNow.AddSeconds(-3).ToString('o'));profileId='runner-a';action='start';result='issued';reason='fixture'} | ConvertTo-Json -Compress),
         ([ordered]@{timestamp=([DateTimeOffset]::UtcNow.AddSeconds(-2).ToString('o'));profileId='';action='cycle';result='ok';reason='fixture-global'} | ConvertTo-Json -Compress)
@@ -46,7 +57,7 @@ try {
     if ($line.Count -ne 1) { throw 'Supervisor diagnostic output marker was not emitted exactly once.' }
     $diag = ([string]$line[0]).Substring('SUPERVISOR_DIAG='.Length) | ConvertFrom-Json
 
-    if ([string]$diag.schema -ne 'jolly.managed-supervisor-diagnostic' -or [int]$diag.version -ne 2) {
+    if ([string]$diag.schema -ne 'jolly.managed-supervisor-diagnostic' -or [int]$diag.version -ne 3) {
         throw 'Supervisor diagnostic schema/version mismatch.'
     }
     if ([int]$diag.supervisorProcessId -ne 4321) { throw 'Supervisor diagnostic process id mismatch.' }
@@ -63,6 +74,16 @@ try {
     if ([string]$profile.configuredRootLeaf -ne 'runner-fixture' -or [string]$profile.effectiveRootLeaf -ne 'runner-fixture') {
         throw 'Diagnostic profile root leaf projection mismatch.'
     }
+    if ([bool]$profile.dispatchProbePresent -ne $true -or [bool]$profile.dispatchProbeApiOk -ne $false) {
+        throw 'Dispatch probe health projection mismatch.'
+    }
+    if ([string]$profile.dispatchProbeError -notmatch '<redacted-token>' -or [string]$profile.dispatchProbeError -match 'TEST_SECRET') {
+        throw 'Dispatch probe diagnostic did not redact token-like content.'
+    }
+    if ($null -eq $profile.dispatchProbeAgeSeconds -or [int]$profile.dispatchProbeAgeSeconds -gt 30) {
+        throw 'Dispatch probe age projection mismatch.'
+    }
+
     $candidate = @($diag.candidates | Where-Object { [string]$_.repository -eq 'example/diag-runner' }) | Select-Object -First 1
     if ($null -eq $candidate -or [string]$candidate.rootLeaf -ne 'runner-fixture') {
         throw 'Diagnostic candidate root leaf projection mismatch.'
