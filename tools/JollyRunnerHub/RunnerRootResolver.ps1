@@ -1,5 +1,7 @@
 Set-StrictMode -Version Latest
 
+$script:JollyRunnerRepositoryCache = @{}
+
 function ConvertTo-JollyRepositorySlug {
     param([string]$Value)
     if ([string]::IsNullOrWhiteSpace($Value)) { return '' }
@@ -13,16 +15,36 @@ function Get-JollyRunnerRepositoryFromRoot {
     param([Parameter(Mandatory=$true)][string]$Root)
     $runnerFile = Join-Path $Root '.runner'
     if (-not (Test-Path -LiteralPath $runnerFile -PathType Leaf)) { return '' }
+
+    $cacheKey = ''
+    try {
+        $item = Get-Item -LiteralPath $runnerFile -ErrorAction Stop
+        $cacheKey = ([IO.Path]::GetFullPath($runnerFile).ToLowerInvariant() + '|' + [string]$item.LastWriteTimeUtc.Ticks + '|' + [string]$item.Length)
+        if ($script:JollyRunnerRepositoryCache.ContainsKey($cacheKey)) {
+            return [string]$script:JollyRunnerRepositoryCache[$cacheKey]
+        }
+    } catch {}
+
+    $slug = ''
     try {
         $config = Get-Content -LiteralPath $runnerFile -Raw -Encoding UTF8 | ConvertFrom-Json
         foreach ($name in @('gitHubUrl','serverUrl')) {
             $property = $config.PSObject.Properties[$name]
             if ($null -eq $property) { continue }
             $slug = ConvertTo-JollyRepositorySlug ([string]$property.Value)
-            if ($slug) { return $slug }
+            if ($slug) { break }
         }
-    } catch {}
-    return ''
+    } catch {
+        $slug = ''
+    }
+    if ($cacheKey) {
+        $script:JollyRunnerRepositoryCache[$cacheKey] = $slug
+        if ($script:JollyRunnerRepositoryCache.Count -gt 256) {
+            $script:JollyRunnerRepositoryCache = @{}
+            $script:JollyRunnerRepositoryCache[$cacheKey] = $slug
+        }
+    }
+    return $slug
 }
 
 function Test-JollyConfiguredRunnerRoot {
@@ -56,7 +78,7 @@ function Get-JollyRunnerRootCandidates {
 
     $driveRoot = [IO.Path]::GetPathRoot($env:SystemDrive + '\')
     if (Test-Path -LiteralPath $driveRoot -PathType Container) {
-        foreach ($directory in @(Get-ChildItem -LiteralPath $driveRoot -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -like 'actions-runner*' })) {
+        foreach ($directory in @(Get-ChildItem -LiteralPath $driveRoot -Directory -Filter 'actions-runner*' -ErrorAction SilentlyContinue)) {
             $root = $directory.FullName.TrimEnd([char[]]@('\','/'))
             $roots[$root.ToLowerInvariant()] = $root
         }

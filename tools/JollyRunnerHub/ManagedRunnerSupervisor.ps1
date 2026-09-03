@@ -57,6 +57,23 @@ function Write-SupervisorEvent {
     } catch {}
 }
 
+function Format-SupervisorError {
+    param([Parameter(Mandatory=$true)]$ErrorRecord)
+    $parts = New-Object System.Collections.Generic.List[string]
+    [void]$parts.Add(('type=' + [string]$ErrorRecord.Exception.GetType().FullName))
+    [void]$parts.Add(('message=' + [string]$ErrorRecord.Exception.Message))
+    if ($null -ne $ErrorRecord.InvocationInfo -and [int]$ErrorRecord.InvocationInfo.ScriptLineNumber -gt 0) {
+        [void]$parts.Add(('line=' + [string]$ErrorRecord.InvocationInfo.ScriptLineNumber))
+    }
+    if (-not [string]::IsNullOrWhiteSpace([string]$ErrorRecord.ScriptStackTrace)) {
+        $stack = ([string]$ErrorRecord.ScriptStackTrace) -replace '[\r\n]+',' <- '
+        [void]$parts.Add(('stack=' + $stack))
+    }
+    $text = $parts -join '; '
+    if ($text.Length -gt 1800) { $text = $text.Substring(0,1800) }
+    return $text
+}
+
 function Refresh-SupervisorProcessInventory {
     try {
         $script:ProcessInventory = @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object { [string]$_.Name -in @('Runner.Listener.exe','cmd.exe') })
@@ -246,10 +263,12 @@ try {
             Cleanup-SupervisorProbeProcesses
             Refresh-SupervisorProcessInventory
             $config = Read-JollyRunnerConfig -ConfigPath $ConfigPath -DefaultConfigPath $DefaultConfigPath
+            $configuredRoots = @($config.profiles | ForEach-Object { [string]$_.runnerRoot } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+            $candidateRoots = @(Get-JollyRunnerRootCandidates -AdditionalRoots $configuredRoots)
             $probeBudget = 1
             foreach ($profile in @($config.profiles)) {
                 $profileId = [string]$profile.id
-                $binding = Resolve-JollyRunnerRootBinding -Profile $profile
+                $binding = Resolve-JollyRunnerRootBinding -Profile $profile -CandidateRoots $candidateRoots
                 $effectiveProfile = if (-not [string]::IsNullOrWhiteSpace([string]$binding.Root)) {
                     New-JollyProfileWithRunnerRoot -Profile $profile -RunnerRoot ([string]$binding.Root)
                 } else {
@@ -356,8 +375,9 @@ try {
             Start-MaintenanceIfDue
             Write-SupervisorStatus $cycleProfiles
         } catch {
-            Write-SupervisorEvent '' 'cycle' 'failed' $_.Exception.Message
-            Write-SupervisorStatus @([pscustomobject]@{id='supervisor';action='cycle-failed';error=$_.Exception.Message})
+            $cycleError = Format-SupervisorError $_
+            Write-SupervisorEvent '' 'cycle' 'failed' $cycleError
+            Write-SupervisorStatus @([pscustomobject]@{id='supervisor';action='cycle-failed';error=$cycleError})
         }
         if (-not $Once) { Start-Sleep -Seconds $IntervalSeconds }
     } while (-not $Once)

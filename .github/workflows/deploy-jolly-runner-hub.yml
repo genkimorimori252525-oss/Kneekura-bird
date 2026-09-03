@@ -51,6 +51,11 @@ jobs:
             throw
           }
 
+      - name: Inspect installed managed Supervisor
+        if: always()
+        run: |
+          & .\tools\JollyRunnerHub\Inspect-ManagedSupervisorStatus.ps1
+
       - name: Upload portable launcher and diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -85,6 +90,7 @@ jobs:
             tools/JollyRunnerHub/Register-ManagedRunnerSupervisor.ps1
             tools/JollyRunnerHub/RunnerRootResolver.ps1
             tools/JollyRunnerHub/Test-RunnerRootResolver.ps1
+            tools/JollyRunnerHub/Inspect-ManagedSupervisorStatus.ps1
             tools/JollyRunnerHub/Use-LocalGradle.ps1
             tools/JollyRunnerHub/RunnerLifecycle.ps1
             tools/JollyRunnerHub/profiles.default.json
