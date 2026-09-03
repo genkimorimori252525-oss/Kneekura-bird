@@ -38,6 +38,7 @@ $maintenancePath = Join-Path $root 'RunnerMaintenance.ps1'
 $registerSupervisorPath = Join-Path $root 'Register-ManagedRunnerSupervisor.ps1'
 $rootResolverPath = Join-Path $root 'RunnerRootResolver.ps1'
 $rootResolverTestPath = Join-Path $root 'Test-RunnerRootResolver.ps1'
+$supervisorDiagnosticPath = Join-Path $root 'Inspect-ManagedSupervisorStatus.ps1'
 $localGradlePath = Join-Path $root 'Use-LocalGradle.ps1'
 $lifecyclePath = Join-Path $root 'RunnerLifecycle.ps1'
 $runtimeSourcePath = Join-Path $buildDir 'JollyRunnerHub.source.ps1'
@@ -151,7 +152,7 @@ foreach ($configScript in @($configModulePath,$configTestPath)) {
 & $configTestPath | Out-Host
 foreach ($headlessScript in @(
     $dispatchWatchPath,$dispatchProbePath,$configModulePath,$controlStatePath,$supervisorCorePath,
-    $supervisorPath,$maintenancePath,$registerSupervisorPath,$rootResolverPath,$controlStateTestPath,$supervisorCoreTestPath,$supervisorRuntimeTestPath,$rootResolverTestPath
+    $supervisorPath,$maintenancePath,$registerSupervisorPath,$rootResolverPath,$supervisorDiagnosticPath,$controlStateTestPath,$supervisorCoreTestPath,$supervisorRuntimeTestPath,$rootResolverTestPath
 )) {
     $headlessText = Get-Content -LiteralPath $headlessScript -Raw -Encoding UTF8
     $headlessTokens = $null
@@ -437,7 +438,7 @@ if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $exePath)) {
     throw "Launcher compilation failed with exit code $LASTEXITCODE"
 }
 
-foreach ($runtimeDependency in @($dispatchWatchPath,$dispatchProbePath,$configModulePath,$controlStatePath,$rootResolverPath,$maintenancePath)) {
+foreach ($runtimeDependency in @($dispatchWatchPath,$dispatchProbePath,$configModulePath,$controlStatePath,$rootResolverPath,$supervisorDiagnosticPath,$maintenancePath)) {
     Copy-Item -LiteralPath $runtimeDependency -Destination (Join-Path $appData (Split-Path -Leaf $runtimeDependency)) -Force
 }
 
@@ -505,7 +506,7 @@ if ($Install) {
     foreach ($capabilityScript in @($capabilitiesPath,$capabilitiesCliPath,$localGradlePath)) {
         Copy-Item -LiteralPath $capabilityScript -Destination (Join-Path $appData (Split-Path -Leaf $capabilityScript)) -Force
     }
-    foreach ($runtimeDependency in @($dispatchWatchPath,$dispatchProbePath,$configModulePath,$controlStatePath,$rootResolverPath,$supervisorCorePath,$supervisorPath,$maintenancePath,$registerSupervisorPath)) {
+    foreach ($runtimeDependency in @($dispatchWatchPath,$dispatchProbePath,$configModulePath,$controlStatePath,$rootResolverPath,$supervisorDiagnosticPath,$supervisorCorePath,$supervisorPath,$maintenancePath,$registerSupervisorPath)) {
         Copy-Item -LiteralPath $runtimeDependency -Destination (Join-Path $appData (Split-Path -Leaf $runtimeDependency)) -Force
     }
 
@@ -589,6 +590,7 @@ for ($attempt = 0; $attempt -lt 21600; $attempt++) {
         desired_runner_state = 'persistent-v1'
         managed_supervisor = 'heartbeat-single-writer-v2'
         runner_root_binding = 'repository-identity-fallback-v1'
+        supervisor_diagnostic = 'safe-live-status-v1'
         supervisor_registration = 'startup-link-v1'
         supervisor_restart_backoff = 'exponential-bounded-v1'
         github_status_source = 'background-dispatch-cache-v1'
