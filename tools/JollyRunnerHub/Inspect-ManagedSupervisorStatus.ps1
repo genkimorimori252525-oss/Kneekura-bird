@@ -14,6 +14,7 @@ if (-not (Test-Path -LiteralPath $resolver -PathType Leaf)) { throw 'RunnerRootR
 $configPath = Join-Path $AppRoot 'profiles.json'
 $statusPath = Join-Path $AppRoot 'supervisor-status.json'
 $eventPath = Join-Path $AppRoot 'managed-supervisor.jsonl'
+$dispatchRoot = Join-Path $AppRoot 'dispatch'
 $trimChars = [char[]]@([IO.Path]::DirectorySeparatorChar,[IO.Path]::AltDirectorySeparatorChar)
 
 function Leaf([string]$Value) {
@@ -38,6 +39,21 @@ function Get-StatusAgeSeconds([string]$Timestamp) {
     } catch {
         return $null
     }
+}
+
+function Get-SafeDiagnosticText([string]$Value,[int]$MaxLength = 400) {
+    if ([string]::IsNullOrWhiteSpace($Value)) { return '' }
+    $text = $Value -replace '(?i)\b(?:gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+)\b','<redacted-token>'
+    $text = $text -replace '(?i)(Authorization:\s*(?:token|bearer|basic)?\s*)\S+','$1<redacted>'
+    $text = $text -replace '[\r\n]+',' '
+    if ($text.Length -gt $MaxLength) { $text = $text.Substring(0,$MaxLength) }
+    return $text
+}
+
+function Read-DispatchProbe([string]$ProfileId) {
+    if ([string]::IsNullOrWhiteSpace($ProfileId)) { return $null }
+    $safeId = $ProfileId -replace '[^A-Za-z0-9_.-]','_'
+    return Read-Json (Join-Path $dispatchRoot ("dispatch-$safeId.json"))
 }
 
 $config = Read-Json $configPath
@@ -77,10 +93,12 @@ if ($null -ne $status) {
 $profileSummary = @()
 if ($null -ne $config) {
     foreach ($profile in @($config.profiles)) {
+        $profileId = [string]$profile.id
         $binding = Resolve-JollyRunnerRootBinding -Profile $profile -CandidateRoots $candidateRoots
-        $live = if ($statusById.ContainsKey([string]$profile.id)) { $statusById[[string]$profile.id] } else { $null }
+        $live = if ($statusById.ContainsKey($profileId)) { $statusById[$profileId] } else { $null }
+        $probe = Read-DispatchProbe $profileId
         $profileSummary += [pscustomobject]@{
-            id = [string]$profile.id
+            id = $profileId
             repository = ConvertTo-JollyRepositorySlug ([string]$profile.repoUrl)
             configuredRootLeaf = Leaf ([string]$binding.ConfiguredRoot)
             binding = [string]$binding.Status
@@ -91,6 +109,10 @@ if ($null -ne $config) {
             processRunning = if ($null -ne $live) { [bool]$live.processRunning } else { $false }
             localCode = if ($null -ne $live) { [string]$live.localCode } else { '' }
             dispatchCode = if ($null -ne $live) { [string]$live.dispatchCode } else { '' }
+            dispatchProbePresent = ($null -ne $probe)
+            dispatchProbeApiOk = if ($null -ne $probe) { [bool]$probe.apiOk } else { $null }
+            dispatchProbeAgeSeconds = if ($null -ne $probe) { Get-StatusAgeSeconds ([string]$probe.probedAt) } else { $null }
+            dispatchProbeError = if ($null -ne $probe) { Get-SafeDiagnosticText ([string]$probe.error) } else { '' }
             action = if ($null -ne $live) { [string]$live.action } else { '' }
             reason = if ($null -ne $live) { [string]$live.decisionReason } else { '' }
         }
@@ -107,7 +129,7 @@ if (Test-Path -LiteralPath $eventPath -PathType Leaf) {
                 profileId = [string]$entry.profileId
                 action = [string]$entry.action
                 result = [string]$entry.result
-                reason = [string]$entry.reason
+                reason = Get-SafeDiagnosticText ([string]$entry.reason) 800
             }
         } catch {}
     }
@@ -117,7 +139,7 @@ $ageSeconds = if ($null -ne $status) { Get-StatusAgeSeconds ([string]$status.upd
 
 $result = [ordered]@{
     schema = 'jolly.managed-supervisor-diagnostic'
-    version = 2
+    version = 3
     generatedAtUtc = ([DateTimeOffset]::UtcNow.ToString('o'))
     statusPresent = ($null -ne $status)
     statusAgeSeconds = $ageSeconds
