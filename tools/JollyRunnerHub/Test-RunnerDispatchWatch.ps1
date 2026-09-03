@@ -46,4 +46,67 @@ $missingProbe = [pscustomobject]@{apiOk=$true;error='';routeCandidateCount=0;run
 $missing = Get-JollyDispatchClassification -LocalCode listening -Probe $missingProbe -WarnSeconds 45 -RecoverSeconds 180
 Assert-Equal 'registration_missing' $missing.Code 'missing registration classification'
 
+# Regression for the two Windows PowerShell process-adapter failures seen live:
+# 1) empty redirected stderr can become $null under Get-Content -Raw;
+# 2) Start-Process may expose no usable ExitCode even after the process exits.
+# A valid JSON response must still be accepted when ExitCode is unavailable.
+$tempRoot = Join-Path ([IO.Path]::GetTempPath()) ('JollyDispatchProbeTest-' + [guid]::NewGuid().ToString('N'))
+$oldPath = $env:PATH
+try {
+    $bin = Join-Path $tempRoot 'bin'
+    $runnerRoot = Join-Path $tempRoot 'runner'
+    $successOutput = Join-Path $tempRoot 'probe-success.json'
+    $failureOutput = Join-Path $tempRoot 'probe-failure.json'
+    New-Item -ItemType Directory -Force -Path $bin,$runnerRoot | Out-Null
+    Set-Content -LiteralPath (Join-Path $runnerRoot 'run.cmd') -Value '@echo off' -Encoding ASCII
+    [ordered]@{agentName='dispatch-fixture';gitHubUrl='https://github.com/example/fixture'} |
+        ConvertTo-Json | Set-Content -LiteralPath (Join-Path $runnerRoot '.runner') -Encoding UTF8
+
+    # Keep only the fake gh plus Windows system tools; this prevents a globally
+    # installed gh.exe from winning Get-Command gh.exe during the child probe.
+    $env:PATH = $bin + [IO.Path]::PathSeparator + (Join-Path $env:WINDIR 'System32') + [IO.Path]::PathSeparator + $env:WINDIR
+    $powershell = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $probeScript = Join-Path $PSScriptRoot 'RunnerDispatchProbe.ps1'
+
+    # gh.cmd is intentionally a shell-associated command because that is one of
+    # the cases where PowerShell 5.1 can leave Process.ExitCode unavailable.
+    Set-Content -LiteralPath (Join-Path $bin 'gh.cmd') -Value @(
+        '@echo off',
+        'echo %* | findstr /L /C:"actions/runners" >nul',
+        'if %errorlevel%==0 (',
+        '  echo {"runners":[]}',
+        '  exit /b 0',
+        ')',
+        'echo %* | findstr /L /C:"actions/runs?status=queued" >nul',
+        'if %errorlevel%==0 (',
+        '  echo {"workflow_runs":[]}',
+        '  exit /b 0',
+        ')',
+        'echo {"jobs":[]}',
+        'exit /b 0'
+    ) -Encoding ASCII
+
+    & $powershell -NoProfile -ExecutionPolicy Bypass -File $probeScript `
+        -Repository 'example/fixture' -RunnerRoot $runnerRoot -OutputPath $successOutput -TimeoutSeconds 2
+    Assert-Equal 0 $LASTEXITCODE 'valid JSON gh probe should complete without crashing'
+    Assert-True (Test-Path -LiteralPath $successOutput -PathType Leaf) 'valid JSON gh probe must write output JSON'
+    $successResult = Get-Content -LiteralPath $successOutput -Raw -Encoding UTF8 | ConvertFrom-Json
+    Assert-True ([bool]$successResult.apiOk) 'valid gh JSON must be accepted even when Process.ExitCode is unavailable'
+    Assert-True ([string]::IsNullOrWhiteSpace([string]$successResult.error)) 'successful fake gh probe must not retain an adapter error'
+
+    Set-Content -LiteralPath (Join-Path $bin 'gh.cmd') -Value @('@echo off','exit /b 1') -Encoding ASCII
+    & $powershell -NoProfile -ExecutionPolicy Bypass -File $probeScript `
+        -Repository 'example/fixture' -RunnerRoot $runnerRoot -OutputPath $failureOutput -TimeoutSeconds 2
+    Assert-Equal 0 $LASTEXITCODE 'failed gh probe should still publish diagnostic JSON without crashing'
+    Assert-True (Test-Path -LiteralPath $failureOutput -PathType Leaf) 'failed gh probe must write output JSON'
+    $failureResult = Get-Content -LiteralPath $failureOutput -Raw -Encoding UTF8 | ConvertFrom-Json
+    Assert-True (-not [bool]$failureResult.apiOk) 'fake gh failure must remain apiOk=false'
+    Assert-True ([string]$failureResult.error -match '^gh (?:exit=1|exit unavailable): no stderr$') 'empty stderr must normalize to a bounded gh failure diagnostic'
+    Assert-True ([string]$failureResult.error -notmatch 'Length') 'empty stderr must never produce the StrictMode Length exception'
+}
+finally {
+    $env:PATH = $oldPath
+    Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 Write-Host 'runner dispatch watch tests: ok'
