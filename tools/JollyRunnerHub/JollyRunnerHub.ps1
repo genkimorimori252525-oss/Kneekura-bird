@@ -1928,7 +1928,9 @@ function Refresh-RunnerOverview([switch]$Force) {
             }
             if ($desired -ne 'stopped' -and [string]$dispatch.Classification.Tone -eq 'bad') { $dispatchIssueCount++ }
 
-            $tone = if ($stateCode -in @('listening','running_job','connected_starting')) {
+            $tone = if ($desired -eq 'stopped') {
+                'warn'
+            } elseif ($stateCode -in @('listening','running_job','connected_starting')) {
                 'good'
             } elseif ($stateCode -in @('stopped','reconnecting','unregistered')) {
                 'bad'
@@ -2154,7 +2156,7 @@ $gcEphemeralRunners.add_Click({
 $dispatchDetails.add_Click({
     $profile = Get-SelectedRunnerProfile
     if ($null -eq $profile) { return }
-    [void](Start-DispatchProbeIfDue $profile -Force)
+    if (-not (Test-ManagedSupervisorHealthy)) { [void](Start-DispatchProbeIfDue $profile -Force) }
     $local = Read-RunnerRawLocalConnectionState $profile
     $dispatch = Get-DispatchPresentation $profile $local
     $probe = $dispatch.Probe
@@ -2180,6 +2182,10 @@ $dispatchDetails.add_Click({
 $dispatchReconnect.add_Click({
     $profile = Get-SelectedRunnerProfile
     if ($null -eq $profile) { return }
+    if ((Get-ProfileDesiredState $profile) -eq 'stopped') {
+        [Windows.Forms.MessageBox]::Show('このRunnerは手動停止中です。先に「選択を起動」で起動希望へ戻してください。','ジョリー Runner Hub',[Windows.Forms.MessageBoxButtons]::OK,[Windows.Forms.MessageBoxIcon]::Information) | Out-Null
+        return
+    }
     $local = Read-RunnerRawLocalConnectionState $profile
     $dispatch = Get-DispatchPresentation $profile $local
     if (-not [bool]$dispatch.Classification.CanRecover) {
@@ -2292,11 +2298,14 @@ $timer.add_Tick({
             Refresh-RunnerOverview
         }
 
-        if (Runner-Running $script:Profile) {
+        if ((Get-ProfileDesiredState $script:Profile) -eq 'stopped') {
+            $runnerStatus.Value.Text = '手動停止'
+            $runnerStatus.Value.ForeColor = [Drawing.Color]::FromArgb(255,205,112)
+        } elseif (Runner-Running $script:Profile) {
             $runnerStatus.Value.Text = '接続中'
             $runnerStatus.Value.ForeColor = [Drawing.Color]::FromArgb(105,228,154)
         } else {
-            $runnerStatus.Value.Text = '停止中'
+            $runnerStatus.Value.Text = '停止 / 復旧待ち'
             $runnerStatus.Value.ForeColor = [Drawing.Color]::FromArgb(255,137,141)
         }
 
