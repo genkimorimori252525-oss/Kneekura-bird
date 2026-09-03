@@ -1349,6 +1349,8 @@ foreach ($columnInfo in @(
     @('Repository','Repository',300),
     @('Root','ローカル配置',330),
     @('State','状態',180),
+    @('Dispatch','配送',170),
+    @('Queue','Queue',150),
     @('Capabilities','能力',260),
     @('Evidence','判定根拠',320),
     @('Ephemeral','Ephemeral / TTL',230)
@@ -1389,7 +1391,9 @@ $refreshRunners = New-RunnerButton '状態を更新' 112
 $refreshCapabilities = New-RunnerButton '能力を更新' 112
 $startEphemeralRunner = New-RunnerButton 'Ephemeral起動' 122
 $gcEphemeralRunners = New-RunnerButton 'Ephemeral GC' 112
-foreach ($button in @($startSelectedRunner,$stopSelectedRunner,$startAllRunners,$stopAllRunners,$startEphemeralRunner,$gcEphemeralRunners,$refreshRunners,$refreshCapabilities)) {
+$dispatchDetails = New-RunnerButton '配送診断' 100
+$dispatchReconnect = New-RunnerButton '安全再接続' 112
+foreach ($button in @($startSelectedRunner,$stopSelectedRunner,$startAllRunners,$stopAllRunners,$startEphemeralRunner,$gcEphemeralRunners,$dispatchDetails,$dispatchReconnect,$refreshRunners,$refreshCapabilities)) {
     $runnerButtons.Controls.Add($button)
 }
 
@@ -1719,13 +1723,18 @@ function Set-RunnerGridRow($Model) {
         $index = $runnerGrid.Rows.Add()
         $row = $runnerGrid.Rows[$index]
     }
-    foreach ($cellName in @('Id','Name','Scope','Repository','Root','State','Capabilities','Evidence','Ephemeral')) {
+    foreach ($cellName in @('Id','Name','Scope','Repository','Root','State','Dispatch','Queue','Capabilities','Evidence','Ephemeral')) {
         $value = [string]$Model.$cellName
         if ([string]$row.Cells[$cellName].Value -ne $value) {
             $row.Cells[$cellName].Value = $value
         }
     }
     $row.Cells['State'].Style.ForeColor = switch ([string]$Model.Tone) {
+        'good' { $ColorGood }
+        'bad' { $ColorBad }
+        default { $ColorWarn }
+    }
+    $row.Cells['Dispatch'].Style.ForeColor = switch ([string]$Model.DispatchTone) {
         'good' { $ColorGood }
         'bad' { $ColorBad }
         default { $ColorWarn }
@@ -1744,6 +1753,8 @@ function Update-RunnerActionAvailability {
     $startSelectedRunner.Enabled = $managed
     $stopSelectedRunner.Enabled = $managed
     $startEphemeralRunner.Enabled = $managed
+    $dispatchDetails.Enabled = $managed
+    $dispatchReconnect.Enabled = $managed
 }
 
 function Refresh-RunnerOverview([switch]$Force) {
