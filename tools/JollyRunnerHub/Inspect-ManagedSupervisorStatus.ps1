@@ -17,12 +17,23 @@ $eventPath = Join-Path $AppRoot 'managed-supervisor.jsonl'
 
 function Leaf([string]$Value) {
     if ([string]::IsNullOrWhiteSpace($Value)) { return '' }
-    try { return Split-Path -Leaf ([Environment]::ExpandEnvironmentVariables($Value).TrimEnd([char[]]@('\','/'))) } catch { return '' }
+    try { return Split-Path -Leaf ([Environment]::ExpandEnvironmentVariables($Value).TrimEnd([char[]]@('\\','/'))) } catch { return '' }
 }
 
 function Read-Json([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
     try { return Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json } catch { return $null }
+}
+
+function Get-StatusAgeSeconds([string]$Timestamp) {
+    if ([string]::IsNullOrWhiteSpace($Timestamp)) { return $null }
+    try {
+        $parsed = [DateTimeOffset]::Parse($Timestamp,[Globalization.CultureInfo]::InvariantCulture)
+        $seconds = ([DateTimeOffset]::UtcNow - $parsed.ToUniversalTime()).TotalSeconds
+        return [math]::Max(0,[int][math]::Floor($seconds))
+    } catch {
+        return $null
+    }
 }
 
 $config = Read-Json $configPath
@@ -36,7 +47,7 @@ try {
         if ([string]::IsNullOrWhiteSpace([string]$process.ExecutablePath)) { continue }
         try {
             $root = Split-Path -Parent (Split-Path -Parent ([string]$process.ExecutablePath))
-            $listenerRoots[[IO.Path]::GetFullPath($root).TrimEnd([char[]]@('\','/')).ToLowerInvariant()] = $true
+            $listenerRoots[[IO.Path]::GetFullPath($root).TrimEnd([char[]]@('\\','/')).ToLowerInvariant()] = $true
         } catch {}
     }
 } catch {}
@@ -45,7 +56,7 @@ $candidateSummary = @()
 foreach ($root in $candidateRoots) {
     if (-not (Test-JollyConfiguredRunnerRoot $root)) { continue }
     $key = ''
-    try { $key = [IO.Path]::GetFullPath($root).TrimEnd([char[]]@('\','/')).ToLowerInvariant() } catch {}
+    try { $key = [IO.Path]::GetFullPath($root).TrimEnd([char[]]@('\\','/')).ToLowerInvariant() } catch {}
     $candidateSummary += [pscustomobject]@{
         rootLeaf = Leaf $root
         repository = Get-JollyRunnerRepositoryFromRoot $root
@@ -83,29 +94,31 @@ if ($null -ne $config) {
 
 $events = @()
 if (Test-Path -LiteralPath $eventPath -PathType Leaf) {
-    foreach ($line in @(Get-Content -LiteralPath $eventPath -Tail 40 -Encoding UTF8 -ErrorAction SilentlyContinue)) {
+    foreach ($line in @(Get-Content -LiteralPath $eventPath -Tail 60 -Encoding UTF8 -ErrorAction SilentlyContinue)) {
         try {
             $entry = $line | ConvertFrom-Json
-            if ([string]$entry.profileId -eq 'kneekura-lab' -or [string]$entry.profileId -eq '') {
-                $events += [pscustomobject]@{timestamp=[string]$entry.timestamp;profileId=[string]$entry.profileId;action=[string]$entry.action;result=[string]$entry.result;reason=[string]$entry.reason}
+            $events += [pscustomobject]@{
+                timestamp = [string]$entry.timestamp
+                profileId = [string]$entry.profileId
+                action = [string]$entry.action
+                result = [string]$entry.result
+                reason = [string]$entry.reason
             }
         } catch {}
     }
 }
 
-$ageSeconds = $null
-if ($null -ne $status -and -not [string]::IsNullOrWhiteSpace([string]$status.updatedAt)) {
-    try { $ageSeconds = [math]::Max(0,[int]([datetime]::UtcNow-([datetime]$status.updatedAt).ToUniversalTime()).TotalSeconds) } catch {}
-}
+$ageSeconds = if ($null -ne $status) { Get-StatusAgeSeconds ([string]$status.updatedAt) } else { $null }
 
 $result = [ordered]@{
     schema = 'jolly.managed-supervisor-diagnostic'
-    version = 1
+    version = 2
+    generatedAtUtc = ([DateTimeOffset]::UtcNow.ToString('o'))
     statusPresent = ($null -ne $status)
     statusAgeSeconds = $ageSeconds
     supervisorProcessId = if ($null -ne $status) { [int]$status.processId } else { 0 }
     profiles = $profileSummary
     candidates = $candidateSummary
-    recentKneekuraEvents = @($events | Select-Object -Last 12)
+    recentEvents = @($events | Select-Object -Last 20)
 }
 Write-Host ('SUPERVISOR_DIAG=' + ($result | ConvertTo-Json -Depth 8 -Compress))
