@@ -20,6 +20,9 @@ $DispatchRoot = Join-Path $AppRoot 'dispatch'
 $DispatchWatchPath = Join-Path $PSScriptRoot 'RunnerDispatchWatch.ps1'
 $DispatchProbePath = Join-Path $PSScriptRoot 'RunnerDispatchProbe.ps1'
 $RunnerConfigPath = Join-Path $PSScriptRoot 'RunnerConfig.ps1'
+$RunnerControlStatePath = Join-Path $PSScriptRoot 'RunnerControlState.ps1'
+$MaintenancePath = Join-Path $PSScriptRoot 'RunnerMaintenance.ps1'
+$SupervisorStatusPath = Join-Path $AppRoot 'supervisor-status.json'
 $RunnerLifecyclePath = Join-Path $PSScriptRoot 'RunnerLifecycle.ps1'
 if (-not (Test-Path -LiteralPath $RunnerLifecyclePath)) {
     $RunnerLifecyclePath = Join-Path (Split-Path -Parent $PSScriptRoot) 'RunnerLifecycle.ps1'
@@ -36,8 +39,12 @@ if (-not (Test-Path -LiteralPath $DispatchWatchPath)) { throw 'RunnerDispatchWat
 if (-not (Test-Path -LiteralPath $DispatchProbePath)) { throw 'RunnerDispatchProbe.ps1 was not found.' }
 if (-not (Test-Path -LiteralPath $RunnerConfigPath)) { $RunnerConfigPath = Join-Path $AppRoot 'RunnerConfig.ps1' }
 if (-not (Test-Path -LiteralPath $RunnerConfigPath)) { throw 'RunnerConfig.ps1 was not found.' }
+if (-not (Test-Path -LiteralPath $RunnerControlStatePath)) { $RunnerControlStatePath = Join-Path $AppRoot 'RunnerControlState.ps1' }
+if (-not (Test-Path -LiteralPath $MaintenancePath)) { $MaintenancePath = Join-Path $AppRoot 'RunnerMaintenance.ps1' }
+if (-not (Test-Path -LiteralPath $RunnerControlStatePath)) { throw 'RunnerControlState.ps1 was not found.' }
 . $DispatchWatchPath
 . $RunnerConfigPath
+. $RunnerControlStatePath
 
 $script:Config = $null
 $script:Profile = $null
@@ -107,10 +114,32 @@ function Read-CapabilitySnapshot {
     }
 }
 
+function Read-ManagedSupervisorStatus {
+    if (-not (Test-Path -LiteralPath $SupervisorStatusPath -PathType Leaf)) { return $null }
+    try {
+        $status = Get-Content -LiteralPath $SupervisorStatusPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        $updated = [datetime]::MinValue
+        if (-not [datetime]::TryParse([string]$status.updatedAt,[ref]$updated)) { return $null }
+        $age = [math]::Max(0,[int]([datetime]::UtcNow-$updated.ToUniversalTime()).TotalSeconds)
+        Add-Member -InputObject $status -NotePropertyName AgeSeconds -NotePropertyValue $age -Force
+        return $status
+    } catch { return $null }
+}
+
+function Test-ManagedSupervisorHealthy {
+    $status = Read-ManagedSupervisorStatus
+    return ($null -ne $status -and [int]$status.AgeSeconds -le 30)
+}
+
+function Get-ProfileDesiredState($Profile) {
+    return Get-JollyDesiredRunnerState -AppRoot $AppRoot -Profile $Profile -Config $script:Config
+}
+
 function Invoke-RunnerAutoRecovery($Profile,$State) {
     if ($null -eq $Profile -or $null -eq $State) { return }
-    $autoConnect = if ($Profile.PSObject.Properties.Name -contains 'autoConnect') { [bool]$Profile.autoConnect } else { [bool]$script:Config.autoConnect }
-    if (-not $autoConnect -or [string]$State.Code -ne 'stopped' -or -not (Test-RunnerConfigured $Profile)) { return }
+    if (Test-ManagedSupervisorHealthy) { return }
+    if ((Get-ProfileDesiredState $Profile) -ne 'running') { return }
+    if ([string]$State.Code -ne 'stopped' -or -not (Test-RunnerConfigured $Profile)) { return }
     $id = Safe-Name ([string]$Profile.id)
     if (-not $script:RunnerRecoveryState.ContainsKey($id)) {
         $script:RunnerRecoveryState[$id] = [pscustomobject]@{ Attempts=0; LastAttempt=[datetime]::MinValue }
