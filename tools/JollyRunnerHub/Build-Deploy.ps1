@@ -168,7 +168,7 @@ if (@($defaultConfigObject.profiles | Where-Object { [string]$_.id -eq 'kneekura
 }
 foreach ($requiredMarker in @(
     'function Get-RunnerInventory',
-    "Scope = '未管理'",
+    "'unmanaged'",
     '$UiStatePath',
     'function Save-UiState',
     '$script:RunnerOverviewIntervalSeconds = 3'
