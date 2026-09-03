@@ -19,6 +19,7 @@ $CapabilitiesCliPath = Join-Path $AppRoot 'Inspect-RunnerCapabilities.ps1'
 $DispatchRoot = Join-Path $AppRoot 'dispatch'
 $DispatchWatchPath = Join-Path $PSScriptRoot 'RunnerDispatchWatch.ps1'
 $DispatchProbePath = Join-Path $PSScriptRoot 'RunnerDispatchProbe.ps1'
+$RunnerConfigPath = Join-Path $PSScriptRoot 'RunnerConfig.ps1'
 $RunnerLifecyclePath = Join-Path $PSScriptRoot 'RunnerLifecycle.ps1'
 if (-not (Test-Path -LiteralPath $RunnerLifecyclePath)) {
     $RunnerLifecyclePath = Join-Path (Split-Path -Parent $PSScriptRoot) 'RunnerLifecycle.ps1'
@@ -33,7 +34,10 @@ if (-not (Test-Path -LiteralPath $DispatchProbePath)) {
 }
 if (-not (Test-Path -LiteralPath $DispatchWatchPath)) { throw 'RunnerDispatchWatch.ps1 was not found.' }
 if (-not (Test-Path -LiteralPath $DispatchProbePath)) { throw 'RunnerDispatchProbe.ps1 was not found.' }
+if (-not (Test-Path -LiteralPath $RunnerConfigPath)) { $RunnerConfigPath = Join-Path $AppRoot 'RunnerConfig.ps1' }
+if (-not (Test-Path -LiteralPath $RunnerConfigPath)) { throw 'RunnerConfig.ps1 was not found.' }
 . $DispatchWatchPath
+. $RunnerConfigPath
 
 $script:Config = $null
 $script:Profile = $null
@@ -135,60 +139,12 @@ function Set-DoubleBuffered($Control) {
 function Load-Config {
     New-Item -ItemType Directory -Force -Path $AppRoot | Out-Null
     New-Item -ItemType Directory -Force -Path $HistoryRoot | Out-Null
-    if (-not (Test-Path -LiteralPath $ConfigPath)) {
-        Copy-Item -LiteralPath $DefaultConfigPath -Destination $ConfigPath -Force
-    }
-    $script:Config = Get-Content -LiteralPath $ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    $defaultConfig = Get-Content -LiteralPath $DefaultConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    $knownIds = @{}
-    foreach ($profile in @($script:Config.profiles)) {
-        $knownIds[[string]$profile.id] = $true
-    }
-    $configChanged = $false
-    foreach ($defaultProfile in @($defaultConfig.profiles)) {
-        $defaultId = [string]$defaultProfile.id
-        if (-not $knownIds.ContainsKey($defaultId)) {
-            $script:Config.profiles = @($script:Config.profiles) + @($defaultProfile)
-            $knownIds[$defaultId] = $true
-            $configChanged = $true
-            continue
-        }
-
-        $existingProfile = @($script:Config.profiles | Where-Object { [string]$_.id -eq $defaultId } | Select-Object -First 1)
-        if ($existingProfile.Count -eq 0) { continue }
-        $target = $existingProfile[0]
-        foreach ($property in @($defaultProfile.PSObject.Properties)) {
-            if ([string]$property.Name -eq 'id') { continue }
-            if ($null -eq $target.PSObject.Properties[[string]$property.Name]) {
-                Add-Member -InputObject $target -NotePropertyName ([string]$property.Name) -NotePropertyValue $property.Value
-                $configChanged = $true
-            }
-        }
-    }
-    $defaultVersion = 0
-    [void][int]::TryParse([string]$defaultConfig.version,[ref]$defaultVersion)
-    $currentVersion = 0
-    if ($null -ne $script:Config.PSObject.Properties['version']) {
-        [void][int]::TryParse([string]$script:Config.version,[ref]$currentVersion)
-    }
-    if ($defaultVersion -gt $currentVersion) {
-        if ($null -eq $script:Config.PSObject.Properties['version']) {
-            Add-Member -InputObject $script:Config -NotePropertyName version -NotePropertyValue $defaultVersion
-        } else {
-            $script:Config.version = $defaultVersion
-        }
-        $configChanged = $true
-    }
-    if ($configChanged) {
-        $script:Config | ConvertTo-Json -Depth 12 |
-            Set-Content -LiteralPath $ConfigPath -Encoding UTF8
-    }
+    $script:Config = Read-JollyRunnerConfig -ConfigPath $ConfigPath -DefaultConfigPath $DefaultConfigPath
     if ($null -eq $script:Config.profiles -or @($script:Config.profiles).Count -eq 0) {
         throw 'profiles.json にprofilesがありません。'
     }
     $script:LastConfigWrite = (Get-Item -LiteralPath $ConfigPath).LastWriteTimeUtc
 }
-
 
 function Normalize-RunnerRoot([string]$Path) {
     if ([string]::IsNullOrWhiteSpace($Path)) { return '' }
