@@ -96,21 +96,21 @@ function Get-JollyDispatchClassification {
 
     if ($null -eq $Probe) {
         return [pscustomobject]@{
-            Code='probe_pending'; Text='診断待ち'; Tone='warn'; CanRecover=$false
+            Code='probe_pending'; Text='probe pending'; Tone='warn'; CanRecover=$false
             Evidence='dispatch probe has not completed yet'
         }
     }
 
     if ($ProbeAgeSeconds -gt 120) {
         return [pscustomobject]@{
-            Code='probe_stale'; Text='配送診断が古い'; Tone='warn'; CanRecover=$false
+            Code='probe_stale'; Text='probe stale'; Tone='warn'; CanRecover=$false
             Evidence=('dispatch probe stale age={0}s' -f $ProbeAgeSeconds)
         }
     }
 
     if (-not [bool]$Probe.apiOk) {
         return [pscustomobject]@{
-            Code='api_error'; Text='GitHub診断失敗'; Tone='warn'; CanRecover=$false
+            Code='api_error'; Text='GitHub probe failed'; Tone='warn'; CanRecover=$false
             Evidence=('dispatch API error: {0}' -f [string]$Probe.error)
         }
     }
@@ -119,14 +119,14 @@ function Get-JollyDispatchClassification {
     [void][int]::TryParse([string]$Probe.routeCandidateCount,[ref]$routeCandidateCount)
     if ($routeCandidateCount -gt 1) {
         return [pscustomobject]@{
-            Code='route_duplicate'; Text='配送先が重複'; Tone='bad'; CanRecover=$false
+            Code='route_duplicate'; Text='duplicate route'; Tone='bad'; CanRecover=$false
             Evidence=('multiple non-ephemeral runners match routing labels: {0}' -f $routeCandidateCount)
         }
     }
 
     if (-not [bool]$Probe.runnerFound) {
         return [pscustomobject]@{
-            Code='registration_missing'; Text='GitHub登録なし'; Tone='bad'; CanRecover=$false
+            Code='registration_missing'; Text='registration missing'; Tone='bad'; CanRecover=$false
             Evidence='configured local runner name was not found in repository runner registrations'
         }
     }
@@ -142,14 +142,14 @@ function Get-JollyDispatchClassification {
 
     if ($busy -or $LocalCode -eq 'running_job') {
         return [pscustomobject]@{
-            Code='running'; Text='ジョブ実行中'; Tone='good'; CanRecover=$false
+            Code='running'; Text='job running'; Tone='good'; CanRecover=$false
             Evidence=('github busy={0}; local={1}' -f $busy,$LocalCode)
         }
     }
 
     if ($githubStatus -eq 'offline') {
         return [pscustomobject]@{
-            Code='github_offline'; Text='GitHub側オフライン'; Tone='bad'; CanRecover=$false
+            Code='github_offline'; Text='GitHub offline'; Tone='bad'; CanRecover=$false
             Evidence=('runner registration is offline; eligibleQueued={0}' -f $eligible)
         }
     }
@@ -157,7 +157,7 @@ function Get-JollyDispatchClassification {
     $locallyReady = $LocalCode -in @('listening','connected_starting','post_job')
     if ($githubStatus -eq 'online' -and -not $locallyReady) {
         return [pscustomobject]@{
-            Code='ghost_online'; Text='Ghost online疑い'; Tone='bad'; CanRecover=($eligible -gt 0 -and $oldest -ge $RecoverSeconds)
+            Code='ghost_online'; Text='ghost online suspected'; Tone='bad'; CanRecover=($eligible -gt 0 -and $oldest -ge $RecoverSeconds)
             Evidence=('GitHub=online but local state={0}; eligibleQueued={1}; oldest={2}s' -f $LocalCode,$eligible,$oldest)
         }
     }
@@ -165,39 +165,39 @@ function Get-JollyDispatchClassification {
     if ($eligible -le 0) {
         if ($locallyReady -and $githubStatus -eq 'online') {
             return [pscustomobject]@{
-                Code='ready'; Text='配送待機OK'; Tone='good'; CanRecover=$false
+                Code='ready'; Text='dispatch ready'; Tone='good'; CanRecover=$false
                 Evidence='GitHub online + local listener ready + no eligible queued job'
             }
         }
         return [pscustomobject]@{
-            Code='idle_unknown'; Text='待機状態確認中'; Tone='warn'; CanRecover=$false
+            Code='idle_unknown'; Text='idle state uncertain'; Tone='warn'; CanRecover=$false
             Evidence=('github={0}; local={1}; eligibleQueued=0' -f $githubStatus,$LocalCode)
         }
     }
 
     if ($assigned -gt 0) {
         return [pscustomobject]@{
-            Code='assigned'; Text='Runnerへ配送済み'; Tone='good'; CanRecover=$false
+            Code='assigned'; Text='assigned to runner'; Tone='good'; CanRecover=$false
             Evidence=('eligibleQueued={0}; assignedQueued={1}; oldest={2}s' -f $eligible,$assigned,$oldest)
         }
     }
 
     if ($oldest -ge $RecoverSeconds -and $locallyReady -and $githubStatus -eq 'online') {
         return [pscustomobject]@{
-            Code='dispatch_stalled'; Text=('配送停止? {0}s' -f $oldest); Tone='bad'; CanRecover=$true
+            Code='dispatch_stalled'; Text=('dispatch stalled {0}s' -f $oldest); Tone='bad'; CanRecover=$true
             Evidence=('eligible queued job remains unassigned; runner online/busy=false/local ready; oldest={0}s' -f $oldest)
         }
     }
 
     if ($oldest -ge $WarnSeconds) {
         return [pscustomobject]@{
-            Code='dispatch_slow'; Text=('配送遅延 {0}s' -f $oldest); Tone='warn'; CanRecover=$false
+            Code='dispatch_slow'; Text=('dispatch slow {0}s' -f $oldest); Tone='warn'; CanRecover=$false
             Evidence=('eligible queued jobs waiting unassigned; count={0}; oldest={1}s' -f $eligible,$oldest)
         }
     }
 
     return [pscustomobject]@{
-        Code='queue_waiting'; Text=('配送待ち {0}s' -f $oldest); Tone='warn'; CanRecover=$false
+        Code='queue_waiting'; Text=('queue waiting {0}s' -f $oldest); Tone='warn'; CanRecover=$false
         Evidence=('eligible queued jobs waiting normally; count={0}; oldest={1}s' -f $eligible,$oldest)
     }
 }
