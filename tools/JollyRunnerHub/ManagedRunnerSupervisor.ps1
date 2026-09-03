@@ -134,13 +134,16 @@ function Get-SupervisorRawLocalState {
     $root = [Environment]::ExpandEnvironmentVariables([string]$Profile.runnerRoot)
     $diagRoot = Join-Path $root '_diag'
     $lines = @()
+    $latest = $null
+    $diagnosticsReadable = $true
     if (Test-Path -LiteralPath $diagRoot -PathType Container) {
         $latest = Get-ChildItem -LiteralPath $diagRoot -Filter 'Runner_*.log' -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
         if ($null -ne $latest) {
-            try { $lines = @(Get-Content -LiteralPath $latest.FullName -Tail 300 -Encoding UTF8 -ErrorAction Stop) } catch {}
+            try { $lines = @(Get-Content -LiteralPath $latest.FullName -Tail 300 -Encoding UTF8 -ErrorAction Stop) } catch { $diagnosticsReadable = $false }
         }
     }
-    return Get-JollyRunnerConnectionStateLegacy -ProcessRunning $true -LogLines $lines
+    $logUpdatedAtUtc = if ($null -ne $latest) { [datetime]$latest.LastWriteTimeUtc } else { [datetime]::MinValue }
+    return Get-JollyRunnerConnectionState -ProcessRunning $true -LogLines $lines -LogUpdatedAtUtc $logUpdatedAtUtc -GitHubStatus 'unknown' -StaleAfterSeconds 120 -DiagnosticsReadable $diagnosticsReadable
 }
 
 function Get-SupervisorDispatchPath {
