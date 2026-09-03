@@ -43,7 +43,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path (Split-Path -Parent $log) | Out-Null
           $install = $env:INSTALL_DESKTOP_APP -eq 'true'
           try {
-            & .\tools\JollyRunnerHub\Build-Deploy.ps1 -Install:$install *>&1 |
+            & .\tools\JollyRunnerHub\Invoke-BuildDeploySafely.ps1 -Install:$install *>&1 |
               Tee-Object -FilePath $log
           }
           catch {
@@ -64,7 +64,7 @@ jobs:
 
       - name: Upload portable launcher and diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: JollyRunnerHub-${{ github.run_id }}
           if-no-files-found: warn
@@ -72,6 +72,7 @@ jobs:
             tools/JollyRunnerHub/build/JollyRunnerHub.exe
             tools/JollyRunnerHub/build/JollyRunnerHub.ico
             tools/JollyRunnerHub/build/deploy.log
+            tools/JollyRunnerHub/Invoke-BuildDeploySafely.ps1
             tools/JollyRunnerHub/JollyRunnerHub.ps1
             tools/JollyRunnerHub/RunnerConnectionState.ps1
             tools/JollyRunnerHub/EphemeralRunnerController.psm1
@@ -106,7 +107,7 @@ jobs:
 
       - name: Persist deployment status
         if: always() && github.event_name != 'pull_request'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           JOB_STATUS: ${{ job.status }}
           SELF_HOSTED_RUNNER: ${{ runner.name }}
