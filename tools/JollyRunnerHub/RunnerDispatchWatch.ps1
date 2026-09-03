@@ -154,7 +154,12 @@ function Get-JollyDispatchClassification {
         }
     }
 
-    $locallyReady = $LocalCode -in @('listening','connected_starting','post_job')
+    # A stale reconnect marker is not current proof that a live, GitHub-online
+    # listener is a ghost. Treat the process as dispatch-capable for queue
+    # decisions, while keeping localCode=stale_diagnostics visible to operators.
+    # If a real eligible queue remains unassigned past the recovery threshold,
+    # the normal dispatch_stalled path below still permits guarded recovery.
+    $locallyReady = $LocalCode -in @('listening','connected_starting','post_job','stale_diagnostics')
     if ($githubStatus -eq 'online' -and -not $locallyReady) {
         return [pscustomobject]@{
             Code='ghost_online'; Text='ghost online suspected'; Tone='bad'; CanRecover=($eligible -gt 0 -and $oldest -ge $RecoverSeconds)
@@ -164,9 +169,14 @@ function Get-JollyDispatchClassification {
 
     if ($eligible -le 0) {
         if ($locallyReady -and $githubStatus -eq 'online') {
+            $readyEvidence = if ($LocalCode -eq 'stale_diagnostics') {
+                'GitHub online + listener process alive + stale local diagnostics ignored + no eligible queued job'
+            } else {
+                'GitHub online + local listener ready + no eligible queued job'
+            }
             return [pscustomobject]@{
                 Code='ready'; Text='dispatch ready'; Tone='good'; CanRecover=$false
-                Evidence='GitHub online + local listener ready + no eligible queued job'
+                Evidence=$readyEvidence
             }
         }
         return [pscustomobject]@{

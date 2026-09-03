@@ -1,6 +1,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'RunnerDispatchWatch.ps1')
+. (Join-Path $PSScriptRoot 'RunnerConnectionState.ps1')
 
 function Assert-True([bool]$Condition,[string]$Message) {
     if (-not $Condition) { throw $Message }
@@ -34,8 +35,27 @@ Assert-Equal 'running' $busy.Code 'busy runner must win over stale queue'
 Assert-True (-not $busy.CanRecover) 'busy runner must never be restarted'
 
 $ghost = Get-JollyDispatchClassification -LocalCode reconnecting -Probe $stalledProbe -WarnSeconds 45 -RecoverSeconds 180
-Assert-Equal 'ghost_online' $ghost.Code 'online API with broken local listener should be ghost-online'
-Assert-True $ghost.CanRecover 'ghost online with old eligible queue should be recoverable'
+Assert-Equal 'ghost_online' $ghost.Code 'fresh online API with broken local listener should be ghost-online'
+Assert-True $ghost.CanRecover 'fresh ghost online with old eligible queue should be recoverable'
+
+# Live regression: a reconnect marker from an old _diag file must not remain a
+# permanent ghost-online signal just because Runner.Listener is still alive.
+$now = [datetime]::UtcNow
+$staleLocal = Get-JollyRunnerConnectionState -ProcessRunning $true -LogLines @('runner connect error fixture') `
+    -LogUpdatedAtUtc $now.AddSeconds(-300) -NowUtc $now -GitHubStatus unknown -StaleAfterSeconds 120
+Assert-Equal 'stale_diagnostics' $staleLocal.Code 'old reconnect marker must age into stale diagnostics'
+$freshLocal = Get-JollyRunnerConnectionState -ProcessRunning $true -LogLines @('runner connect error fixture') `
+    -LogUpdatedAtUtc $now.AddSeconds(-30) -NowUtc $now -GitHubStatus unknown -StaleAfterSeconds 120
+Assert-Equal 'reconnecting' $freshLocal.Code 'fresh reconnect marker must remain reconnecting'
+
+$staleReady = Get-JollyDispatchClassification -LocalCode stale_diagnostics -Probe $readyProbe -WarnSeconds 45 -RecoverSeconds 180
+Assert-Equal 'ready' $staleReady.Code 'stale local reconnect evidence must not create ghost-online with healthy API and empty queue'
+Assert-True (-not $staleReady.CanRecover) 'stale diagnostics alone must never trigger reconnect'
+Assert-True ([string]$staleReady.Evidence -match 'stale local diagnostics ignored') 'ready evidence must disclose stale local diagnostics'
+
+$staleStalled = Get-JollyDispatchClassification -LocalCode stale_diagnostics -Probe $stalledProbe -WarnSeconds 45 -RecoverSeconds 180
+Assert-Equal 'dispatch_stalled' $staleStalled.Code 'real old eligible queue must remain recoverable even when local diagnostics are stale'
+Assert-True $staleStalled.CanRecover 'stale diagnostics must not disable genuine guarded dispatch recovery'
 
 $duplicateProbe = [pscustomobject]@{apiOk=$true;error='';routeCandidateCount=2;runnerFound=$true;runnerStatus='online';runnerBusy=$false;eligibleQueuedCount=0;assignedQueuedCount=0;oldestQueuedSeconds=0}
 $duplicate = Get-JollyDispatchClassification -LocalCode listening -Probe $duplicateProbe -WarnSeconds 45 -RecoverSeconds 180
