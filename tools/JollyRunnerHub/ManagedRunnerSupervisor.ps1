@@ -2,6 +2,7 @@
 param(
     [string]$AppRoot = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'JollyRunnerHub'),
     [ValidateRange(5,300)][int]$IntervalSeconds = 10,
+    [string]$MutexName = 'Local\JollyRunnerHub-ManagedSupervisor-v1',
     [switch]$Once
 )
 
@@ -20,9 +21,10 @@ $DispatchWatchPath = Join-Path $AppRoot 'RunnerDispatchWatch.ps1'
 $DispatchProbePath = Join-Path $AppRoot 'RunnerDispatchProbe.ps1'
 $ConnectionStatePath = Join-Path $AppRoot 'RunnerConnectionState.ps1'
 $SupervisorCorePath = Join-Path $AppRoot 'ManagedRunnerSupervisorCore.ps1'
+$RootResolverPath = Join-Path $AppRoot 'RunnerRootResolver.ps1'
 $MaintenancePath = Join-Path $AppRoot 'RunnerMaintenance.ps1'
 
-foreach ($required in @($ConfigModulePath,$ControlStatePath,$DispatchWatchPath,$DispatchProbePath,$ConnectionStatePath,$SupervisorCorePath)) {
+foreach ($required in @($ConfigModulePath,$ControlStatePath,$DispatchWatchPath,$DispatchProbePath,$ConnectionStatePath,$SupervisorCorePath,$RootResolverPath)) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) { throw "Supervisor dependency missing: $required" }
 }
 . $ConfigModulePath
@@ -30,9 +32,10 @@ foreach ($required in @($ConfigModulePath,$ControlStatePath,$DispatchWatchPath,$
 . $DispatchWatchPath
 . $ConnectionStatePath
 . $SupervisorCorePath
+. $RootResolverPath
 
 New-Item -ItemType Directory -Force -Path $AppRoot,$DispatchRoot | Out-Null
-$mutex = New-Object Threading.Mutex($false,'Local\JollyRunnerHub-ManagedSupervisor-v1')
+$mutex = New-Object Threading.Mutex($false,$MutexName)
 if (-not $mutex.WaitOne([TimeSpan]::FromSeconds(2))) { exit 0 }
 
 $script:Recovery = @{}
@@ -246,16 +249,22 @@ try {
             $probeBudget = 1
             foreach ($profile in @($config.profiles)) {
                 $profileId = [string]$profile.id
-                $configured = Test-SupervisorRunnerConfigured $profile
+                $binding = Resolve-JollyRunnerRootBinding -Profile $profile
+                $effectiveProfile = if (-not [string]::IsNullOrWhiteSpace([string]$binding.Root)) {
+                    New-JollyProfileWithRunnerRoot -Profile $profile -RunnerRoot ([string]$binding.Root)
+                } else {
+                    $profile
+                }
+                $configured = ([string]$binding.Status -in @('configured','fallback')) -and (Test-SupervisorRunnerConfigured $effectiveProfile)
                 $desired = Get-JollyDesiredRunnerState -AppRoot $AppRoot -Profile $profile -Config $config
-                $processRunning = @(Get-SupervisorRunnerProcesses $profile).Count -gt 0
-                $local = Get-SupervisorRawLocalState $profile
+                $processRunning = @(Get-SupervisorRunnerProcesses $effectiveProfile).Count -gt 0
+                $local = Get-SupervisorRawLocalState $effectiveProfile
 
-                $probe = Read-SupervisorDispatchProbe $profile
-                $probeMaxAge = Get-JollyDispatchProbeMaxAgeSeconds $profile
+                $probe = Read-SupervisorDispatchProbe $effectiveProfile
+                $probeMaxAge = Get-JollyDispatchProbeMaxAgeSeconds $effectiveProfile
                 if ($configured -and $probeBudget -gt 0 -and -not $script:ProbeProcesses.ContainsKey($profileId) -and ($null -eq $probe -or [int]$probe.SnapshotAgeSeconds -ge $probeMaxAge)) {
                     try {
-                        if (Start-SupervisorDispatchProbe $profile) { $probeBudget-- }
+                        if (Start-SupervisorDispatchProbe $effectiveProfile) { $probeBudget-- }
                     } catch {
                         Write-SupervisorEvent $profileId 'dispatch-probe' 'failed' $_.Exception.Message
                     }
@@ -263,7 +272,7 @@ try {
 
                 $dispatch = if ($configured) {
                     $age = if ($null -ne $probe) { [int]$probe.SnapshotAgeSeconds } else { 0 }
-                    Get-JollyDispatchClassification -LocalCode ([string]$local.Code) -Probe $probe -WarnSeconds (Get-JollyDispatchWarnSeconds $profile) -RecoverSeconds (Get-JollyDispatchRecoverSeconds $profile) -ProbeAgeSeconds $age
+                    Get-JollyDispatchClassification -LocalCode ([string]$local.Code) -Probe $probe -WarnSeconds (Get-JollyDispatchWarnSeconds $effectiveProfile) -RecoverSeconds (Get-JollyDispatchRecoverSeconds $effectiveProfile) -ProbeAgeSeconds $age
                 } else {
                     [pscustomobject]@{Code='unregistered';Text='unregistered';Tone='bad';CanRecover=$false;Evidence='runner not configured'}
                 }
@@ -286,7 +295,7 @@ try {
                 $actionResult = 'none'
                 if ([string]$decision.Action -eq 'stop') {
                     try {
-                        Stop-SupervisorRunner $profile
+                        Stop-SupervisorRunner $effectiveProfile
                         $actionResult='stopped'
                         Write-SupervisorEvent $profileId 'stop' 'success' ([string]$decision.Reason)
                         Refresh-SupervisorProcessInventory
@@ -299,7 +308,7 @@ try {
                     $recovery.LastStartAttempt=[datetime]::UtcNow
                     $recovery.StartFailureCount=[math]::Min(5,[int]$recovery.StartFailureCount+1)
                     try {
-                        Start-SupervisorRunner $profile
+                        Start-SupervisorRunner $effectiveProfile
                         $actionResult='start-issued'
                         Write-SupervisorEvent $profileId 'start' 'issued' ([string]$decision.Reason)
                     } catch {
@@ -328,6 +337,9 @@ try {
                     id=$profileId
                     desiredState=$desired
                     configured=[bool]$configured
+                    rootBinding=[string]$binding.Status
+                    configuredRoot=[string]$binding.ConfiguredRoot
+                    effectiveRoot=[string]$binding.Root
                     processRunning=[bool]$processRunning
                     localCode=[string]$local.Code
                     dispatchCode=[string]$dispatch.Code

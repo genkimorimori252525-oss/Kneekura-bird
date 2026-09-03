@@ -83,6 +83,8 @@ jobs:
             tools/JollyRunnerHub/Test-ManagedRunnerSupervisorRuntime.ps1
             tools/JollyRunnerHub/RunnerMaintenance.ps1
             tools/JollyRunnerHub/Register-ManagedRunnerSupervisor.ps1
+            tools/JollyRunnerHub/RunnerRootResolver.ps1
+            tools/JollyRunnerHub/Test-RunnerRootResolver.ps1
             tools/JollyRunnerHub/Use-LocalGradle.ps1
             tools/JollyRunnerHub/RunnerLifecycle.ps1
             tools/JollyRunnerHub/profiles.default.json

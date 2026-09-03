@@ -6,7 +6,7 @@ try {
     New-Item -ItemType Directory -Force -Path $root | Out-Null
     foreach ($name in @(
         'RunnerConfig.ps1','RunnerControlState.ps1','RunnerDispatchWatch.ps1','RunnerDispatchProbe.ps1',
-        'RunnerConnectionState.ps1','ManagedRunnerSupervisorCore.ps1','RunnerMaintenance.ps1'
+        'RunnerConnectionState.ps1','ManagedRunnerSupervisorCore.ps1','RunnerRootResolver.ps1','RunnerMaintenance.ps1'
     )) {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination (Join-Path $root $name) -Force
     }
@@ -36,7 +36,8 @@ try {
     $supervisor = Join-Path $PSScriptRoot 'ManagedRunnerSupervisor.ps1'
     $process = Start-Process powershell.exe -ArgumentList @(
         '-NoProfile','-ExecutionPolicy','Bypass','-File',('"{0}"' -f $supervisor),
-        '-AppRoot',('"{0}"' -f $root),'-IntervalSeconds','5','-Once'
+        '-AppRoot',('"{0}"' -f $root),'-IntervalSeconds','5',
+        '-MutexName',('Local\JollyRunnerHub-Test-' + [guid]::NewGuid().ToString('N')),'-Once'
     ) -PassThru -Wait -WindowStyle Hidden
     if ($process.ExitCode -ne 0) { throw "Supervisor runtime test exit=$($process.ExitCode)" }
 

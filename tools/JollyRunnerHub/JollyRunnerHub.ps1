@@ -21,6 +21,7 @@ $DispatchWatchPath = Join-Path $PSScriptRoot 'RunnerDispatchWatch.ps1'
 $DispatchProbePath = Join-Path $PSScriptRoot 'RunnerDispatchProbe.ps1'
 $RunnerConfigPath = Join-Path $PSScriptRoot 'RunnerConfig.ps1'
 $RunnerControlStatePath = Join-Path $PSScriptRoot 'RunnerControlState.ps1'
+$RunnerRootResolverPath = Join-Path $PSScriptRoot 'RunnerRootResolver.ps1'
 $MaintenancePath = Join-Path $PSScriptRoot 'RunnerMaintenance.ps1'
 $SupervisorStatusPath = Join-Path $AppRoot 'supervisor-status.json'
 $RunnerLifecyclePath = Join-Path $PSScriptRoot 'RunnerLifecycle.ps1'
@@ -40,11 +41,14 @@ if (-not (Test-Path -LiteralPath $DispatchProbePath)) { throw 'RunnerDispatchPro
 if (-not (Test-Path -LiteralPath $RunnerConfigPath)) { $RunnerConfigPath = Join-Path $AppRoot 'RunnerConfig.ps1' }
 if (-not (Test-Path -LiteralPath $RunnerConfigPath)) { throw 'RunnerConfig.ps1 was not found.' }
 if (-not (Test-Path -LiteralPath $RunnerControlStatePath)) { $RunnerControlStatePath = Join-Path $AppRoot 'RunnerControlState.ps1' }
+if (-not (Test-Path -LiteralPath $RunnerRootResolverPath)) { $RunnerRootResolverPath = Join-Path $AppRoot 'RunnerRootResolver.ps1' }
 if (-not (Test-Path -LiteralPath $MaintenancePath)) { $MaintenancePath = Join-Path $AppRoot 'RunnerMaintenance.ps1' }
 if (-not (Test-Path -LiteralPath $RunnerControlStatePath)) { throw 'RunnerControlState.ps1 was not found.' }
+if (-not (Test-Path -LiteralPath $RunnerRootResolverPath)) { throw 'RunnerRootResolver.ps1 was not found.' }
 . $DispatchWatchPath
 . $RunnerConfigPath
 . $RunnerControlStatePath
+. $RunnerRootResolverPath
 
 $script:Config = $null
 $script:Profile = $null
@@ -231,6 +235,15 @@ function Load-Config {
     New-Item -ItemType Directory -Force -Path $AppRoot | Out-Null
     New-Item -ItemType Directory -Force -Path $HistoryRoot | Out-Null
     $script:Config = Read-JollyRunnerConfig -ConfigPath $ConfigPath -DefaultConfigPath $DefaultConfigPath
+    foreach ($profile in @($script:Config.profiles)) {
+        $configuredRoot = [string]$profile.runnerRoot
+        $binding = Resolve-JollyRunnerRootBinding -Profile $profile
+        Add-Member -InputObject $profile -NotePropertyName configuredRunnerRoot -NotePropertyValue $configuredRoot -Force
+        Add-Member -InputObject $profile -NotePropertyName runnerRootBindingStatus -NotePropertyValue ([string]$binding.Status) -Force
+        if (-not [string]::IsNullOrWhiteSpace([string]$binding.Root)) {
+            $profile.runnerRoot = [string]$binding.Root
+        }
+    }
     if ($null -eq $script:Config.profiles -or @($script:Config.profiles).Count -eq 0) {
         throw 'profiles.json にprofilesがありません。'
     }
@@ -1949,7 +1962,7 @@ function Refresh-RunnerOverview([switch]$Force) {
                 Dispatch = Get-DispatchDisplayText $dispatch.Classification
                 Queue = [string]$dispatch.QueueText
                 Capabilities = $capabilityText
-                Evidence = ($evidence + '; dispatch=' + [string]$dispatch.Classification.Evidence)
+                Evidence = ($evidence + '; root=' + [string]$profile.runnerRootBindingStatus + '; dispatch=' + [string]$dispatch.Classification.Evidence)
                 Ephemeral = $ephemeral
                 Tone = $tone
                 DispatchTone = [string]$dispatch.Classification.Tone
