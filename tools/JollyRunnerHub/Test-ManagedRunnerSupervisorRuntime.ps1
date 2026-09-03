@@ -58,6 +58,22 @@ try {
     if ($reconnectBody -notmatch 'Start-SupervisorRunner\s+\$effectiveProfile') { throw 'Reconnect must start the resolved effective profile.' }
     if ($reconnectBody -match '(Stop|Start)-SupervisorRunner\s+\$profile(?:\s|$)') { throw 'Reconnect must never target the stale configured profile root.' }
 
+    # The Supervisor must age the actual newest _diag file before using a reconnect
+    # marker as current dispatch evidence. This guards the live false-positive where
+    # a ~24 minute old reconnect line overrode a healthy GitHub-online listener.
+    $localStartMarker = 'function Get-SupervisorRawLocalState {'
+    $localEndMarker = 'function Get-SupervisorDispatchPath {'
+    $localStart = $supervisorSource.IndexOf($localStartMarker,[StringComparison]::Ordinal)
+    if ($localStart -lt 0) { throw 'Supervisor local-state function marker was not found.' }
+    $localEnd = $supervisorSource.IndexOf($localEndMarker,$localStart,[StringComparison]::Ordinal)
+    if ($localEnd -lt 0) { throw 'Supervisor local-state function end marker was not found.' }
+    $localBody = $supervisorSource.Substring($localStart,$localEnd-$localStart)
+    if ($localBody -notmatch '\$latest\.LastWriteTimeUtc') { throw 'Supervisor must pass newest diagnostic LastWriteTimeUtc into freshness classification.' }
+    if ($localBody -notmatch 'Get-JollyRunnerConnectionState\s+-ProcessRunning\s+\$true') { throw 'Supervisor must use freshness-aware runner connection state for live listeners.' }
+    if ($localBody -notmatch "-GitHubStatus\s+'unknown'") { throw 'Local diagnostic freshness must be evaluated independently from the later GitHub dispatch probe.' }
+    if ($localBody -notmatch '-StaleAfterSeconds\s+120') { throw 'Supervisor stale diagnostic threshold must remain explicitly bounded at 120 seconds.' }
+    if ($localBody -notmatch '-DiagnosticsReadable\s+\$diagnosticsReadable') { throw 'Supervisor must preserve diagnostic read failures instead of treating them as fresh state.' }
+
     $process = Start-Process powershell.exe -ArgumentList @(
         '-NoProfile','-ExecutionPolicy','Bypass','-File',('"{0}"' -f $supervisor),
         '-AppRoot',('"{0}"' -f $root),'-IntervalSeconds','5',
