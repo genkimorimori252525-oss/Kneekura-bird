@@ -337,10 +337,10 @@ try {
                 }
                 elseif ([string]$decision.Action -eq 'reconnect') {
                     try {
-                        Stop-SupervisorRunner $profile
+                        Stop-SupervisorRunner $effectiveProfile
                         Start-Sleep -Milliseconds 600
                         Refresh-SupervisorProcessInventory
-                        Start-SupervisorRunner $profile
+                        Start-SupervisorRunner $effectiveProfile
                         $recoveryState.LastRecoveryAttempt=[datetime]::UtcNow
                         $recoveryState.RecoveryAttemptsInWindow=[int]$recoveryState.RecoveryAttemptsInWindow+1
                         $recoveryState.Consecutive=0
