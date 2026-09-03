@@ -8,7 +8,9 @@ Windowsの自己ホストGitHub Actions Runnerをデスクトップから起動�
 - 登録済みRunnerの一括自動接続、個別/一括の起動と停止
 - RunnerプロセスとRunnerログを組み合わせたGitHub接続状態の判定
 - `Runner 管理` タブで複数リポジトリの状態、配置先、判定根拠を一覧表示
-- Warfare Wings、Love-Github、KNEEKURA CODE-LAB、Durable Workflowの独立したrepo-scoped Runnerプロファイル
+- `%LOCALAPPDATA%\GitHubActions` と `C:\actions-runner*` を監査し、profileにもHub Ephemeral領域にも属さないRunnerを`未管理`として警告表示
+- 未管理Runnerは自動起動・停止・復旧の対象にせず、勝手に削除もしない
+- Warfare Wings、Love-Github、KNEEKURA LAB、KNEEKURA CODE-LAB、Durable Workflowの独立したrepo-scoped Runnerプロファイル
 - 1秒ごとにJSONLテレメトリを読み込み
 - 実行中のテレメトリから機体名を自動検出
 - 検証終了後は直近の保存履歴から機体名を復元
@@ -48,12 +50,15 @@ Windowsの自己ホストGitHub Actions Runnerをデスクトップから起動�
 
 ### Runner 管理
 
-4つのRunnerを同時に表示し、選択したRunnerまたは登録済みRunner全体を起動・停止できます。停止はHubが起動元プロセスを記録して安全に対象を特定できる場合だけ実行します。
+5つの正式Runner profileを同時に表示し、選択した管理Runnerまたは登録済みRunner全体を起動・停止できます。停止はHubが起動元プロセスを記録して安全に対象を特定できる場合だけ実行します。
 
 - Warfare Wings: `C:\actions-runner`
 - Love-Github: `C:\actions-runner-love-github`
+- KNEEKURA LAB: `C:\actions-runner-kneekura-lab`
 - KNEEKURA CODE-LAB: `C:\actions-runner-kneekura-code-lab`
 - Durable Workflow: `C:\actions-runner-durable-workflow`
+
+`%LOCALAPPDATA%\GitHubActions\*` などに手作業で作った `Once-*` Runnerは`未管理`として別表示されます。今後の一時Runnerは`Ephemeral起動`から作成し、恒久Runnerが必要なrepositoryは`profiles.json`へ正式profileを追加します。この二択にすることで、Hubの管轄外Runnerが増殖するのを防ぎます。
 
 各personal repositoryのRunner資格情報は共有せず、それぞれのディレクトリに独立して保持します。`profiles.json`にはrunner tokenやcredentialを保存しません。
 
@@ -62,6 +67,7 @@ Windowsの自己ホストGitHub Actions Runnerをデスクトップから起動�
 各workflowは登録先repositoryと一致するcustom labelを使用します。
 
 - Love-Github: `love-github`
+- KNEEKURA LAB: `kneekura`
 - KNEEKURA CODE-LAB: `kneekura-code-lab`
 - Durable Workflow: `durable-workflow`
 
@@ -70,6 +76,12 @@ workflowの`runs-on`を変更した場合は、古いrunを再実行せず、変
 Windows PowerShell 5.1が必要なstepは`shell: powershell`を明示します。`pwsh`を使用するstepは、対象RunnerにPowerShell 7がインストールされPATHから解決できることを事前に確認します。
 
 `autoConnect: true`では、Hub起動時に登録済みの全Runnerを接続します。すでに動作中のRunnerは診断ログの使用状態も含めて検出し、重複起動しません。
+
+### 更新時のUI安定性
+
+Runner一覧は行を毎回破棄して作り直さず、Runner IDをキーに差分更新します。選択行とスクロール位置を保持し、Runner管理タブを開いている時だけ3秒間隔で一覧を更新します。能力情報はsnapshotを1回だけ読み、ログ表示もRunnerログタブを開いている時だけ2秒間隔で差分更新します。
+
+アプリ終了時には選択profile、選択タブ、Runner選択を `%LOCALAPPDATA%\JollyRunnerHub\ui-state.json` へ保存します。JollyRunnerHub本体を更新して再起動しても、作業していた画面へ戻れます。
 
 ### Ephemeral Runner lifecycle
 
