@@ -26,6 +26,8 @@ $capabilitiesTestPath = Join-Path $root 'Test-RunnerCapabilities.ps1'
 $dispatchWatchPath = Join-Path $root 'RunnerDispatchWatch.ps1'
 $dispatchProbePath = Join-Path $root 'RunnerDispatchProbe.ps1'
 $dispatchTestPath = Join-Path $root 'Test-RunnerDispatchWatch.ps1'
+$configModulePath = Join-Path $root 'RunnerConfig.ps1'
+$configTestPath = Join-Path $root 'Test-RunnerConfig.ps1'
 $localGradlePath = Join-Path $root 'Use-LocalGradle.ps1'
 $lifecyclePath = Join-Path $root 'RunnerLifecycle.ps1'
 $runtimeSourcePath = Join-Path $buildDir 'JollyRunnerHub.source.ps1'
@@ -126,6 +128,17 @@ foreach ($dispatchScript in @($dispatchWatchPath,$dispatchProbePath,$dispatchTes
     }
 }
 & $dispatchTestPath | Out-Host
+foreach ($configScript in @($configModulePath,$configTestPath)) {
+    $configText = Get-Content -LiteralPath $configScript -Raw -Encoding UTF8
+    $configTokens = $null
+    $configParseErrors = $null
+    [System.Management.Automation.Language.Parser]::ParseInput($configText,[ref]$configTokens,[ref]$configParseErrors) | Out-Null
+    if (@($configParseErrors).Count -gt 0) {
+        $details = @($configParseErrors | ForEach-Object { '{0}:{1} {2}' -f $_.Extent.StartLineNumber,$_.Extent.StartColumnNumber,$_.Message }) -join [Environment]::NewLine
+        throw "Runner config script syntax validation failed for $configScript`n$details"
+    }
+}
+& $configTestPath | Out-Host
 $lifecycleText = Get-Content -LiteralPath $lifecyclePath -Raw -Encoding UTF8
 $lifecycleTokens = $null
 $lifecycleParseErrors = $null
@@ -292,39 +305,42 @@ function Get-RunnerGitHubStatus($Profile) {
     if ($null -eq $script:GitHubRunnerStatusCacheAt) { $script:GitHubRunnerStatusCacheAt = @{} }
     $id = Safe-Name ([string]$Profile.id)
     $cachedAt = if ($script:GitHubRunnerStatusCacheAt.ContainsKey($id)) { [datetime]$script:GitHubRunnerStatusCacheAt[$id] } else { [datetime]::MinValue }
-    if ($script:GitHubRunnerStatusCache.ContainsKey($id) -and ([datetime]::UtcNow-$cachedAt).TotalSeconds -lt 15) {
+    if ($script:GitHubRunnerStatusCache.ContainsKey($id) -and ([datetime]::UtcNow-$cachedAt).TotalSeconds -lt 5) {
         return $script:GitHubRunnerStatusCache[$id]
     }
+
     $status = 'unknown'
-    $evidence = 'github=unknown'
+    $evidence = 'github=unknown (background probe pending)'
     try {
-        $root = [Environment]::ExpandEnvironmentVariables([string]$Profile.runnerRoot)
-        $runnerFile = Join-Path $root '.runner'
-        $runnerName = ''
-        if (Test-Path -LiteralPath $runnerFile) {
-            $runnerConfig = Get-Content -LiteralPath $runnerFile -Raw -Encoding UTF8 | ConvertFrom-Json
-            foreach ($property in @('agentName','name')) {
-                if ($runnerConfig.PSObject.Properties.Name -contains $property -and -not [string]::IsNullOrWhiteSpace([string]$runnerConfig.$property)) { $runnerName = [string]$runnerConfig.$property; break }
+        $probe = Read-DispatchSnapshot $Profile
+        if ($null -ne $probe -and [int]$probe.SnapshotAgeSeconds -le 120) {
+            if (-not [bool]$probe.apiOk) {
+                $evidence = 'github=unknown (background probe error)'
+            }
+            elseif (-not [bool]$probe.runnerFound) {
+                $status = 'offline'
+                $evidence = 'github=offline (runner not listed by background probe)'
+            }
+            elseif ([bool]$probe.runnerBusy) {
+                $status = 'busy'
+                $evidence = 'github=busy (background probe)'
+            }
+            else {
+                $candidate = [string]$probe.runnerStatus
+                if ($candidate -in @('online','offline')) {
+                    $status = $candidate
+                    $evidence = 'github=' + $candidate + ' (background probe)'
+                }
             }
         }
-        $repository = ([string]$Profile.repoUrl).TrimEnd('/') -replace '^https://github.com/',''
-        if ([string]::IsNullOrWhiteSpace($runnerName) -or [string]::IsNullOrWhiteSpace($repository)) {
-            $evidence = 'github=unknown (runner name unavailable)'
-        } else {
-            $lookup = Find-JollyGitHubRunner -Repository $repository -RunnerName $runnerName
-            if ($lookup.Ok -and $null -ne $lookup.Runner) {
-                $candidate = [string]$lookup.Runner.status
-                if ($candidate -in @('online','offline','busy')) { $status = $candidate; $evidence = 'github=' + $candidate }
-            } elseif (-not $lookup.Ok) { $evidence = 'github=unknown (query failed)' }
-            else { $status = 'offline'; $evidence = 'github=offline (runner not listed)' }
-        }
-    } catch { $evidence = 'github=unknown (query exception)' }
+    } catch {
+        $evidence = 'github=unknown (cached probe unreadable)'
+    }
     $result = [pscustomobject]@{Status=$status;Evidence=$evidence}
     $script:GitHubRunnerStatusCache[$id] = $result
     $script:GitHubRunnerStatusCacheAt[$id] = [datetime]::UtcNow
     return $result
 }
-
 function Read-RunnerConnectionState($Profile) {
     $running = Runner-Running $Profile
     $remote = Get-RunnerGitHubStatus $Profile
@@ -415,7 +431,7 @@ if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $exePath)) {
     throw "Launcher compilation failed with exit code $LASTEXITCODE"
 }
 
-foreach ($dispatchRuntimeScript in @($dispatchWatchPath,$dispatchProbePath)) {
+foreach ($dispatchRuntimeScript in @($dispatchWatchPath,$dispatchProbePath,$configModulePath)) {
     Copy-Item -LiteralPath $dispatchRuntimeScript -Destination (Join-Path $appData (Split-Path -Leaf $dispatchRuntimeScript)) -Force
 }
 
@@ -482,7 +498,7 @@ if ($Install) {
     foreach ($capabilityScript in @($capabilitiesPath,$capabilitiesCliPath,$localGradlePath)) {
         Copy-Item -LiteralPath $capabilityScript -Destination (Join-Path $appData (Split-Path -Leaf $capabilityScript)) -Force
     }
-    foreach ($dispatchRuntimeScript in @($dispatchWatchPath,$dispatchProbePath)) {
+    foreach ($dispatchRuntimeScript in @($dispatchWatchPath,$dispatchProbePath,$configModulePath)) {
         Copy-Item -LiteralPath $dispatchRuntimeScript -Destination (Join-Path $appData (Split-Path -Leaf $dispatchRuntimeScript)) -Force
     }
 
@@ -550,6 +566,8 @@ for ($attempt = 0; $attempt -lt 21600; $attempt++) {
         runner_connection_state = 'log-classified'
         runner_governance = 'managed-unmanaged-inventory-v1'
         runner_dispatch_watch = 'queued-job-assignment-v1'
+        config_migration = 'merge-missing-defaults-v1'
+        github_status_source = 'background-dispatch-cache-v1'
         dispatch_probe = 'background-cached-v1'
         dispatch_recovery = 'bounded-safe-reconnect-v1'
         ui_refresh = 'incremental-v1'
