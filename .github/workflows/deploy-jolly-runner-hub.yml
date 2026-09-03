@@ -51,8 +51,14 @@ jobs:
             throw
           }
 
+      - name: Validate Supervisor diagnostic contract
+        run: |
+          & .\tools\JollyRunnerHub\Test-InspectManagedSupervisorStatus.ps1
+
       - name: Inspect installed managed Supervisor
         if: always()
+        continue-on-error: true
+        timeout-minutes: 1
         run: |
           & .\tools\JollyRunnerHub\Inspect-ManagedSupervisorStatus.ps1
 
@@ -91,6 +97,7 @@ jobs:
             tools/JollyRunnerHub/RunnerRootResolver.ps1
             tools/JollyRunnerHub/Test-RunnerRootResolver.ps1
             tools/JollyRunnerHub/Inspect-ManagedSupervisorStatus.ps1
+            tools/JollyRunnerHub/Test-InspectManagedSupervisorStatus.ps1
             tools/JollyRunnerHub/Test-RegisterManagedSupervisor.ps1
             tools/JollyRunnerHub/Use-LocalGradle.ps1
             tools/JollyRunnerHub/RunnerLifecycle.ps1
