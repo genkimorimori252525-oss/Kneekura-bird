@@ -517,7 +517,7 @@ if ($Install) {
     $previousTracking = $env:RUNNER_TRACKING_ID
     $env:RUNNER_TRACKING_ID = ''
     try {
-        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $appData 'Register-ManagedRunnerSupervisor.ps1') -AppRoot $appData
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $appData 'Register-ManagedRunnerSupervisor.ps1') -AppRoot $appData -RestartIfRunning
         if ($LASTEXITCODE -ne 0) { throw "Managed Runner Supervisor registration failed with exit code $LASTEXITCODE" }
     } finally {
         $env:RUNNER_TRACKING_ID = $previousTracking
@@ -589,7 +589,7 @@ for ($attempt = 0; $attempt -lt 21600; $attempt++) {
         desired_runner_state = 'persistent-v1'
         managed_supervisor = 'heartbeat-single-writer-v2'
         runner_root_binding = 'repository-identity-fallback-v1'
-        supervisor_registration = 'startup-link-v1'
+        supervisor_registration = 'startup-link-hot-reload-v2'
         supervisor_restart_backoff = 'exponential-bounded-v1'
         github_status_source = 'background-dispatch-cache-v1'
         dispatch_probe = 'background-cached-v1'
