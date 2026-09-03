@@ -43,7 +43,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path (Split-Path -Parent $log) | Out-Null
           $install = $env:INSTALL_DESKTOP_APP -eq 'true'
           try {
-            & .\tools\JollyRunnerHub\Build-Deploy.ps1 -Install:$install *>&1 |
+            & .\tools\JollyRunnerHub\Invoke-BuildDeploySafely.ps1 -Install:$install *>&1 |
               Tee-Object -FilePath $log
           }
           catch {
@@ -72,6 +72,7 @@ jobs:
             tools/JollyRunnerHub/build/JollyRunnerHub.exe
             tools/JollyRunnerHub/build/JollyRunnerHub.ico
             tools/JollyRunnerHub/build/deploy.log
+            tools/JollyRunnerHub/Invoke-BuildDeploySafely.ps1
             tools/JollyRunnerHub/JollyRunnerHub.ps1
             tools/JollyRunnerHub/RunnerConnectionState.ps1
             tools/JollyRunnerHub/EphemeralRunnerController.psm1
