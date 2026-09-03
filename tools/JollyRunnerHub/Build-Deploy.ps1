@@ -39,6 +39,7 @@ $registerSupervisorPath = Join-Path $root 'Register-ManagedRunnerSupervisor.ps1'
 $rootResolverPath = Join-Path $root 'RunnerRootResolver.ps1'
 $rootResolverTestPath = Join-Path $root 'Test-RunnerRootResolver.ps1'
 $supervisorDiagnosticPath = Join-Path $root 'Inspect-ManagedSupervisorStatus.ps1'
+$registerSupervisorTestPath = Join-Path $root 'Test-RegisterManagedSupervisor.ps1'
 $localGradlePath = Join-Path $root 'Use-LocalGradle.ps1'
 $lifecyclePath = Join-Path $root 'RunnerLifecycle.ps1'
 $runtimeSourcePath = Join-Path $buildDir 'JollyRunnerHub.source.ps1'
@@ -152,7 +153,7 @@ foreach ($configScript in @($configModulePath,$configTestPath)) {
 & $configTestPath | Out-Host
 foreach ($headlessScript in @(
     $dispatchWatchPath,$dispatchProbePath,$configModulePath,$controlStatePath,$supervisorCorePath,
-    $supervisorPath,$maintenancePath,$registerSupervisorPath,$rootResolverPath,$supervisorDiagnosticPath,$controlStateTestPath,$supervisorCoreTestPath,$supervisorRuntimeTestPath,$rootResolverTestPath
+    $supervisorPath,$maintenancePath,$registerSupervisorPath,$rootResolverPath,$supervisorDiagnosticPath,$controlStateTestPath,$supervisorCoreTestPath,$supervisorRuntimeTestPath,$rootResolverTestPath,$registerSupervisorTestPath
 )) {
     $headlessText = Get-Content -LiteralPath $headlessScript -Raw -Encoding UTF8
     $headlessTokens = $null
@@ -170,6 +171,7 @@ foreach ($headlessScript in @(
 & $supervisorCoreTestPath | Out-Host
 & $rootResolverTestPath | Out-Host
 & $supervisorRuntimeTestPath | Out-Host
+& $registerSupervisorTestPath | Out-Host
 $lifecycleText = Get-Content -LiteralPath $lifecyclePath -Raw -Encoding UTF8
 $lifecycleTokens = $null
 $lifecycleParseErrors = $null
