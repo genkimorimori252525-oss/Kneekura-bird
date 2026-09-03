@@ -145,12 +145,39 @@ function Load-Config {
         $knownIds[[string]$profile.id] = $true
     }
     $configChanged = $false
-    foreach ($profile in @($defaultConfig.profiles)) {
-        if (-not $knownIds.ContainsKey([string]$profile.id)) {
-            $script:Config.profiles = @($script:Config.profiles) + @($profile)
-            $knownIds[[string]$profile.id] = $true
+    foreach ($defaultProfile in @($defaultConfig.profiles)) {
+        $defaultId = [string]$defaultProfile.id
+        if (-not $knownIds.ContainsKey($defaultId)) {
+            $script:Config.profiles = @($script:Config.profiles) + @($defaultProfile)
+            $knownIds[$defaultId] = $true
             $configChanged = $true
+            continue
         }
+
+        $existingProfile = @($script:Config.profiles | Where-Object { [string]$_.id -eq $defaultId } | Select-Object -First 1)
+        if ($existingProfile.Count -eq 0) { continue }
+        $target = $existingProfile[0]
+        foreach ($property in @($defaultProfile.PSObject.Properties)) {
+            if ([string]$property.Name -eq 'id') { continue }
+            if ($null -eq $target.PSObject.Properties[[string]$property.Name]) {
+                Add-Member -InputObject $target -NotePropertyName ([string]$property.Name) -NotePropertyValue $property.Value
+                $configChanged = $true
+            }
+        }
+    }
+    $defaultVersion = 0
+    [void][int]::TryParse([string]$defaultConfig.version,[ref]$defaultVersion)
+    $currentVersion = 0
+    if ($null -ne $script:Config.PSObject.Properties['version']) {
+        [void][int]::TryParse([string]$script:Config.version,[ref]$currentVersion)
+    }
+    if ($defaultVersion -gt $currentVersion) {
+        if ($null -eq $script:Config.PSObject.Properties['version']) {
+            Add-Member -InputObject $script:Config -NotePropertyName version -NotePropertyValue $defaultVersion
+        } else {
+            $script:Config.version = $defaultVersion
+        }
+        $configChanged = $true
     }
     if ($configChanged) {
         $script:Config | ConvertTo-Json -Depth 12 |
