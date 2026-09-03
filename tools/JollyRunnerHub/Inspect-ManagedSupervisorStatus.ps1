@@ -56,6 +56,31 @@ function Read-DispatchProbe([string]$ProfileId) {
     return Read-Json (Join-Path $dispatchRoot ("dispatch-$safeId.json"))
 }
 
+function Get-LocalDiagnosticsMetadata([string]$RunnerRoot,[int]$StaleAfterSeconds = 120) {
+    $result = [ordered]@{
+        Present = $false
+        AgeSeconds = $null
+        Freshness = 'missing'
+    }
+    if ([string]::IsNullOrWhiteSpace($RunnerRoot)) { return [pscustomobject]$result }
+    try {
+        $expandedRoot = [Environment]::ExpandEnvironmentVariables($RunnerRoot)
+        $diagRoot = Join-Path $expandedRoot '_diag'
+        if (-not (Test-Path -LiteralPath $diagRoot -PathType Container)) { return [pscustomobject]$result }
+        $latest = Get-ChildItem -LiteralPath $diagRoot -Filter 'Runner_*.log' -File -ErrorAction Stop |
+            Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+        if ($null -eq $latest) { return [pscustomobject]$result }
+        $age = [math]::Max(0,[int][math]::Floor(([datetime]::UtcNow-$latest.LastWriteTimeUtc).TotalSeconds))
+        $result.Present = $true
+        $result.AgeSeconds = $age
+        $result.Freshness = if ($age -le [math]::Max(1,$StaleAfterSeconds)) { 'fresh' } else { 'stale' }
+        return [pscustomobject]$result
+    } catch {
+        $result.Freshness = 'unreadable'
+        return [pscustomobject]$result
+    }
+}
+
 $config = Read-Json $configPath
 $status = Read-Json $statusPath
 $configuredRoots = if ($null -ne $config) { @($config.profiles | ForEach-Object { [string]$_.runnerRoot } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) } else { @() }
@@ -97,6 +122,7 @@ if ($null -ne $config) {
         $binding = Resolve-JollyRunnerRootBinding -Profile $profile -CandidateRoots $candidateRoots
         $live = if ($statusById.ContainsKey($profileId)) { $statusById[$profileId] } else { $null }
         $probe = Read-DispatchProbe $profileId
+        $localDiagnostics = Get-LocalDiagnosticsMetadata ([string]$binding.Root)
         $profileSummary += [pscustomobject]@{
             id = $profileId
             repository = ConvertTo-JollyRepositorySlug ([string]$profile.repoUrl)
@@ -108,6 +134,9 @@ if ($null -ne $config) {
             configured = if ($null -ne $live) { [bool]$live.configured } else { $false }
             processRunning = if ($null -ne $live) { [bool]$live.processRunning } else { $false }
             localCode = if ($null -ne $live) { [string]$live.localCode } else { '' }
+            localDiagnosticsPresent = [bool]$localDiagnostics.Present
+            localDiagnosticsAgeSeconds = $localDiagnostics.AgeSeconds
+            localDiagnosticsFreshness = [string]$localDiagnostics.Freshness
             dispatchCode = if ($null -ne $live) { [string]$live.dispatchCode } else { '' }
             dispatchProbePresent = ($null -ne $probe)
             dispatchProbeApiOk = if ($null -ne $probe) { [bool]$probe.apiOk } else { $null }
@@ -139,7 +168,7 @@ $ageSeconds = if ($null -ne $status) { Get-StatusAgeSeconds ([string]$status.upd
 
 $result = [ordered]@{
     schema = 'jolly.managed-supervisor-diagnostic'
-    version = 3
+    version = 4
     generatedAtUtc = ([DateTimeOffset]::UtcNow.ToString('o'))
     statusPresent = ($null -ne $status)
     statusAgeSeconds = $ageSeconds
