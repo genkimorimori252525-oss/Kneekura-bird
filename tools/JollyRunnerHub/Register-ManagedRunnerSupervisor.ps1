@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$AppRoot = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'JollyRunnerHub'),
+    [string]$StartupFolder = '',
     [switch]$NoStart,
     [switch]$RestartIfRunning
 )
@@ -9,7 +10,7 @@ $ErrorActionPreference = 'Stop'
 $supervisor = Join-Path $AppRoot 'ManagedRunnerSupervisor.ps1'
 if (-not (Test-Path -LiteralPath $supervisor -PathType Leaf)) { throw "Supervisor not found: $supervisor" }
 
-$startup = [Environment]::GetFolderPath([Environment+SpecialFolder]::Startup)
+$startup = if ([string]::IsNullOrWhiteSpace($StartupFolder)) { [Environment]::GetFolderPath([Environment+SpecialFolder]::Startup) } else { [Environment]::ExpandEnvironmentVariables($StartupFolder) }
 New-Item -ItemType Directory -Force -Path $startup | Out-Null
 $linkPath = Join-Path $startup 'Jolly Runner Hub Supervisor.lnk'
 $powershell = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
