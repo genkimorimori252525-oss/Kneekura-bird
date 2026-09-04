@@ -1,4 +1,4 @@
-name: Patch Jolly Workspace Browser Bridge
+name: Validate Jolly Workspace Production Candidate
 
 on:
   workflow_dispatch:
@@ -7,84 +7,103 @@ permissions:
   contents: read
 
 concurrency:
-  group: okayama-workspace-browser-bridge-patch
+  group: okayama-workspace-windows-soak
   cancel-in-progress: false
 
 jobs:
-  patch:
+  windows-soak:
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 12
+    timeout-minutes: 15
     defaults:
       run:
         shell: powershell
 
     steps:
-      - name: Checkout helper branch
+      - name: Checkout validation helper
         uses: actions/checkout@v4
         with:
           ref: jolly/okayama-workspace-soak-20260904
           fetch-depth: 1
 
-      - name: Verify tools
+      - name: Verify local Windows runner prerequisites
         run: |
           $ErrorActionPreference = 'Stop'
+          Write-Host "Runner: $env:RUNNER_NAME"
+          Write-Host "OS: $env:RUNNER_OS"
           node --version
+          if ($LASTEXITCODE -ne 0) { throw 'Node is unavailable.' }
           git --version
+          if ($LASTEXITCODE -ne 0) { throw 'Git is unavailable.' }
           gh --version
+          if ($LASTEXITCODE -ne 0) { throw 'GitHub CLI is unavailable.' }
           gh auth status
+          if ($LASTEXITCODE -ne 0) { throw 'GitHub CLI user authentication is unavailable.' }
 
-      - name: Clone exact production branch
+      - name: Clone exact Workspace candidate with local user authentication
         run: |
           $ErrorActionPreference = 'Stop'
-          $target = Join-Path $env:RUNNER_TEMP "okayama-bridge-patch-$env:GITHUB_RUN_ID"
+          $target = Join-Path $env:RUNNER_TEMP "okayama-workspace-$env:GITHUB_RUN_ID"
           if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
           gh repo clone genkimorimori252525-oss/Okayama-NAMASUTE-Club $target -- --no-checkout
-          if ($LASTEXITCODE -ne 0) { throw 'clone failed' }
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to clone private Workspace repository.' }
           Set-Location $target
           git config core.autocrlf false
           git fetch origin jolly/workspace-production-v1 --depth=1
-          if ($LASTEXITCODE -ne 0) { throw 'fetch failed' }
-          git checkout -B jolly/workspace-production-v1 b065ddda595fcdb610ffb1d579a55900aee2e057
-          if ($LASTEXITCODE -ne 0) { throw 'checkout failed' }
-          git reset --hard b065ddda595fcdb610ffb1d579a55900aee2e057
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to fetch Workspace production branch.' }
+          git checkout --detach f89028f82cb9ebb95f8fda76df95151a8eb43d11
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to checkout exact Workspace production commit.' }
           $actual = (git rev-parse HEAD).Trim()
-          if ($actual -ne 'b065ddda595fcdb610ffb1d579a55900aee2e057') { throw "unexpected head $actual" }
-          "OKAYAMA_PATCH_PATH=$target" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          if ($actual -ne 'f89028f82cb9ebb95f8fda76df95151a8eb43d11') { throw "Unexpected head: $actual" }
+          "OKAYAMA_WORKSPACE_PATH=$target" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "Validated exact candidate $actual"
 
-      - name: Apply bounded plugin patch
+      - name: Run complete Node test suite
         run: |
-          $ErrorActionPreference = 'Stop'
-          node tools/jolly-workspace/browser-bridge-patch.js $env:OKAYAMA_PATCH_PATH
-          if ($LASTEXITCODE -ne 0) { throw 'patch script failed' }
-          Copy-Item -LiteralPath tools/jolly-workspace/browser-bridge.test.js -Destination (Join-Path $env:OKAYAMA_PATCH_PATH 'workspace\production\tests\browser-bridge.test.js') -Force
-          node tools/jolly-workspace/patch-core-manifest-test.js $env:OKAYAMA_PATCH_PATH
-          if ($LASTEXITCODE -ne 0) { throw 'core test patch failed' }
-
-      - name: Run plugin regression suite
-        run: |
-          $ErrorActionPreference = 'Stop'
-          Set-Location $env:OKAYAMA_PATCH_PATH
+          Set-Location $env:OKAYAMA_WORKSPACE_PATH
           npm test
-          if ($LASTEXITCODE -ne 0) { throw 'npm test failed' }
-          npm run check
-          if ($LASTEXITCODE -ne 0) { throw 'npm run check failed' }
+          if ($LASTEXITCODE -ne 0) { throw 'npm test failed.' }
 
-      - name: Commit and push exact production branch
+      - name: Run JavaScript syntax checks
+        run: |
+          Set-Location $env:OKAYAMA_WORKSPACE_PATH
+          npm run check
+          if ($LASTEXITCODE -ne 0) { throw 'npm run check failed.' }
+
+      - name: Run real Windows integration and unattended soak
+        env:
+          JOLLY_SOAK_SECONDS: '60'
         run: |
           $ErrorActionPreference = 'Stop'
-          Set-Location $env:OKAYAMA_PATCH_PATH
-          git config user.name "Jolly Workspace Bot"
-          git config user.email "jolly-workspace@users.noreply.github.com"
-          git add companion/browser/manifest.json companion/browser/background.js companion/browser/production-bridge.js workspace/production/src/server.js workspace/production/src/launcher.js workspace/production/web/production.js workspace/production/tests/browser-bridge.test.js tests/core.test.js
-          $changed = @(git diff --cached --name-only)
-          if ($changed.Count -ne 8) { $changed; throw "unexpected patch file count: $($changed.Count)" }
-          git commit -m "feat: pair Browser Companion with production workspace"
-          if ($LASTEXITCODE -ne 0) { throw 'commit failed' }
-          git push origin HEAD:jolly/workspace-production-v1
-          if ($LASTEXITCODE -ne 0) { throw 'push failed; production head may have advanced' }
-          git rev-parse HEAD
+          $evidence = Join-Path $env:GITHUB_WORKSPACE 'build\okayama-windows-soak'
+          New-Item -ItemType Directory -Path $evidence -Force | Out-Null
+          $env:JOLLY_SOAK_OUTPUT = $evidence
+          Set-Location $env:OKAYAMA_WORKSPACE_PATH
+          npm run workspace:soak:windows
+          if ($LASTEXITCODE -ne 0) { throw 'Windows Workspace soak failed.' }
+          if (-not (Test-Path -LiteralPath (Join-Path $evidence 'windows-soak-report.json'))) { throw 'Soak report was not produced.' }
+          Get-Content -LiteralPath (Join-Path $evidence 'windows-soak-report.json') -Raw
 
-      - name: Clean checkout
+      - name: Run live Browser Companion bridge and rendered reconnect proof
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $evidence = Join-Path $env:GITHUB_WORKSPACE 'build\okayama-windows-soak'
+          Set-Location $env:GITHUB_WORKSPACE
+          node tools/jolly-workspace/final-browser-bridge-proof.js $env:OKAYAMA_WORKSPACE_PATH $evidence
+          if ($LASTEXITCODE -ne 0) { throw 'Browser Companion live proof failed.' }
+          if (-not (Test-Path -LiteralPath (Join-Path $evidence 'browser-bridge-proof.json'))) { throw 'Browser Companion proof report was not produced.' }
+          Get-Content -LiteralPath (Join-Path $evidence 'browser-bridge-proof.json') -Raw
+
+      - name: Upload Windows soak evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: okayama-workspace-windows-soak-${{ github.run_id }}
+          if-no-files-found: warn
+          path: build/okayama-windows-soak/**
+
+      - name: Clean temporary Workspace checkout
         if: always()
         run: |
-          if ($env:OKAYAMA_PATCH_PATH -and (Test-Path -LiteralPath $env:OKAYAMA_PATCH_PATH)) { Remove-Item -LiteralPath $env:OKAYAMA_PATCH_PATH -Recurse -Force -ErrorAction SilentlyContinue }
+          if ($env:OKAYAMA_WORKSPACE_PATH -and (Test-Path -LiteralPath $env:OKAYAMA_WORKSPACE_PATH)) {
+            Remove-Item -LiteralPath $env:OKAYAMA_WORKSPACE_PATH -Recurse -Force -ErrorAction SilentlyContinue
+          }
