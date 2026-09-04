@@ -1,147 +1,92 @@
-name: Deploy Jolly Runner Hub
+name: Validate Jolly Workspace Production Candidate
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'tools/JollyRunnerHub/**'
-      - '.github/workflows/deploy-jolly-runner-hub.yml'
-  pull_request:
-    paths:
-      - 'tools/JollyRunnerHub/**'
-      - '.github/workflows/deploy-jolly-runner-hub.yml'
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: ww-selfhosted-hub-deploy
+  group: okayama-workspace-windows-soak
   cancel-in-progress: false
 
 jobs:
-  validate-and-deploy:
+  windows-soak:
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 15
+    timeout-minutes: 12
     defaults:
       run:
         shell: powershell
 
     steps:
-      - name: Checkout requested revision
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 1
-          clean: true
-          persist-credentials: false
+      - name: Verify local Windows runner prerequisites
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Host "Runner: $env:RUNNER_NAME"
+          Write-Host "OS: $env:RUNNER_OS"
+          node --version
+          if ($LASTEXITCODE -ne 0) { throw 'Node is unavailable.' }
+          git --version
+          if ($LASTEXITCODE -ne 0) { throw 'Git is unavailable.' }
+          gh --version
+          if ($LASTEXITCODE -ne 0) { throw 'GitHub CLI is unavailable.' }
+          gh auth status
+          if ($LASTEXITCODE -ne 0) { throw 'GitHub CLI user authentication is unavailable.' }
 
-      - name: Validate, build, and optionally install desktop app
+      - name: Clone exact Workspace candidate with local user authentication
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $target = Join-Path $env:RUNNER_TEMP "okayama-workspace-$env:GITHUB_RUN_ID"
+          if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
+          gh repo clone genkimorimori252525-oss/Okayama-NAMASUTE-Club $target -- --no-checkout
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to clone private Workspace repository.' }
+          Set-Location $target
+          git fetch origin jolly/workspace-production-v1 --depth=1
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to fetch Workspace production branch.' }
+          git checkout --detach 31d5ef512d589dc9b8ca9e59ce0d565ec9073c8f
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to checkout exact Workspace production commit.' }
+          $actual = (git rev-parse HEAD).Trim()
+          if ($actual -ne '31d5ef512d589dc9b8ca9e59ce0d565ec9073c8f') { throw "Unexpected head: $actual" }
+          "OKAYAMA_WORKSPACE_PATH=$target" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "Validated exact candidate $actual"
+
+      - name: Run complete Node test suite
+        run: |
+          Set-Location $env:OKAYAMA_WORKSPACE_PATH
+          npm test
+          if ($LASTEXITCODE -ne 0) { throw 'npm test failed.' }
+
+      - name: Run JavaScript syntax checks
+        run: |
+          Set-Location $env:OKAYAMA_WORKSPACE_PATH
+          npm run check
+          if ($LASTEXITCODE -ne 0) { throw 'npm run check failed.' }
+
+      - name: Run real Windows integration and unattended soak
         env:
-          INSTALL_DESKTOP_APP: ${{ github.event_name != 'pull_request' }}
+          JOLLY_SOAK_SECONDS: '60'
         run: |
-          $log = '.\tools\JollyRunnerHub\build\deploy.log'
-          New-Item -ItemType Directory -Force -Path (Split-Path -Parent $log) | Out-Null
-          $install = $env:INSTALL_DESKTOP_APP -eq 'true'
-          try {
-            & .\tools\JollyRunnerHub\Invoke-BuildDeploySafely.ps1 -Install:$install *>&1 |
-              Tee-Object -FilePath $log
-          }
-          catch {
-            ($_ | Out-String) | Tee-Object -FilePath $log -Append
-            throw
-          }
+          $ErrorActionPreference = 'Stop'
+          $evidence = Join-Path $env:GITHUB_WORKSPACE 'build\okayama-windows-soak'
+          New-Item -ItemType Directory -Path $evidence -Force | Out-Null
+          $env:JOLLY_SOAK_OUTPUT = $evidence
+          Set-Location $env:OKAYAMA_WORKSPACE_PATH
+          npm run workspace:soak:windows
+          if ($LASTEXITCODE -ne 0) { throw 'Windows Workspace soak failed.' }
+          if (-not (Test-Path -LiteralPath (Join-Path $evidence 'windows-soak-report.json'))) { throw 'Soak report was not produced.' }
+          Get-Content -LiteralPath (Join-Path $evidence 'windows-soak-report.json') -Raw
 
-      - name: Validate Supervisor diagnostic contract
-        run: |
-          & .\tools\JollyRunnerHub\Test-InspectManagedSupervisorStatus.ps1
-
-      - name: Inspect installed managed Supervisor
-        if: always()
-        continue-on-error: true
-        timeout-minutes: 1
-        run: |
-          & .\tools\JollyRunnerHub\Inspect-ManagedSupervisorStatus.ps1
-
-      - name: Upload portable launcher and diagnostics
+      - name: Upload Windows soak evidence
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: JollyRunnerHub-${{ github.run_id }}
+          name: okayama-workspace-windows-soak-${{ github.run_id }}
           if-no-files-found: warn
-          path: |
-            tools/JollyRunnerHub/build/JollyRunnerHub.exe
-            tools/JollyRunnerHub/build/JollyRunnerHub.ico
-            tools/JollyRunnerHub/build/deploy.log
-            tools/JollyRunnerHub/Invoke-BuildDeploySafely.ps1
-            tools/JollyRunnerHub/JollyRunnerHub.ps1
-            tools/JollyRunnerHub/RunnerConnectionState.ps1
-            tools/JollyRunnerHub/EphemeralRunnerController.psm1
-            tools/JollyRunnerHub/EphemeralRunnerWatchdog.ps1
-            tools/JollyRunnerHub/Manage-EphemeralRunner.ps1
-            tools/JollyRunnerHub/Test-EphemeralRunnerController.ps1
-            tools/JollyRunnerHub/RunnerCapabilities.ps1
-            tools/JollyRunnerHub/Inspect-RunnerCapabilities.ps1
-            tools/JollyRunnerHub/Test-RunnerCapabilities.ps1
-            tools/JollyRunnerHub/RunnerDispatchWatch.ps1
-            tools/JollyRunnerHub/RunnerDispatchProbe.ps1
-            tools/JollyRunnerHub/Test-RunnerDispatchWatch.ps1
-            tools/JollyRunnerHub/RunnerConfig.ps1
-            tools/JollyRunnerHub/Test-RunnerConfig.ps1
-            tools/JollyRunnerHub/RunnerControlState.ps1
-            tools/JollyRunnerHub/Test-RunnerControlState.ps1
-            tools/JollyRunnerHub/ManagedRunnerSupervisorCore.ps1
-            tools/JollyRunnerHub/Test-ManagedRunnerSupervisor.ps1
-            tools/JollyRunnerHub/ManagedRunnerSupervisor.ps1
-            tools/JollyRunnerHub/Test-ManagedRunnerSupervisorRuntime.ps1
-            tools/JollyRunnerHub/RunnerMaintenance.ps1
-            tools/JollyRunnerHub/Register-ManagedRunnerSupervisor.ps1
-            tools/JollyRunnerHub/RunnerRootResolver.ps1
-            tools/JollyRunnerHub/Test-RunnerRootResolver.ps1
-            tools/JollyRunnerHub/Inspect-ManagedSupervisorStatus.ps1
-            tools/JollyRunnerHub/Test-InspectManagedSupervisorStatus.ps1
-            tools/JollyRunnerHub/Test-RegisterManagedSupervisor.ps1
-            tools/JollyRunnerHub/Use-LocalGradle.ps1
-            tools/JollyRunnerHub/RunnerLifecycle.ps1
-            tools/JollyRunnerHub/profiles.default.json
-            tools/JollyRunnerHub/README.md
+          path: build/okayama-windows-soak/**
 
-      - name: Persist deployment status
-        if: always() && github.event_name != 'pull_request'
-        uses: actions/github-script@v8
-        env:
-          JOB_STATUS: ${{ job.status }}
-          SELF_HOSTED_RUNNER: ${{ runner.name }}
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const path = '.github/jolly-runner-hub-status.json';
-            const payload = {
-              run_id: context.runId,
-              status: process.env.JOB_STATUS,
-              head_sha: context.sha,
-              runner: process.env.SELF_HOSTED_RUNNER,
-              installed_executable: 'Desktop/JollyRunnerHub.exe',
-              updated_at: new Date().toISOString(),
-            };
-            const content = Buffer.from(`${JSON.stringify(payload, null, 2)}\n`).toString('base64');
-            let sha;
-            try {
-              const existing = await github.rest.repos.getContent({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                path,
-                ref: 'main',
-              });
-              if (!Array.isArray(existing.data)) sha = existing.data.sha;
-            } catch (error) {
-              if (error.status !== 404) throw error;
-            }
-            await github.rest.repos.createOrUpdateFileContents({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              path,
-              branch: 'main',
-              message: `Record Jolly Runner Hub deployment ${context.runId}`,
-              content,
-              ...(sha ? { sha } : {}),
-            });
+      - name: Clean temporary Workspace checkout
+        if: always()
+        run: |
+          if ($env:OKAYAMA_WORKSPACE_PATH -and (Test-Path -LiteralPath $env:OKAYAMA_WORKSPACE_PATH)) {
+            Remove-Item -LiteralPath $env:OKAYAMA_WORKSPACE_PATH -Recurse -Force -ErrorAction SilentlyContinue
+          }
