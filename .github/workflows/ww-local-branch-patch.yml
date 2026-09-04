@@ -1,104 +1,72 @@
-name: WW Local Branch Patch
+name: Patch Jolly Workspace Chrome Profile Cleanup
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/local-branch-patch-request.txt'
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: ww-local-branch-patch
+  group: patch-jolly-workspace-chrome-cleanup
   cancel-in-progress: false
 
 jobs:
-  apply:
+  patch:
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 15
+    timeout-minutes: 10
     defaults:
       run:
         shell: powershell
-
     steps:
-      - name: Checkout request metadata
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 1
-          clean: true
-          persist-credentials: false
-
-      - name: Resolve safe request
-        id: request
+      - name: Patch exact Jolly Workspace production head
         run: |
-          $requestPath = Join-Path $env:GITHUB_WORKSPACE '.github\local-branch-patch-request.txt'
-          $values = @{}
-          foreach ($line in Get-Content $requestPath) {
-            $trimmed = $line.Trim()
-            if (-not $trimmed -or $trimmed.StartsWith('#')) { continue }
-            if ($trimmed -notmatch '^([a-z_]+)=(.+)$') { throw "Invalid request line: $trimmed" }
-            $values[$Matches[1]] = $Matches[2].Trim()
-          }
+          $ErrorActionPreference = 'Stop'
+          gh auth status
+          if ($LASTEXITCODE -ne 0) { throw 'GitHub CLI user authentication is unavailable.' }
+          gh auth setup-git
+          if ($LASTEXITCODE -ne 0) { throw 'Could not configure GitHub CLI git credentials.' }
 
-          $branch = $values['branch']
-          $patch = $values['patch']
-          $message = $values['message']
-          if ($branch -notmatch '^agent/[A-Za-z0-9._/-]+$') { throw "Unsafe branch: $branch" }
-          if ($patch -notmatch '^\.github/[A-Za-z0-9._/-]+\.patch$') { throw "Unsafe patch path: $patch" }
-          if (-not $message -or $message.Length -gt 100) { throw 'Invalid commit message' }
+          $target = Join-Path $env:RUNNER_TEMP "okayama-workspace-patch-$env:GITHUB_RUN_ID"
+          if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
+          gh repo clone genkimorimori252525-oss/Okayama-NAMASUTE-Club $target -- --no-checkout
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to clone private Workspace repository.' }
+          Set-Location $target
+          git fetch origin jolly/workspace-production-v1 --depth=1
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to fetch production branch.' }
+          git checkout -B jolly/workspace-production-v1 FETCH_HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to checkout production branch.' }
 
-          "branch=$branch" >> $env:GITHUB_OUTPUT
-          "patch=$patch" >> $env:GITHUB_OUTPUT
-          "message=$message" >> $env:GITHUB_OUTPUT
+          $expected = '5c274f58a3bcdf90655cc91d99f3cb97968c8ac5'
+          $actual = (git rev-parse HEAD).Trim()
+          if ($actual -ne $expected) { throw "Unexpected production head: $actual" }
 
-      - name: Checkout target branch
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ steps.request.outputs.branch }}
-          fetch-depth: 0
-          clean: true
-          persist-credentials: true
+          $path = 'workspace/production/tests/windows-soak.js'
+          $text = Get-Content -LiteralPath $path -Raw
+          $old = 'fs.rmSync(profile, {recursive:true, force:true});'
+          $new = 'fs.rmSync(profile, {recursive:true, force:true, maxRetries:50, retryDelay:100});'
+          if (-not $text.Contains($old)) { throw 'Expected Chrome profile cleanup statement was not found.' }
+          $text = $text.Replace($old, $new)
+          Set-Content -LiteralPath $path -Value $text -Encoding UTF8 -NoNewline
 
-      - name: Validate, apply and commit patch
-        env:
-          PATCH_PATH: ${{ steps.request.outputs.patch }}
-          COMMIT_MESSAGE: ${{ steps.request.outputs.message }}
-          TARGET_BRANCH: ${{ steps.request.outputs.branch }}
+          node --check $path
+          if ($LASTEXITCODE -ne 0) { throw 'Patched Windows soak syntax check failed.' }
+          git diff --check
+          if ($LASTEXITCODE -ne 0) { throw 'Patched diff failed git diff --check.' }
+
+          git config user.name 'Jolly Workspace Bot'
+          git config user.email 'jolly-workspace@users.noreply.github.com'
+          git add -- $path
+          git commit -m 'test: tolerate transient Chrome profile locks on Windows'
+          if ($LASTEXITCODE -ne 0) { throw 'Commit failed.' }
+          $patched = (git rev-parse HEAD).Trim()
+          git push origin HEAD:jolly/workspace-production-v1
+          if ($LASTEXITCODE -ne 0) { throw 'Push to production feature branch failed.' }
+          Write-Host "JOLLY_PATCHED_HEAD=$patched"
+
+      - name: Clean temporary checkout
+        if: always()
         run: |
-          $checkOutput = & git apply --check $env:PATCH_PATH 2>&1
-          if ($LASTEXITCODE -ne 0) {
-            $diagnosticPath = '.github\level-bomber-patch-error.txt'
-            @(
-              "patch=$env:PATCH_PATH",
-              "branch=$env:TARGET_BRANCH",
-              'git_apply_check_output:',
-              ($checkOutput | Out-String)
-            ) | Set-Content -Path $diagnosticPath -Encoding UTF8
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add $diagnosticPath
-            git commit -m "Record level bomber patch check failure"
-            git push origin "HEAD:$env:TARGET_BRANCH"
-            exit 1
+          $target = Join-Path $env:RUNNER_TEMP "okayama-workspace-patch-$env:GITHUB_RUN_ID"
+          if (Test-Path -LiteralPath $target) {
+            Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction SilentlyContinue
           }
-
-          git apply $env:PATCH_PATH
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-          Remove-Item $env:PATCH_PATH
-          if (Test-Path '.github\level-bomber-patch-error.txt') {
-            Remove-Item '.github\level-bomber-patch-error.txt'
-          }
-          if (Test-Path '.github\level-bomber-apply-request.txt') {
-            Remove-Item '.github\level-bomber-apply-request.txt'
-          }
-          if (Test-Path '.github\workflows\ww-apply-level-bomber-patch.yml') {
-            Remove-Item '.github\workflows\ww-apply-level-bomber-patch.yml'
-          }
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "$env:COMMIT_MESSAGE"
-          git push origin "HEAD:$env:TARGET_BRANCH"
