@@ -1,0 +1,96 @@
+name: PR108 current-main integration validation
+
+on:
+  push:
+    branches:
+      - verify/pr108-main-integration-20260904
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: powershell
+    env:
+      PR_HEAD: 03709de91081f3993f3deb46faa8707838415751
+      PR_BASE: f2307ecc0555aa653e7c7441cc693f376db37c7a
+      MAIN_SHA: 2585f44fa02b84ed7f593bf9a65798a2b4f056ea
+
+    steps:
+      - name: Checkout exact current main
+        uses: actions/checkout@v6
+        with:
+          ref: 2585f44fa02b84ed7f593bf9a65798a2b4f056ea
+          fetch-depth: 0
+          clean: true
+          persist-credentials: false
+
+      - name: Construct three-way candidate
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git fetch --no-tags origin $env:PR_HEAD $env:PR_BASE $env:MAIN_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to fetch exact integration inputs.' }
+
+          $mergeRoot = Join-Path $env:RUNNER_TEMP ('pr108-threeway-' + [guid]::NewGuid().ToString('N'))
+          New-Item -ItemType Directory -Force -Path $mergeRoot | Out-Null
+          $conflicts = New-Object System.Collections.Generic.List[string]
+          try {
+            foreach ($path in @(
+              'tools/JollyRunnerHub/JollyRunnerHub.ps1',
+              'tools/JollyRunnerHub/Build-Deploy.ps1'
+            )) {
+              $safe = ($path -replace '[^A-Za-z0-9_.-]','_')
+              $current = Join-Path $mergeRoot ($safe + '.main')
+              $base = Join-Path $mergeRoot ($safe + '.base')
+              $other = Join-Path $mergeRoot ($safe + '.pr')
+              git show --output=$current "$($env:MAIN_SHA):$path"
+              if ($LASTEXITCODE -ne 0) { throw "Failed to read main blob: $path" }
+              git show --output=$base "$($env:PR_BASE):$path"
+              if ($LASTEXITCODE -ne 0) { throw "Failed to read base blob: $path" }
+              git show --output=$other "$($env:PR_HEAD):$path"
+              if ($LASTEXITCODE -ne 0) { throw "Failed to read PR blob: $path" }
+
+              git merge-file $current $base $other
+              $mergeExit = $LASTEXITCODE
+              if ($mergeExit -gt 1) { throw "git merge-file failed for $path with exit $mergeExit" }
+              if ($mergeExit -eq 1) {
+                [void]$conflicts.Add($path)
+                Write-Host "::error::Three-way conflict remains in $path"
+                Select-String -LiteralPath $current -Pattern '^(<<<<<<<|=======|>>>>>>>)' -Context 4,4 |
+                  ForEach-Object { $_ | Out-String | Write-Host }
+                continue
+              }
+              Copy-Item -LiteralPath $current -Destination $path -Force
+            }
+
+            if ($conflicts.Count -gt 0) {
+              throw ('Unresolved three-way conflicts: ' + ($conflicts -join ', '))
+            }
+
+            $testPath = 'tools/JollyRunnerHub/Test-CommandCenterContract.ps1'
+            git show --output=$testPath "$($env:PR_HEAD):$testPath"
+            if ($LASTEXITCODE -ne 0) { throw 'Failed to materialize Command Center regression test.' }
+
+            Write-Host 'Three-way candidate constructed without conflict markers.'
+            git diff --stat -- tools/JollyRunnerHub/JollyRunnerHub.ps1 tools/JollyRunnerHub/Build-Deploy.ps1 tools/JollyRunnerHub/Test-CommandCenterContract.ps1
+          }
+          finally {
+            Remove-Item -LiteralPath $mergeRoot -Recurse -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Run Command Center contract and behavior tests
+        run: |
+          & .\tools\JollyRunnerHub\Test-CommandCenterContract.ps1
+
+      - name: Run full isolated RunnerHub smoke validation
+        run: |
+          & .\tools\JollyRunnerHub\Invoke-BuildDeploySafely.ps1 -Install:$false
+
+      - name: Prove installed AppRoot was not selected by validation
+        run: |
+          if ($env:INSTALL_DESKTOP_APP -eq 'true') { throw 'Unexpected install flag.' }
+          Write-Host 'Validation used current-main safe wrapper with Install=false; no desktop replacement or production AppRoot install requested.'
