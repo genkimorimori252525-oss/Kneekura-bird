@@ -1,4 +1,4 @@
-Set-StrictMode -Version Latest
+﻿Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $hubPath = Join-Path $PSScriptRoot 'JollyRunnerHub.ps1'
