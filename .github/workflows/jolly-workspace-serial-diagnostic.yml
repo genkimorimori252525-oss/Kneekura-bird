@@ -1,0 +1,66 @@
+name: Jolly Workspace Serial Node Test Diagnostic
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jolly-workspace-serial-diagnostic
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Clone exact Workspace candidate
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $target = Join-Path $env:RUNNER_TEMP "okayama-workspace-serial-$env:GITHUB_RUN_ID"
+          if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
+          gh repo clone genkimorimori252525-oss/Okayama-NAMASUTE-Club $target -- --no-checkout
+          Set-Location $target
+          git fetch origin jolly/workspace-production-v1 --depth=1
+          git checkout --detach 31d5ef512d589dc9b8ca9e59ce0d565ec9073c8f
+          if ((git rev-parse HEAD).Trim() -ne '31d5ef512d589dc9b8ca9e59ce0d565ec9073c8f') { throw 'Unexpected candidate head.' }
+          "OKAYAMA_WORKSPACE_PATH=$target" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Prove every test file passes in isolation
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-Location $env:OKAYAMA_WORKSPACE_PATH
+          $files = @(
+            'tests/core.test.js',
+            'workspace/kernel/tests/api-hardening.test.js',
+            'workspace/kernel/tests/api.test.js',
+            'workspace/kernel/tests/policy.test.js',
+            'workspace/kernel/tests/recovery.test.js',
+            'workspace/kernel/tests/store.test.js',
+            'workspace/kernel/tests/terminal.test.js',
+            'workspace/production/tests/coordination.test.js',
+            'workspace/production/tests/supervisor.test.js'
+          )
+          foreach ($file in $files) {
+            Write-Host "=== TEST $file ==="
+            & node --test $file
+            if ($LASTEXITCODE -ne 0) { throw "Test failed: $file exit=$LASTEXITCODE" }
+          }
+
+      - name: Prove combined suite exits with concurrency one
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-Location $env:OKAYAMA_WORKSPACE_PATH
+          & node --test --test-concurrency=1
+          if ($LASTEXITCODE -ne 0) { throw "Serial combined suite failed: exit=$LASTEXITCODE" }
+
+      - name: Clean temporary checkout
+        if: always()
+        run: |
+          if ($env:OKAYAMA_WORKSPACE_PATH -and (Test-Path -LiteralPath $env:OKAYAMA_WORKSPACE_PATH)) {
+            Remove-Item -LiteralPath $env:OKAYAMA_WORKSPACE_PATH -Recurse -Force -ErrorAction SilentlyContinue
+          }
