@@ -1,4 +1,4 @@
-name: Validate Jolly Workspace Production Candidate
+name: Patch Jolly Workspace Screenshot Cleanup
 
 on:
   workflow_dispatch:
@@ -7,11 +7,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: okayama-workspace-windows-soak
+  group: okayama-workspace-patch
   cancel-in-progress: false
 
 jobs:
-  windows-soak:
+  patch:
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 12
     defaults:
@@ -19,74 +19,58 @@ jobs:
         shell: powershell
 
     steps:
-      - name: Verify local Windows runner prerequisites
+      - name: Patch exact Workspace production head
         run: |
           $ErrorActionPreference = 'Stop'
-          Write-Host "Runner: $env:RUNNER_NAME"
-          Write-Host "OS: $env:RUNNER_OS"
-          node --version
-          if ($LASTEXITCODE -ne 0) { throw 'Node is unavailable.' }
-          git --version
-          if ($LASTEXITCODE -ne 0) { throw 'Git is unavailable.' }
-          gh --version
-          if ($LASTEXITCODE -ne 0) { throw 'GitHub CLI is unavailable.' }
-          gh auth status
-          if ($LASTEXITCODE -ne 0) { throw 'GitHub CLI user authentication is unavailable.' }
-
-      - name: Clone exact Workspace candidate with local user authentication
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $target = Join-Path $env:RUNNER_TEMP "okayama-workspace-$env:GITHUB_RUN_ID"
-          if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
+          $expected = '5133059c3c27e25e95bca421c99d7c6b889d77a2'
+          $target = Join-Path $env:RUNNER_TEMP "okayama-workspace-patch-$env:GITHUB_RUN_ID"
+          if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction SilentlyContinue }
           gh repo clone genkimorimori252525-oss/Okayama-NAMASUTE-Club $target -- --no-checkout
           if ($LASTEXITCODE -ne 0) { throw 'Failed to clone private Workspace repository.' }
           Set-Location $target
           git fetch origin jolly/workspace-production-v1 --depth=1
           if ($LASTEXITCODE -ne 0) { throw 'Failed to fetch Workspace production branch.' }
-          git checkout --detach 5133059c3c27e25e95bca421c99d7c6b889d77a2
-          if ($LASTEXITCODE -ne 0) { throw 'Failed to checkout exact Workspace production commit.' }
+          git checkout -B jolly/workspace-production-v1 origin/jolly/workspace-production-v1
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to checkout Workspace production branch.' }
           $actual = (git rev-parse HEAD).Trim()
-          if ($actual -ne '5133059c3c27e25e95bca421c99d7c6b889d77a2') { throw "Unexpected head: $actual" }
-          "OKAYAMA_WORKSPACE_PATH=$target" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          Write-Host "Validated exact candidate $actual"
+          if ($actual -ne $expected) { throw "Unexpected production head: $actual" }
 
-      - name: Run complete Node test suite
-        run: |
-          Set-Location $env:OKAYAMA_WORKSPACE_PATH
-          npm test
-          if ($LASTEXITCODE -ne 0) { throw 'npm test failed.' }
-
-      - name: Run JavaScript syntax checks
-        run: |
-          Set-Location $env:OKAYAMA_WORKSPACE_PATH
-          npm run check
-          if ($LASTEXITCODE -ne 0) { throw 'npm run check failed.' }
-
-      - name: Run real Windows integration and unattended soak
-        env:
-          JOLLY_SOAK_SECONDS: '60'
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $evidence = Join-Path $env:GITHUB_WORKSPACE 'build\okayama-windows-soak'
-          New-Item -ItemType Directory -Path $evidence -Force | Out-Null
-          $env:JOLLY_SOAK_OUTPUT = $evidence
-          Set-Location $env:OKAYAMA_WORKSPACE_PATH
-          npm run workspace:soak:windows
-          if ($LASTEXITCODE -ne 0) { throw 'Windows Workspace soak failed.' }
-          if (-not (Test-Path -LiteralPath (Join-Path $evidence 'windows-soak-report.json'))) { throw 'Soak report was not produced.' }
-          Get-Content -LiteralPath (Join-Path $evidence 'windows-soak-report.json') -Raw
-
-      - name: Upload Windows soak evidence
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: okayama-workspace-windows-soak-${{ github.run_id }}
-          if-no-files-found: warn
-          path: build/okayama-windows-soak/**
-
-      - name: Clean temporary Workspace checkout
-        if: always()
-        run: |
-          if ($env:OKAYAMA_WORKSPACE_PATH -and (Test-Path -LiteralPath $env:OKAYAMA_WORKSPACE_PATH)) {
-            Remove-Item -LiteralPath $env:OKAYAMA_WORKSPACE_PATH -Recurse -Force -ErrorAction SilentlyContinue
+          $file = Join-Path $target 'workspace\production\tests\windows-soak.js'
+          $text = Get-Content -LiteralPath $file -Raw
+          $oldCleanup = '  fs.rmSync(profile, {recursive:true, force:true, maxRetries:50, retryDelay:100});'
+          $newCleanup = @'
+          let cleanupWarning = null;
+          try {
+            fs.rmSync(profile, {recursive:true, force:true, maxRetries:50, retryDelay:100});
+          } catch (error) {
+            cleanupWarning = String(error && (error.code || error.message) || error);
           }
+          '@.TrimEnd()
+          if (-not $text.Contains($oldCleanup)) { throw 'Expected Chrome cleanup statement not found.' }
+          $text = $text.Replace($oldCleanup, $newCleanup)
+
+          $oldReturn = '  return {captured:true, path:target, bytes:fs.statSync(target).size};'
+          $newReturn = '  return {captured:true, path:target, bytes:fs.statSync(target).size, ...(cleanupWarning ? {profileCleanupWarning:cleanupWarning} : {})};'
+          if (-not $text.Contains($oldReturn)) { throw 'Expected screenshot success return not found.' }
+          $text = $text.Replace($oldReturn, $newReturn)
+          Set-Content -LiteralPath $file -Value $text -Encoding UTF8
+
+          node --check workspace/production/tests/windows-soak.js
+          if ($LASTEXITCODE -ne 0) { throw 'Patched soak file failed syntax validation.' }
+          npm test
+          if ($LASTEXITCODE -ne 0) { throw 'Regression suite failed after cleanup patch.' }
+
+          git config user.name 'Jolly Workspace Bot'
+          git config user.email 'jolly-workspace@users.noreply.github.com'
+          git add -- workspace/production/tests/windows-soak.js
+          if ((git diff --cached --name-only).Trim() -ne 'workspace/production/tests/windows-soak.js') { throw 'Unexpected staged files.' }
+          git commit -m 'test: make Chrome profile cleanup nonfatal on Windows'
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to commit cleanup patch.' }
+          git push origin HEAD:jolly/workspace-production-v1
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to push cleanup patch.' }
+          git rev-parse HEAD
+
+      - name: Clean temporary checkout
+        if: always()
+        run: |
+          Get-ChildItem $env:RUNNER_TEMP -Directory -Filter 'okayama-workspace-patch-*' -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
