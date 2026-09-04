@@ -1,4 +1,4 @@
-name: Validate Jolly Workspace Production Candidate
+name: Export Jolly Workspace Final Visual Evidence
 
 on:
   workflow_dispatch:
@@ -6,111 +6,61 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: okayama-workspace-windows-soak
-  cancel-in-progress: false
-
 jobs:
-  windows-soak:
+  export-evidence:
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 15
+    timeout-minutes: 10
     defaults:
       run:
         shell: powershell
 
     steps:
-      - name: Checkout validation helper
+      - name: Checkout disposable helper branch
         uses: actions/checkout@v4
         with:
           ref: jolly/okayama-workspace-soak-20260904
           fetch-depth: 1
+          persist-credentials: false
 
-      - name: Verify local Windows runner prerequisites
+      - name: Download successful final evidence artifact
         run: |
           $ErrorActionPreference = 'Stop'
-          Write-Host "Runner: $env:RUNNER_NAME"
-          Write-Host "OS: $env:RUNNER_OS"
-          node --version
-          if ($LASTEXITCODE -ne 0) { throw 'Node is unavailable.' }
-          git --version
-          if ($LASTEXITCODE -ne 0) { throw 'Git is unavailable.' }
-          gh --version
-          if ($LASTEXITCODE -ne 0) { throw 'GitHub CLI is unavailable.' }
           gh auth status
-          if ($LASTEXITCODE -ne 0) { throw 'GitHub CLI user authentication is unavailable.' }
-
-      - name: Clone exact Workspace candidate with local user authentication
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $target = Join-Path $env:RUNNER_TEMP "okayama-workspace-$env:GITHUB_RUN_ID"
+          $target = Join-Path $env:RUNNER_TEMP "jolly-final-evidence-$env:GITHUB_RUN_ID"
           if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
-          gh repo clone genkimorimori252525-oss/Okayama-NAMASUTE-Club $target -- --no-checkout
-          if ($LASTEXITCODE -ne 0) { throw 'Failed to clone private Workspace repository.' }
-          Set-Location $target
-          git config core.autocrlf false
-          git fetch origin jolly/workspace-production-v1 --depth=1
-          if ($LASTEXITCODE -ne 0) { throw 'Failed to fetch Workspace production branch.' }
-          git checkout --detach f89028f82cb9ebb95f8fda76df95151a8eb43d11
-          if ($LASTEXITCODE -ne 0) { throw 'Failed to checkout exact Workspace production commit.' }
-          $actual = (git rev-parse HEAD).Trim()
-          if ($actual -ne 'f89028f82cb9ebb95f8fda76df95151a8eb43d11') { throw "Unexpected head: $actual" }
-          "OKAYAMA_WORKSPACE_PATH=$target" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          Write-Host "Validated exact candidate $actual"
+          New-Item -ItemType Directory -Path $target -Force | Out-Null
+          gh run download 33886192033 -R genkimorimori252525-oss/warfare_wings-1.1.4-1.20.1-forge -n okayama-workspace-windows-soak-33886192033 -D $target
+          if ($LASTEXITCODE -ne 0) { throw 'Artifact download failed.' }
+          $png = Get-ChildItem -LiteralPath $target -Recurse -File -Filter 'command-deck-browser-paired.png' | Select-Object -First 1
+          $html = Get-ChildItem -LiteralPath $target -Recurse -File -Filter 'command-deck-browser-paired.html' | Select-Object -First 1
+          $bridge = Get-ChildItem -LiteralPath $target -Recurse -File -Filter 'browser-bridge-proof.json' | Select-Object -First 1
+          $soak = Get-ChildItem -LiteralPath $target -Recurse -File -Filter 'windows-soak-report.json' | Select-Object -First 1
+          if (-not $png) { throw 'CDP-rendered Command Deck PNG not found.' }
+          if (-not $bridge) { throw 'Browser bridge proof JSON not found.' }
+          if (-not $soak) { throw 'Windows soak report JSON not found.' }
+          $dest = Join-Path $env:GITHUB_WORKSPACE 'tools\jolly-workspace\final-evidence'
+          if (Test-Path -LiteralPath $dest) { Remove-Item -LiteralPath $dest -Recurse -Force }
+          New-Item -ItemType Directory -Path $dest -Force | Out-Null
+          Copy-Item -LiteralPath $png.FullName -Destination (Join-Path $dest 'command-deck-browser-paired.png') -Force
+          if ($html) { Copy-Item -LiteralPath $html.FullName -Destination (Join-Path $dest 'command-deck-browser-paired.html') -Force }
+          Copy-Item -LiteralPath $bridge.FullName -Destination (Join-Path $dest 'browser-bridge-proof.json') -Force
+          Copy-Item -LiteralPath $soak.FullName -Destination (Join-Path $dest 'windows-soak-report.json') -Force
+          Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $dest 'command-deck-browser-paired.png')
 
-      - name: Run complete Node test suite
-        run: |
-          Set-Location $env:OKAYAMA_WORKSPACE_PATH
-          npm test
-          if ($LASTEXITCODE -ne 0) { throw 'npm test failed.' }
-
-      - name: Run JavaScript syntax checks
-        run: |
-          Set-Location $env:OKAYAMA_WORKSPACE_PATH
-          npm run check
-          if ($LASTEXITCODE -ne 0) { throw 'npm run check failed.' }
-
-      - name: Relax only flaky Chrome CLI screenshot gate in validation copy
+      - name: Publish evidence only to disposable helper branch
         run: |
           $ErrorActionPreference = 'Stop'
-          Set-Location $env:GITHUB_WORKSPACE
-          node tools/jolly-workspace/relax-soak-cli-screenshot-gate.js $env:OKAYAMA_WORKSPACE_PATH
-          if ($LASTEXITCODE -ne 0) { throw 'Validation-copy screenshot gate patch failed.' }
+          gh auth setup-git
+          git config user.name "Jolly Workspace Evidence"
+          git config user.email "jolly-workspace@users.noreply.github.com"
+          git add tools/jolly-workspace/final-evidence
+          git commit -m "test: retain final Jolly Workspace visual proof"
+          if ($LASTEXITCODE -ne 0) { throw 'Evidence commit failed.' }
+          git push origin HEAD:jolly/okayama-workspace-soak-20260904
+          if ($LASTEXITCODE -ne 0) { throw 'Evidence push failed.' }
 
-      - name: Run real Windows integration and unattended soak
-        env:
-          JOLLY_SOAK_SECONDS: '60'
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $evidence = Join-Path $env:GITHUB_WORKSPACE 'build\okayama-windows-soak'
-          New-Item -ItemType Directory -Path $evidence -Force | Out-Null
-          $env:JOLLY_SOAK_OUTPUT = $evidence
-          Set-Location $env:OKAYAMA_WORKSPACE_PATH
-          npm run workspace:soak:windows
-          if ($LASTEXITCODE -ne 0) { throw 'Windows Workspace soak failed.' }
-          if (-not (Test-Path -LiteralPath (Join-Path $evidence 'windows-soak-report.json'))) { throw 'Soak report was not produced.' }
-          Get-Content -LiteralPath (Join-Path $evidence 'windows-soak-report.json') -Raw
-
-      - name: Run live Browser Companion bridge and CDP-rendered reconnect proof
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $evidence = Join-Path $env:GITHUB_WORKSPACE 'build\okayama-windows-soak'
-          Set-Location $env:GITHUB_WORKSPACE
-          node tools/jolly-workspace/final-browser-bridge-proof.js $env:OKAYAMA_WORKSPACE_PATH $evidence
-          if ($LASTEXITCODE -ne 0) { throw 'Browser Companion live proof failed.' }
-          if (-not (Test-Path -LiteralPath (Join-Path $evidence 'browser-bridge-proof.json'))) { throw 'Browser Companion proof report was not produced.' }
-          Get-Content -LiteralPath (Join-Path $evidence 'browser-bridge-proof.json') -Raw
-
-      - name: Upload Windows soak evidence
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: okayama-workspace-windows-soak-${{ github.run_id }}
-          if-no-files-found: warn
-          path: build/okayama-windows-soak/**
-
-      - name: Clean temporary Workspace checkout
+      - name: Clean temporary artifact
         if: always()
         run: |
-          if ($env:OKAYAMA_WORKSPACE_PATH -and (Test-Path -LiteralPath $env:OKAYAMA_WORKSPACE_PATH)) {
-            Remove-Item -LiteralPath $env:OKAYAMA_WORKSPACE_PATH -Recurse -Force -ErrorAction SilentlyContinue
-          }
+          $target = Join-Path $env:RUNNER_TEMP "jolly-final-evidence-$env:GITHUB_RUN_ID"
+          if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction SilentlyContinue }
