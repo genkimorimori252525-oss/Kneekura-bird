@@ -57,13 +57,8 @@ jobs:
           node tools/jolly-workspace/browser-bridge-patch.js $env:OKAYAMA_PATCH_PATH
           if ($LASTEXITCODE -ne 0) { throw 'patch script failed' }
           Copy-Item -LiteralPath tools/jolly-workspace/browser-bridge.test.js -Destination (Join-Path $env:OKAYAMA_PATCH_PATH 'workspace\production\tests\browser-bridge.test.js') -Force
-          $coreTest = Join-Path $env:OKAYAMA_PATCH_PATH 'tests\core.test.js'
-          $coreText = Get-Content -LiteralPath $coreTest -Raw
-          $oldScope = 'assert.deepEqual(manifest.host_permissions, ["https://chatgpt.com/*"]);'
-          $newScope = 'assert.deepEqual(manifest.host_permissions, ["https://chatgpt.com/*", "http://127.0.0.1/*"]);'
-          if (-not $coreText.Contains($oldScope)) { throw 'manifest host permission assertion target missing' }
-          $coreText = $coreText.Replace($oldScope, $newScope)
-          Set-Content -LiteralPath $coreTest -Value $coreText -Encoding utf8 -NoNewline
+          node tools/jolly-workspace/patch-core-manifest-test.js $env:OKAYAMA_PATCH_PATH
+          if ($LASTEXITCODE -ne 0) { throw 'core test patch failed' }
 
       - name: Run plugin regression suite
         run: |
