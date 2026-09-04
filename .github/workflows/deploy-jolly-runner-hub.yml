@@ -1,4 +1,4 @@
-name: Inspect Local JollyRunnerHub Storage
+name: Validate Jolly Workspace Production Candidate
 
 on:
   workflow_dispatch:
@@ -7,127 +7,86 @@ permissions:
   contents: read
 
 concurrency:
-  group: jolly-runner-hub-local-inspect
+  group: okayama-workspace-windows-soak
   cancel-in-progress: false
 
 jobs:
-  inspect:
+  windows-soak:
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 8
+    timeout-minutes: 12
     defaults:
       run:
         shell: powershell
+
     steps:
-      - name: Inspect installed files and bounded storage candidates
+      - name: Verify local Windows runner prerequisites
         run: |
           $ErrorActionPreference = 'Stop'
-          $appRoot = Join-Path $env:LOCALAPPDATA 'JollyRunnerHub'
-          $desktopExe = Join-Path ([Environment]::GetFolderPath('Desktop')) 'JollyRunnerHub.exe'
-          $oneDriveDesktopExe = Join-Path $env:USERPROFILE 'OneDrive\Desktop\JollyRunnerHub.exe'
-          $exe = @($desktopExe,$oneDriveDesktopExe) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
-          $outDir = Join-Path $env:RUNNER_TEMP "jollyhub-inspect-$env:GITHUB_RUN_ID"
-          New-Item -ItemType Directory -Path $outDir -Force | Out-Null
+          Write-Host "Runner: $env:RUNNER_NAME"
+          Write-Host "OS: $env:RUNNER_OS"
+          node --version
+          if ($LASTEXITCODE -ne 0) { throw 'Node is unavailable.' }
+          git --version
+          if ($LASTEXITCODE -ne 0) { throw 'Git is unavailable.' }
+          gh --version
+          if ($LASTEXITCODE -ne 0) { throw 'GitHub CLI is unavailable.' }
+          gh auth status
+          if ($LASTEXITCODE -ne 0) { throw 'GitHub CLI user authentication is unavailable.' }
 
-          function Get-DirBytes([string]$Path) {
-            if (-not (Test-Path -LiteralPath $Path -PathType Container)) { return 0 }
-            $sum = (Get-ChildItem -LiteralPath $Path -File -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum
-            if ($null -eq $sum) { return 0 }
-            return [int64]$sum
-          }
+      - name: Clone exact Workspace candidate with local user authentication
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $target = Join-Path $env:RUNNER_TEMP "okayama-workspace-$env:GITHUB_RUN_ID"
+          if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
+          gh repo clone genkimorimori252525-oss/Okayama-NAMASUTE-Club $target -- --no-checkout
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to clone private Workspace repository.' }
+          Set-Location $target
+          git fetch origin jolly/workspace-production-v1 --depth=1
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to fetch Workspace production branch.' }
+          git checkout --detach b065ddda595fcdb610ffb1d579a55900aee2e057
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to checkout exact Workspace production commit.' }
+          $actual = (git rev-parse HEAD).Trim()
+          if ($actual -ne 'b065ddda595fcdb610ffb1d579a55900aee2e057') { throw "Unexpected head: $actual" }
+          "OKAYAMA_WORKSPACE_PATH=$target" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "Validated exact candidate $actual"
 
-          $topFiles = @()
-          if (Test-Path -LiteralPath $appRoot -PathType Container) {
-            $topFiles = @(Get-ChildItem -LiteralPath $appRoot -File -Recurse -Force -ErrorAction SilentlyContinue |
-              Sort-Object Length -Descending |
-              Select-Object -First 40 |
-              ForEach-Object {
-                [pscustomobject]@{
-                  relative = $_.FullName.Substring($appRoot.Length).TrimStart('\')
-                  bytes = [int64]$_.Length
-                  lastWriteUtc = $_.LastWriteTimeUtc.ToString('o')
-                }
-              })
-          }
+      - name: Run complete Node test suite
+        run: |
+          Set-Location $env:OKAYAMA_WORKSPACE_PATH
+          npm test
+          if ($LASTEXITCODE -ne 0) { throw 'npm test failed.' }
 
-          $subdirs = @()
-          if (Test-Path -LiteralPath $appRoot -PathType Container) {
-            $subdirs = @(Get-ChildItem -LiteralPath $appRoot -Directory -Force -ErrorAction SilentlyContinue |
-              ForEach-Object {
-                [pscustomobject]@{ name=$_.Name; bytes=(Get-DirBytes $_.FullName) }
-              } | Sort-Object bytes -Descending)
-          }
+      - name: Run JavaScript syntax checks
+        run: |
+          Set-Location $env:OKAYAMA_WORKSPACE_PATH
+          npm run check
+          if ($LASTEXITCODE -ne 0) { throw 'npm run check failed.' }
 
-          $historyFiles = @()
-          $historyRoot = Join-Path $appRoot 'history'
-          if (Test-Path -LiteralPath $historyRoot -PathType Container) {
-            $historyFiles = @(Get-ChildItem -LiteralPath $historyRoot -File -Recurse -Filter '*.jsonl' -ErrorAction SilentlyContinue |
-              Sort-Object Length -Descending |
-              Select-Object -First 30 |
-              ForEach-Object { [pscustomobject]@{ relative=$_.FullName.Substring($historyRoot.Length).TrimStart('\'); bytes=[int64]$_.Length; lastWriteUtc=$_.LastWriteTimeUtc.ToString('o') } })
-          }
+      - name: Run real Windows integration and unattended soak
+        env:
+          JOLLY_SOAK_SECONDS: '60'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $evidence = Join-Path $env:GITHUB_WORKSPACE 'build\okayama-windows-soak'
+          New-Item -ItemType Directory -Path $evidence -Force | Out-Null
+          $env:JOLLY_SOAK_OUTPUT = $evidence
+          Set-Location $env:OKAYAMA_WORKSPACE_PATH
+          npm run workspace:soak:windows
+          if ($LASTEXITCODE -ne 0) { throw 'Windows Workspace soak failed.' }
+          if (-not (Test-Path -LiteralPath (Join-Path $evidence 'windows-soak-report.json'))) { throw 'Soak report was not produced.' }
+          Get-Content -LiteralPath (Join-Path $evidence 'windows-soak-report.json') -Raw
 
-          $logFiles = @()
-          $logsRoot = Join-Path $appRoot 'logs'
-          if (Test-Path -LiteralPath $logsRoot -PathType Container) {
-            $logFiles = @(Get-ChildItem -LiteralPath $logsRoot -File -ErrorAction SilentlyContinue |
-              Sort-Object Length -Descending |
-              ForEach-Object { [pscustomobject]@{ name=$_.Name; bytes=[int64]$_.Length; lastWriteUtc=$_.LastWriteTimeUtc.ToString('o') } })
-          }
-
-          $exeInfo = $null
-          if ($exe) {
-            $item = Get-Item -LiteralPath $exe
-            $hash = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash
-            $sig = Get-AuthenticodeSignature -LiteralPath $exe
-            $exeInfo = [pscustomobject]@{
-              path=$exe
-              bytes=[int64]$item.Length
-              sha256=$hash
-              fileVersion=[string]$item.VersionInfo.FileVersion
-              productVersion=[string]$item.VersionInfo.ProductVersion
-              signatureStatus=[string]$sig.Status
-              lastWriteUtc=$item.LastWriteTimeUtc.ToString('o')
-            }
-          }
-
-          $sourceInfo = $null
-          $installedScript = Join-Path $appRoot 'JollyRunnerHub.ps1'
-          if (Test-Path -LiteralPath $installedScript -PathType Leaf) {
-            $item = Get-Item -LiteralPath $installedScript
-            $sourceInfo = [pscustomobject]@{
-              bytes=[int64]$item.Length
-              sha256=(Get-FileHash -LiteralPath $installedScript -Algorithm SHA256).Hash
-              lastWriteUtc=$item.LastWriteTimeUtc.ToString('o')
-            }
-          }
-
-          $proc = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
-            Where-Object { [string]$_.CommandLine -like '*JollyRunnerHub.bootstrap.ps1*' } |
-            Select-Object ProcessId,CreationDate,CommandLine)
-
-          $report = [ordered]@{
-            generatedAt=(Get-Date).ToUniversalTime().ToString('o')
-            appRoot=$appRoot
-            appRootExists=(Test-Path -LiteralPath $appRoot -PathType Container)
-            appRootBytes=(Get-DirBytes $appRoot)
-            exe=$exeInfo
-            installedScript=$sourceInfo
-            activeBootstrapProcesses=$proc
-            subdirs=$subdirs
-            topFiles=$topFiles
-            historyTop=$historyFiles
-            logs=$logFiles
-            dispatchRecovery = if (Test-Path -LiteralPath (Join-Path $appRoot 'dispatch-recovery.jsonl')) { [int64](Get-Item -LiteralPath (Join-Path $appRoot 'dispatch-recovery.jsonl')).Length } else { 0 }
-            runtimeScriptBytes = if (Test-Path -LiteralPath (Join-Path $appRoot 'JollyRunnerHub.runtime.ps1')) { [int64](Get-Item -LiteralPath (Join-Path $appRoot 'JollyRunnerHub.runtime.ps1')).Length } else { 0 }
-            startupErrorBytes = if (Test-Path -LiteralPath (Join-Path $appRoot 'startup-error.log')) { [int64](Get-Item -LiteralPath (Join-Path $appRoot 'startup-error.log')).Length } else { 0 }
-          }
-          $reportPath = Join-Path $outDir 'jollyhub-local-inspect.json'
-          $report | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $reportPath -Encoding UTF8
-          Get-Content -LiteralPath $reportPath -Raw
-
-      - name: Upload inspection report
+      - name: Upload Windows soak evidence
+        if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: jollyhub-local-inspect-${{ github.run_id }}
-          path: ${{ runner.temp }}/jollyhub-inspect-${{ github.run_id }}/jollyhub-local-inspect.json
-          if-no-files-found: error
+          name: okayama-workspace-windows-soak-${{ github.run_id }}
+          if-no-files-found: warn
+          path: build/okayama-windows-soak/**
+
+      - name: Clean temporary Workspace checkout
+        if: always()
+        run: |
+          if ($env:OKAYAMA_WORKSPACE_PATH -and (Test-Path -LiteralPath $env:OKAYAMA_WORKSPACE_PATH)) {
+            Remove-Item -LiteralPath $env:OKAYAMA_WORKSPACE_PATH -Recurse -Force -ErrorAction SilentlyContinue
+          }
