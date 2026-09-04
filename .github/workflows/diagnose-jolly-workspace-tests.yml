@@ -1,0 +1,85 @@
+name: Diagnose Jolly Workspace Windows Tests
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: diagnose-jolly-workspace-tests
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Clone exact Workspace candidate
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $target = Join-Path $env:RUNNER_TEMP "okayama-workspace-diag-$env:GITHUB_RUN_ID"
+          if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
+          gh repo clone genkimorimori252525-oss/Okayama-NAMASUTE-Club $target -- --no-checkout
+          Set-Location $target
+          git fetch origin jolly/workspace-production-v1 --depth=1
+          git checkout --detach 31d5ef512d589dc9b8ca9e59ce0d565ec9073c8f
+          if ((git rev-parse HEAD).Trim() -ne '31d5ef512d589dc9b8ca9e59ce0d565ec9073c8f') { throw 'Unexpected candidate head.' }
+          "OKAYAMA_WORKSPACE_PATH=$target" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Run each test file with a hard timeout
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-Location $env:OKAYAMA_WORKSPACE_PATH
+          $outDir = Join-Path (Get-Location) 'build\windows-test-diagnostic'
+          New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+          $files = @(
+            'tests/core.test.js',
+            'workspace/kernel/tests/api-hardening.test.js',
+            'workspace/kernel/tests/api.test.js',
+            'workspace/kernel/tests/policy.test.js',
+            'workspace/kernel/tests/recovery.test.js',
+            'workspace/kernel/tests/store.test.js',
+            'workspace/kernel/tests/terminal.test.js',
+            'workspace/production/tests/coordination.test.js',
+            'workspace/production/tests/supervisor.test.js'
+          )
+          $summary = @()
+          foreach ($file in $files) {
+            $safe = ($file -replace '[^A-Za-z0-9._-]','_')
+            $stdout = Join-Path $outDir ($safe + '.stdout.log')
+            $stderr = Join-Path $outDir ($safe + '.stderr.log')
+            Write-Host "=== TEST $file ==="
+            $p = Start-Process node -ArgumentList @('--test', $file) -WorkingDirectory (Get-Location) -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru -WindowStyle Hidden
+            $exited = $p.WaitForExit(60000)
+            if (-not $exited) {
+              & taskkill.exe /PID $p.Id /T /F 2>$null | Out-Null
+              $summary += [pscustomobject]@{ file=$file; status='TIMEOUT'; exitCode=$null }
+              Write-Host "TIMEOUT $file"
+              continue
+            }
+            $status = if ($p.ExitCode -eq 0) { 'PASS' } else { 'FAIL' }
+            $summary += [pscustomobject]@{ file=$file; status=$status; exitCode=$p.ExitCode }
+            Write-Host "$status $file exit=$($p.ExitCode)"
+          }
+          $summary | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $outDir 'summary.json') -Encoding UTF8
+          $summary | Format-Table -AutoSize
+          if (@($summary | Where-Object { $_.status -ne 'PASS' }).Count -gt 0) { exit 1 }
+
+      - name: Upload diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: jolly-workspace-windows-test-diagnostic-${{ github.run_id }}
+          if-no-files-found: warn
+          path: ${{ env.OKAYAMA_WORKSPACE_PATH }}/build/windows-test-diagnostic/**
+
+      - name: Clean temporary checkout
+        if: always()
+        run: |
+          if ($env:OKAYAMA_WORKSPACE_PATH -and (Test-Path -LiteralPath $env:OKAYAMA_WORKSPACE_PATH)) {
+            Remove-Item -LiteralPath $env:OKAYAMA_WORKSPACE_PATH -Recurse -Force -ErrorAction SilentlyContinue
+          }
