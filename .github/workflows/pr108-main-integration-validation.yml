@@ -36,23 +36,32 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Failed to fetch exact integration inputs.' }
 
           $mergeRoot = Join-Path $env:RUNNER_TEMP ('pr108-threeway-' + [guid]::NewGuid().ToString('N'))
-          New-Item -ItemType Directory -Force -Path $mergeRoot | Out-Null
+          $baseRoot = Join-Path $mergeRoot 'base'
+          $prRoot = Join-Path $mergeRoot 'pr'
+          $scratchRoot = Join-Path $mergeRoot 'scratch'
+          New-Item -ItemType Directory -Force -Path $mergeRoot,$scratchRoot | Out-Null
+          $baseAdded = $false
+          $prAdded = $false
           $conflicts = New-Object System.Collections.Generic.List[string]
           try {
+            git worktree add --detach $baseRoot $env:PR_BASE
+            if ($LASTEXITCODE -ne 0) { throw 'Failed to materialize exact PR base worktree.' }
+            $baseAdded = $true
+            git worktree add --detach $prRoot $env:PR_HEAD
+            if ($LASTEXITCODE -ne 0) { throw 'Failed to materialize exact PR head worktree.' }
+            $prAdded = $true
+
             foreach ($path in @(
               'tools/JollyRunnerHub/JollyRunnerHub.ps1',
               'tools/JollyRunnerHub/Build-Deploy.ps1'
             )) {
               $safe = ($path -replace '[^A-Za-z0-9_.-]','_')
-              $current = Join-Path $mergeRoot ($safe + '.main')
-              $base = Join-Path $mergeRoot ($safe + '.base')
-              $other = Join-Path $mergeRoot ($safe + '.pr')
-              git show --output=$current "$($env:MAIN_SHA):$path"
-              if ($LASTEXITCODE -ne 0) { throw "Failed to read main blob: $path" }
-              git show --output=$base "$($env:PR_BASE):$path"
-              if ($LASTEXITCODE -ne 0) { throw "Failed to read base blob: $path" }
-              git show --output=$other "$($env:PR_HEAD):$path"
-              if ($LASTEXITCODE -ne 0) { throw "Failed to read PR blob: $path" }
+              $current = Join-Path $scratchRoot ($safe + '.main')
+              $base = Join-Path $scratchRoot ($safe + '.base')
+              $other = Join-Path $scratchRoot ($safe + '.pr')
+              Copy-Item -LiteralPath $path -Destination $current -Force
+              Copy-Item -LiteralPath (Join-Path $baseRoot $path) -Destination $base -Force
+              Copy-Item -LiteralPath (Join-Path $prRoot $path) -Destination $other -Force
 
               git merge-file $current $base $other
               $mergeExit = $LASTEXITCODE
@@ -60,7 +69,7 @@ jobs:
               if ($mergeExit -eq 1) {
                 [void]$conflicts.Add($path)
                 Write-Host "::error::Three-way conflict remains in $path"
-                Select-String -LiteralPath $current -Pattern '^(<<<<<<<|=======|>>>>>>>)' -Context 4,4 |
+                Select-String -LiteralPath $current -Pattern '^(<<<<<<<|=======|>>>>>>>)' -Context 5,5 |
                   ForEach-Object { $_ | Out-String | Write-Host }
                 continue
               }
@@ -71,14 +80,22 @@ jobs:
               throw ('Unresolved three-way conflicts: ' + ($conflicts -join ', '))
             }
 
-            $testPath = 'tools/JollyRunnerHub/Test-CommandCenterContract.ps1'
-            git show --output=$testPath "$($env:PR_HEAD):$testPath"
-            if ($LASTEXITCODE -ne 0) { throw 'Failed to materialize Command Center regression test.' }
+            Copy-Item -LiteralPath (Join-Path $prRoot 'tools/JollyRunnerHub/Test-CommandCenterContract.ps1') -Destination 'tools/JollyRunnerHub/Test-CommandCenterContract.ps1' -Force
 
-            Write-Host 'Three-way candidate constructed without conflict markers.'
-            git diff --stat -- tools/JollyRunnerHub/JollyRunnerHub.ps1 tools/JollyRunnerHub/Build-Deploy.ps1 tools/JollyRunnerHub/Test-CommandCenterContract.ps1
+            $changed = @(git diff --numstat -- tools/JollyRunnerHub/JollyRunnerHub.ps1 tools/JollyRunnerHub/Build-Deploy.ps1 tools/JollyRunnerHub/Test-CommandCenterContract.ps1)
+            $changed | ForEach-Object { Write-Host $_ }
+            if ($changed -match '^\d+\s+2415\s+' -or $changed -match '^\d+\s+617\s+') {
+              throw 'Candidate unexpectedly deleted an entire current-main source file.'
+            }
+            if (Select-String -Path tools/JollyRunnerHub/JollyRunnerHub.ps1,tools/JollyRunnerHub/Build-Deploy.ps1 -Pattern '^(<<<<<<<|=======|>>>>>>>)' -Quiet) {
+              throw 'Conflict markers remained in the candidate.'
+            }
+            Write-Host 'Three-way candidate constructed from exact worktree bytes without conflict markers.'
           }
           finally {
+            if ($prAdded) { git worktree remove --force $prRoot | Out-Null }
+            if ($baseAdded) { git worktree remove --force $baseRoot | Out-Null }
+            git worktree prune | Out-Null
             Remove-Item -LiteralPath $mergeRoot -Recurse -Force -ErrorAction SilentlyContinue
           }
 
