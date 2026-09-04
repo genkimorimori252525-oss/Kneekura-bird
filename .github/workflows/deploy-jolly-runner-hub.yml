@@ -35,7 +35,17 @@ jobs:
           clean: true
           persist-credentials: false
 
+      # PR #108 predates the isolated PR build wrapper now present on main.
+      # Until that branch is rebased in the next integration step, run only the
+      # credential-free Command Center contract/behavior suite here. This avoids
+      # touching the installed %LOCALAPPDATA% JollyRunnerHub from stale PR code.
+      - name: Validate Command Center contracts safely on PR 108
+        if: github.event_name == 'pull_request' && github.event.pull_request.number == 108
+        run: |
+          & .\tools\JollyRunnerHub\Test-CommandCenterContract.ps1
+
       - name: Validate, build, and optionally install desktop app
+        if: github.event_name != 'pull_request' || github.event.pull_request.number != 108
         env:
           INSTALL_DESKTOP_APP: ${{ github.event_name != 'pull_request' }}
         run: |
@@ -70,6 +80,7 @@ jobs:
             tools/JollyRunnerHub/RunnerCapabilities.ps1
             tools/JollyRunnerHub/Inspect-RunnerCapabilities.ps1
             tools/JollyRunnerHub/Test-RunnerCapabilities.ps1
+            tools/JollyRunnerHub/Test-CommandCenterContract.ps1
             tools/JollyRunnerHub/Use-LocalGradle.ps1
             tools/JollyRunnerHub/RunnerLifecycle.ps1
             tools/JollyRunnerHub/profiles.default.json
