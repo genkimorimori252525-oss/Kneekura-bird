@@ -57,6 +57,13 @@ jobs:
           node tools/jolly-workspace/browser-bridge-patch.js $env:OKAYAMA_PATCH_PATH
           if ($LASTEXITCODE -ne 0) { throw 'patch script failed' }
           Copy-Item -LiteralPath tools/jolly-workspace/browser-bridge.test.js -Destination (Join-Path $env:OKAYAMA_PATCH_PATH 'workspace\production\tests\browser-bridge.test.js') -Force
+          $coreTest = Join-Path $env:OKAYAMA_PATCH_PATH 'tests\core.test.js'
+          $coreText = Get-Content -LiteralPath $coreTest -Raw
+          $oldScope = 'assert.deepEqual(manifest.host_permissions, ["https://chatgpt.com/*"]);'
+          $newScope = 'assert.deepEqual(manifest.host_permissions, ["https://chatgpt.com/*", "http://127.0.0.1/*"]);'
+          if (-not $coreText.Contains($oldScope)) { throw 'manifest host permission assertion target missing' }
+          $coreText = $coreText.Replace($oldScope, $newScope)
+          Set-Content -LiteralPath $coreTest -Value $coreText -Encoding utf8 -NoNewline
 
       - name: Run plugin regression suite
         run: |
@@ -73,9 +80,9 @@ jobs:
           Set-Location $env:OKAYAMA_PATCH_PATH
           git config user.name "Jolly Workspace Bot"
           git config user.email "jolly-workspace@users.noreply.github.com"
-          git add companion/browser/manifest.json companion/browser/background.js companion/browser/production-bridge.js workspace/production/src/server.js workspace/production/src/launcher.js workspace/production/web/production.js workspace/production/tests/browser-bridge.test.js
+          git add companion/browser/manifest.json companion/browser/background.js companion/browser/production-bridge.js workspace/production/src/server.js workspace/production/src/launcher.js workspace/production/web/production.js workspace/production/tests/browser-bridge.test.js tests/core.test.js
           $changed = @(git diff --cached --name-only)
-          if ($changed.Count -ne 7) { $changed; throw "unexpected patch file count: $($changed.Count)" }
+          if ($changed.Count -ne 8) { $changed; throw "unexpected patch file count: $($changed.Count)" }
           git commit -m "feat: pair Browser Companion with production workspace"
           if ($LASTEXITCODE -ne 0) { throw 'commit failed' }
           git push origin HEAD:jolly/workspace-production-v1
