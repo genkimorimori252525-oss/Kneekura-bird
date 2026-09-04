@@ -1,0 +1,147 @@
+name: Deploy Jolly Runner Hub
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/JollyRunnerHub/**'
+      - '.github/workflows/deploy-jolly-runner-hub.yml'
+  pull_request:
+    paths:
+      - 'tools/JollyRunnerHub/**'
+      - '.github/workflows/deploy-jolly-runner-hub.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ww-selfhosted-hub-deploy
+  cancel-in-progress: false
+
+jobs:
+  validate-and-deploy:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: powershell
+
+    steps:
+      - name: Checkout requested revision
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+
+      - name: Validate, build, and optionally install desktop app
+        env:
+          INSTALL_DESKTOP_APP: ${{ github.event_name != 'pull_request' }}
+        run: |
+          $log = '.\tools\JollyRunnerHub\build\deploy.log'
+          New-Item -ItemType Directory -Force -Path (Split-Path -Parent $log) | Out-Null
+          $install = $env:INSTALL_DESKTOP_APP -eq 'true'
+          try {
+            & .\tools\JollyRunnerHub\Invoke-BuildDeploySafely.ps1 -Install:$install *>&1 |
+              Tee-Object -FilePath $log
+          }
+          catch {
+            ($_ | Out-String) | Tee-Object -FilePath $log -Append
+            throw
+          }
+
+      - name: Validate Supervisor diagnostic contract
+        run: |
+          & .\tools\JollyRunnerHub\Test-InspectManagedSupervisorStatus.ps1
+
+      - name: Inspect installed managed Supervisor
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 1
+        run: |
+          & .\tools\JollyRunnerHub\Inspect-ManagedSupervisorStatus.ps1
+
+      - name: Upload portable launcher and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: JollyRunnerHub-${{ github.run_id }}
+          if-no-files-found: warn
+          path: |
+            tools/JollyRunnerHub/build/JollyRunnerHub.exe
+            tools/JollyRunnerHub/build/JollyRunnerHub.ico
+            tools/JollyRunnerHub/build/deploy.log
+            tools/JollyRunnerHub/Invoke-BuildDeploySafely.ps1
+            tools/JollyRunnerHub/JollyRunnerHub.ps1
+            tools/JollyRunnerHub/RunnerConnectionState.ps1
+            tools/JollyRunnerHub/EphemeralRunnerController.psm1
+            tools/JollyRunnerHub/EphemeralRunnerWatchdog.ps1
+            tools/JollyRunnerHub/Manage-EphemeralRunner.ps1
+            tools/JollyRunnerHub/Test-EphemeralRunnerController.ps1
+            tools/JollyRunnerHub/RunnerCapabilities.ps1
+            tools/JollyRunnerHub/Inspect-RunnerCapabilities.ps1
+            tools/JollyRunnerHub/Test-RunnerCapabilities.ps1
+            tools/JollyRunnerHub/RunnerDispatchWatch.ps1
+            tools/JollyRunnerHub/RunnerDispatchProbe.ps1
+            tools/JollyRunnerHub/Test-RunnerDispatchWatch.ps1
+            tools/JollyRunnerHub/RunnerConfig.ps1
+            tools/JollyRunnerHub/Test-RunnerConfig.ps1
+            tools/JollyRunnerHub/RunnerControlState.ps1
+            tools/JollyRunnerHub/Test-RunnerControlState.ps1
+            tools/JollyRunnerHub/ManagedRunnerSupervisorCore.ps1
+            tools/JollyRunnerHub/Test-ManagedRunnerSupervisor.ps1
+            tools/JollyRunnerHub/ManagedRunnerSupervisor.ps1
+            tools/JollyRunnerHub/Test-ManagedRunnerSupervisorRuntime.ps1
+            tools/JollyRunnerHub/RunnerMaintenance.ps1
+            tools/JollyRunnerHub/Register-ManagedRunnerSupervisor.ps1
+            tools/JollyRunnerHub/RunnerRootResolver.ps1
+            tools/JollyRunnerHub/Test-RunnerRootResolver.ps1
+            tools/JollyRunnerHub/Inspect-ManagedSupervisorStatus.ps1
+            tools/JollyRunnerHub/Test-InspectManagedSupervisorStatus.ps1
+            tools/JollyRunnerHub/Test-RegisterManagedSupervisor.ps1
+            tools/JollyRunnerHub/Use-LocalGradle.ps1
+            tools/JollyRunnerHub/RunnerLifecycle.ps1
+            tools/JollyRunnerHub/profiles.default.json
+            tools/JollyRunnerHub/README.md
+
+      - name: Persist deployment status
+        if: always() && github.event_name != 'pull_request'
+        uses: actions/github-script@v8
+        env:
+          JOB_STATUS: ${{ job.status }}
+          SELF_HOSTED_RUNNER: ${{ runner.name }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const path = '.github/jolly-runner-hub-status.json';
+            const payload = {
+              run_id: context.runId,
+              status: process.env.JOB_STATUS,
+              head_sha: context.sha,
+              runner: process.env.SELF_HOSTED_RUNNER,
+              installed_executable: 'Desktop/JollyRunnerHub.exe',
+              updated_at: new Date().toISOString(),
+            };
+            const content = Buffer.from(`${JSON.stringify(payload, null, 2)}\n`).toString('base64');
+            let sha;
+            try {
+              const existing = await github.rest.repos.getContent({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                path,
+                ref: 'main',
+              });
+              if (!Array.isArray(existing.data)) sha = existing.data.sha;
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+            await github.rest.repos.createOrUpdateFileContents({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              path,
+              branch: 'main',
+              message: `Record Jolly Runner Hub deployment ${context.runId}`,
+              content,
+              ...(sha ? { sha } : {}),
+            });
