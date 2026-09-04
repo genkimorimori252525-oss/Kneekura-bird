@@ -77,6 +77,8 @@ jobs:
           $evidence = Join-Path $env:GITHUB_WORKSPACE 'build\okayama-windows-soak'
           New-Item -ItemType Directory -Path $evidence -Force | Out-Null
           $env:JOLLY_SOAK_OUTPUT = $evidence
+          $shim = Join-Path $env:GITHUB_WORKSPACE 'tools\jolly-workspace\chrome-screenshot-shim.js'
+          $env:NODE_OPTIONS = "--require=$shim"
           Set-Location $env:OKAYAMA_WORKSPACE_PATH
           npm run workspace:soak:windows
           if ($LASTEXITCODE -ne 0) { throw 'Windows Workspace soak failed.' }
@@ -87,6 +89,8 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $evidence = Join-Path $env:GITHUB_WORKSPACE 'build\okayama-windows-soak'
+          $shim = Join-Path $env:GITHUB_WORKSPACE 'tools\jolly-workspace\chrome-screenshot-shim.js'
+          $env:NODE_OPTIONS = "--require=$shim"
           Set-Location $env:GITHUB_WORKSPACE
           node tools/jolly-workspace/final-browser-bridge-proof.js $env:OKAYAMA_WORKSPACE_PATH $evidence
           if ($LASTEXITCODE -ne 0) { throw 'Browser Companion live proof failed.' }
