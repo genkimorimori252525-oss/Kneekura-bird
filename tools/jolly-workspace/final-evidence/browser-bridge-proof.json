@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "candidate": "okayama-workspace-33886192033",
+  "startedAt": "2026-09-04T14:53:31.303Z",
+  "checks": {
+    "firstPair": {
+      "paired": true,
+      "panelVisibility": "HIDDEN"
+    },
+    "rendered": {
+      "screenshot": "C:\\actions-runner\\_work\\warfare_wings-1.1.4-1.20.1-forge\\warfare_wings-1.1.4-1.20.1-forge\\build\\okayama-windows-soak\\command-deck-browser-paired.png",
+      "screenshotBytes": 508101,
+      "renderedPanel": "HIDDEN",
+      "renderedLease": "PAIRED"
+    },
+    "restartReconnect": {
+      "paired": true,
+      "freshNonce": true,
+      "panelVisibility": "HIDDEN"
+    }
+  },
+  "ok": true,
+  "finishedAt": "2026-09-04T14:53:35.406Z"
+}

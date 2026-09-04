@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "platform": "win32",
+  "startedAt": "2026-09-04T14:52:24.797Z",
+  "soakSeconds": 60,
+  "checks": {
+    "browserBridgeContract": {
+      "visibilityIndependent": true,
+      "leaseExpires": true,
+      "popupRecovery": true
+    },
+    "sideBySideInstallA": "0.2.0-soak-a",
+    "loopbackKernel": "http://127.0.0.1:8790",
+    "designGates": {
+      "consultation": true,
+      "audit": "PASS",
+      "phase": "EXECUTION"
+    },
+    "terminal": {
+      "probeStatus": "COMPLETED",
+      "cancelStatus": "CANCELLED",
+      "lingerPid": 25588
+    },
+    "coordination": {
+      "liaisonAcked": true,
+      "conflictPrevented": true
+    },
+    "windowsCommandDeckScreenshot": {
+      "captured": false,
+      "reason": "chrome_exit_0",
+      "stderr": ""
+    },
+    "windowsCommandDeckScreenshotCliWarning": {
+      "reason": "chrome_exit_0",
+      "note": "validated separately through Chrome DevTools Protocol"
+    },
+    "unattendedSoakIterations": 60,
+    "cleanRestartPersistence": true,
+    "crashRecovery": {
+      "quarantineCount": 2,
+      "dataPreserved": true
+    },
+    "sideBySideRollback": {
+      "from": "0.2.0-soak-b",
+      "to": "0.2.0-soak-a",
+      "appliesOnNextLaunch": true
+    }
+  },
+  "screenshots": [],
+  "failures": [],
+  "ok": true,
+  "finishedAt": "2026-09-04T14:53:30.999Z",
+  "runtimeRoot": "C:\\Users\\genki\\AppData\\Local\\Temp\\jolly-workspace-windows-soak-BtGpgy\\runtime"
+}

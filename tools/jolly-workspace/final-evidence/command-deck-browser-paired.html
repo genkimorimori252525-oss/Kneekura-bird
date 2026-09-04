@@ -1,0 +1,209 @@
+<html lang="ja"><head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Jolly Workspace</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer=""></script>
+<link rel="stylesheet" href="/production.css"><script src="/production.js" defer=""></script></head>
+<body>
+  <div class="ambient ambient-a"></div>
+  <div class="ambient ambient-b"></div>
+
+  <header class="topbar">
+    <div class="brand-block">
+      <div class="brand-mark"><span></span><span></span><span></span></div>
+      <div>
+        <div class="eyebrow">LOCAL AI DEVELOPMENT OS</div>
+        <h1>Jolly Workspace</h1>
+      </div>
+    </div>
+    <div class="top-actions">
+      <div class="system-pill ok" id="systemPill"><i></i><span id="systemStatus">Kernel online · 1 project</span></div>
+      <button class="ghost-button" id="refreshButton" type="button">再読込</button>
+      <button class="primary-button" id="newProjectButton" type="button">＋ Project</button>
+    </div>
+  </header>
+
+  <nav class="project-tabs" id="projectTabs" aria-label="Projects"><button class="project-tab active" type="button">Alpha<span class="project-mail-badge" hidden=""></span></button></nav>
+
+  <main class="shell">
+    <section class="empty-state" id="emptyState" hidden="">
+      <div class="empty-orbit"><span></span></div>
+      <div class="eyebrow">NO PROJECT YET</div>
+      <h2>最初のCommand Deckを作成</h2>
+      <p>プロジェクトごとにAgent、設計、タスク、Terminal、履歴を完全分離して保持します。</p>
+      <button class="primary-button" id="emptyCreateButton" type="button">Projectを作成</button>
+    </section>
+
+    <section id="deck">
+      <section class="phase-hero panel">
+        <div class="project-heading">
+          <div>
+            <div class="eyebrow" id="projectIdLabel">PROJECT · alpha</div>
+            <h2 id="projectName">Alpha</h2>
+            <div class="path-line" id="projectRoot">root: C:\Users\genki\AppData\Local\Temp\jolly-final-browser-bridge-3uVhvJ\alpha</div>
+          </div>
+          <div class="project-metrics">
+            <div><span>Design</span><strong id="designRevision">v1</strong></div>
+            <div><span>Tasks</span><strong id="taskMetric">0 / 0</strong></div>
+            <div><span>Overall</span><strong id="overallMetric">—</strong></div>
+          </div>
+        </div>
+
+        <div class="phase-rail-wrap">
+          <div class="phase-rail">
+            <div class="phase-node active" id="designNode"><span>01</span><div><b>DESIGN</b><small>設計・相談・監査</small></div></div>
+            <div class="phase-track"><div id="phaseTrackFill" style="width: 36%;"></div></div>
+            <div class="phase-node " id="executionNode"><span>02</span><div><b>EXECUTION</b><small>実装・Terminal・検証</small></div></div>
+          </div>
+          <div class="gate-row">
+            <div class="gate-chip ok" id="consultGate"><i></i><span>Consultation</span><b>READY</b></div>
+            <div class="gate-chip warn" id="auditGate"><i></i><span>Adversarial Audit</span><b>0 / 1</b></div>
+            <div class="gate-chip warn" id="phaseGate"><i></i><span>Phase</span><b>DESIGN</b></div>
+            <button class="phase-button" id="phaseButton" type="button">実行フェーズへ</button>
+          </div>
+        </div>
+      </section>
+
+      <div class="deck-grid">
+        <aside class="left-stack">
+          <section class="panel card">
+            <div class="card-head"><div><span class="eyebrow">PRESENCE</span><h3>Agents</h3></div><button class="mini-button" id="toggleAgentForm" type="button">＋</button></div>
+            <div class="agent-list" id="agentList"><div class="path-line">Agent未登録</div></div>
+            <form class="compact-form" id="agentForm" hidden="">
+              <input id="agentIdInput" placeholder="agent id" required="">
+              <input id="agentNameInput" placeholder="表示名">
+              <select id="agentRoleInput"><option>BOSS</option><option>WORKER</option><option>REVIEWER</option><option>TESTER</option><option>RESEARCHER</option><option>SPECIALIST</option></select>
+              <button type="submit" class="secondary-button">Agent追加</button>
+            </form>
+          </section>
+
+          <section class="panel card tasks-card">
+            <div class="card-head"><div><span class="eyebrow">DELIVERY</span><h3>Tasks</h3></div><button class="mini-button" id="toggleTaskForm" type="button">＋</button></div>
+            <div class="task-list" id="taskList"><div class="path-line">Taskはまだありません</div></div>
+            <form class="compact-form" id="taskForm" hidden="">
+              <input id="taskIdInput" placeholder="task id" required="">
+              <input id="taskTitleInput" placeholder="タスク名" required="">
+              <select id="taskStatusInput"><option>PENDING</option><option>IN_PROGRESS</option><option>BLOCKED</option><option>DONE</option></select>
+              <input id="taskProgressInput" type="number" min="0" max="100" value="0" placeholder="進捗 %">
+              <select id="taskOwnerInput"></select>
+              <button type="submit" class="secondary-button">Task保存</button>
+            </form>
+          </section>
+        </aside>
+
+        <section class="center-stack">
+          <section class="panel card design-card">
+            <div class="card-head"><div><span class="eyebrow">DESIGN ROOM</span><h3>設計とGate</h3></div><span class="revision-badge" id="revisionBadge">DESIGN v1</span></div>
+            <div class="design-grid">
+              <div class="design-main">
+                <label class="field-label" for="designAuthor">Design author</label>
+                <select id="designAuthor"></select>
+                <label class="field-label" for="designSummary">Design summary</label>
+                <textarea id="designSummary" rows="5" placeholder="目的、制約、実装方針、完了条件を記録"></textarea>
+                <button class="secondary-button" id="saveDesignButton" type="button">設計Revisionを保存</button>
+              </div>
+              <div class="gate-editor">
+                <div class="gate-editor-block">
+                  <div class="gate-editor-title"><span>01</span><b>Consultation</b></div>
+                  <div class="participant-list" id="consultParticipants"></div>
+                  <textarea id="consultSummary" rows="2" placeholder="2人以上で比較・相談した結論"></textarea>
+                  <button class="quiet-button" id="saveConsultButton" type="button">相談記録を確定</button>
+                </div>
+                <div class="gate-editor-block">
+                  <div class="gate-editor-title"><span>02</span><b>One-time Audit</b></div>
+                  <select id="auditAgent"></select>
+                  <select id="auditVerdict"><option>PASS</option><option selected="">PASS_WITH_NOTES</option><option>FAIL</option></select>
+                  <textarea id="auditSummary" rows="2" placeholder="敵対監査の結論・見落とし"></textarea>
+                  <button class="quiet-button" id="saveAuditButton" type="button">敵対監査を1回実行</button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel terminal-card">
+            <div class="terminal-head">
+              <div><span class="eyebrow">AI EXECUTION SURFACE</span><h3>Terminal</h3></div>
+              <div class="terminal-state"><i id="terminalDot"></i><span id="terminalStatus">IDLE</span></div>
+            </div>
+            <div class="terminal-toolbar">
+              <select id="terminalProfile"><option value="inspect">inspect</option><option value="workspace">workspace</option></select>
+              <input id="terminalCommand" spellcheck="false" autocomplete="off" placeholder="node --version">
+              <button class="terminal-run" id="terminalRun" type="button">Run</button>
+              <button class="terminal-stop" id="terminalStop" type="button" disabled="">Stop</button>
+            </div>
+            <div class="terminal-note" id="terminalNote">DESIGN中はinspectのみ。Shell記号は使わず、argvとして安全に実行します。</div>
+            <pre class="terminal-output" id="terminalOutput"><span class="muted">TerminalはProject rootに隔離されています。実行履歴はEvent Ledgerへ記録されます。</span></pre>
+          </section>
+        </section>
+
+        <aside class="right-stack">
+          <section class="panel card health-card">
+            <div class="card-head"><div><span class="eyebrow">SYSTEM</span><h3>Health</h3></div><span class="health-score" id="healthScore">HEALTHY</span></div>
+            <div class="health-list">
+              <div><span>Workspace Kernel</span><b id="kernelHealth">Healthy</b></div>
+              <div><span>Terminal</span><b id="terminalHealth">0 live</b></div>
+              <div><span>Browser Companion</span><b id="browserHealth">Separate</b></div>
+              <div><span>Project phase</span><b id="phaseHealth">DESIGN</b></div>
+            </div>
+          </section>
+
+          <section class="panel card resume-card">
+            <div class="card-head"><div><span class="eyebrow">MEMORY</span><h3>Resume Packet</h3></div><span class="memory-pill">HOT</span></div>
+            <div id="resumeContent" class="resume-content"><div class="resume-block"><span>Mission</span><p>Design未登録</p></div><div class="resume-block"><span>Phase</span><p>DESIGN · Design v1</p></div><div class="resume-block"><span>Checkpoint</span><p>未作成</p></div><div class="resume-block"><span>Next</span><p>Task Ledgerから継続</p></div></div>
+            <div class="checkpoint-editor">
+              <input id="checkpointSummary" placeholder="Checkpoint summary">
+              <input id="checkpointNext" placeholder="次のAction（カンマ区切り）">
+              <button class="quiet-button" id="checkpointButton" type="button">Checkpoint保存</button>
+            </div>
+          </section>
+
+          <section class="panel card auto-card">
+            <div class="card-head"><div><span class="eyebrow">TURN BRIDGE</span><h3>Auto Continue</h3></div><span class="bridge-dot" id="bridgeDot"></span></div>
+            <div class="auto-state" id="autoState">Browser Companionは独立稼働 · Kernel Bridge未接続</div>
+            <p>通常継続は約10秒。60分救済はWorkspace接続時に抑止し、完了合言葉 <code>[JOLLY:AUTO_STOP]</code> で停止します。</p>
+          <div class="prod-bridge-state" id="productionBridgeState"><div><span>Panel visibility</span><b id="prodPanelState">HIDDEN</b></div><div><span>Workspace lease</span><b id="prodLeaseState" class="good">PAIRED</b></div><small>Browser Companionの実状態はBridge接続後に同期します。UNKNOWNは「OFF」ではありません。</small></div></section><section class="panel card production-card" id="crossProjectCard"><div class="card-head"><div><span class="eyebrow">CROSS-PROJECT</span><h3>Agent Liaison</h3></div><span class="prod-badge" id="liaisonBadge">0</span></div>
+        <div class="prod-isolation">Message access ≠ project write access</div>
+        <div class="prod-compose"><select id="liaisonTarget"></select><select id="liaisonType"><option>REQUEST_INFO</option><option>RESOURCE_CONFLICT</option><option>DEPENDENCY</option><option>WARNING</option><option>DECISION_REFERENCE</option><option>HANDOFF</option></select><input id="liaisonText" placeholder="別Projectへ共有する要点"><button id="liaisonSend" type="button">送信</button></div>
+        <div class="prod-subhead"><span>INBOX</span><button id="liaisonRefresh" type="button">更新</button></div><div id="liaisonInbox" class="prod-list"><div class="prod-empty">新しい連絡はありません</div></div>
+        <div class="prod-subhead"><span>CONFLICT RADAR</span><b id="conflictCount">0</b></div><div id="conflictList" class="prod-list"><div class="prod-empty good">競合なし</div></div></section>
+        <section class="panel card production-card lifecycle-card" id="productionLifecycleCard"><div class="card-head"><div><span class="eyebrow">PRODUCTION</span><h3>Lifecycle &amp; Recovery</h3></div><span class="prod-badge" id="lifecycleBadge">HEALTHY</span></div>
+        <div id="lifecycleRows" class="prod-kv"><div><span>Supervisor</span><b>HEALTHY</b></div><div><span>Endpoint</span><b>http://127.0.0.1:8790</b></div><div><span>Current</span><b>source-run</b></div><div><span>Previous</span><b>—</b></div><div><span>Owned processes</span><b>1</b></div><div><span>Recovery</span><b>0 quarantine / 0 stale lease</b></div></div>
+        <div class="prod-actions"><button id="refreshLifecycle" type="button">状態更新</button><button id="rollbackVersion" class="danger-lite" type="button" disabled="">次回起動でRollback</button></div>
+        <p class="prod-note">更新はside-by-side。新Versionを横に配置し、失敗時はcurrent pointerだけを前Versionへ戻します。</p></section></aside>
+      </div>
+
+      <div class="lower-grid">
+        <section class="panel war-card">
+          <div class="card-head"><div><span class="eyebrow">MULTI-AGENT</span><h3>War Room</h3></div><span class="live-label">STRUCTURED</span></div>
+          <div class="war-stream" id="warStream"><div class="path-line">War Roomに記録はありません</div></div>
+          <form class="war-compose" id="warForm">
+            <select id="warActor"></select>
+            <select id="warType"><option>PROPOSAL</option><option>CHALLENGE</option><option>DECISION</option><option>ACTION</option><option>RESULT</option></select>
+            <input id="warSummary" placeholder="Agent間で共有する結論・根拠" required="">
+            <button type="submit" class="secondary-button">記録</button>
+          </form>
+        </section>
+
+        <section class="panel timeline-card">
+          <div class="card-head"><div><span class="eyebrow">APPEND-ONLY</span><h3>Timeline</h3></div><button class="mini-button text-mini" id="clearAgentFilter" type="button">ALL</button></div>
+          <div class="timeline" id="timeline"><div class="timeline-row"><div class="timeline-time">23:53:31</div><div class="timeline-dot"></div><div class="timeline-main"><b>project.created</b><span>system</span></div></div></div>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="projectDialog" class="modal">
+    <form method="dialog" id="projectForm">
+      <div class="modal-head"><div><span class="eyebrow">NEW PROJECT</span><h3>Command Deckを作成</h3></div><button value="cancel" class="modal-close" type="submit">×</button></div>
+      <label>Project ID<input id="newProjectId" pattern="[A-Za-z0-9][A-Za-z0-9._-]*" required="" placeholder="kneekura"></label>
+      <label>表示名<input id="newProjectName" required="" placeholder="KNEEKURA"></label>
+      <label>Project root<input id="newProjectRoot" required="" placeholder="C:\\Users\\...\\repo"></label>
+      <div class="modal-actions"><button value="cancel" class="ghost-button" type="submit">キャンセル</button><button id="createProjectSubmit" value="default" class="primary-button" type="submit">作成</button></div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+</body></html>
