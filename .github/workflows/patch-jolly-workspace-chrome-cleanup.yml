@@ -1,0 +1,72 @@
+name: Patch Jolly Workspace Chrome Profile Cleanup
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: patch-jolly-workspace-chrome-cleanup
+  cancel-in-progress: false
+
+jobs:
+  patch:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Patch exact Jolly Workspace production head
+        run: |
+          $ErrorActionPreference = 'Stop'
+          gh auth status
+          if ($LASTEXITCODE -ne 0) { throw 'GitHub CLI user authentication is unavailable.' }
+          gh auth setup-git
+          if ($LASTEXITCODE -ne 0) { throw 'Could not configure GitHub CLI git credentials.' }
+
+          $target = Join-Path $env:RUNNER_TEMP "okayama-workspace-patch-$env:GITHUB_RUN_ID"
+          if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
+          gh repo clone genkimorimori252525-oss/Okayama-NAMASUTE-Club $target -- --no-checkout
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to clone private Workspace repository.' }
+          Set-Location $target
+          git fetch origin jolly/workspace-production-v1 --depth=1
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to fetch production branch.' }
+          git checkout -B jolly/workspace-production-v1 FETCH_HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to checkout production branch.' }
+
+          $expected = '5c274f58a3bcdf90655cc91d99f3cb97968c8ac5'
+          $actual = (git rev-parse HEAD).Trim()
+          if ($actual -ne $expected) { throw "Unexpected production head: $actual" }
+
+          $path = 'workspace/production/tests/windows-soak.js'
+          $text = Get-Content -LiteralPath $path -Raw
+          $old = 'fs.rmSync(profile, {recursive:true, force:true});'
+          $new = 'fs.rmSync(profile, {recursive:true, force:true, maxRetries:50, retryDelay:100});'
+          if (-not $text.Contains($old)) { throw 'Expected Chrome profile cleanup statement was not found.' }
+          $text = $text.Replace($old, $new)
+          Set-Content -LiteralPath $path -Value $text -Encoding UTF8 -NoNewline
+
+          node --check $path
+          if ($LASTEXITCODE -ne 0) { throw 'Patched Windows soak syntax check failed.' }
+          git diff --check
+          if ($LASTEXITCODE -ne 0) { throw 'Patched diff failed git diff --check.' }
+
+          git config user.name 'Jolly Workspace Bot'
+          git config user.email 'jolly-workspace@users.noreply.github.com'
+          git add -- $path
+          git commit -m 'test: tolerate transient Chrome profile locks on Windows'
+          if ($LASTEXITCODE -ne 0) { throw 'Commit failed.' }
+          $patched = (git rev-parse HEAD).Trim()
+          git push origin HEAD:jolly/workspace-production-v1
+          if ($LASTEXITCODE -ne 0) { throw 'Push to production feature branch failed.' }
+          Write-Host "JOLLY_PATCHED_HEAD=$patched"
+
+      - name: Clean temporary checkout
+        if: always()
+        run: |
+          $prefix = Join-Path $env:RUNNER_TEMP "okayama-workspace-patch-$env:GITHUB_RUN_ID"
+          if (Test-Path -LiteralPath $prefix) {
+            Remove-Item -LiteralPath $prefix -Recurse -Force -ErrorAction SilentlyContinue
+          }
