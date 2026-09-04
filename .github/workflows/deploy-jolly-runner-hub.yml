@@ -1,4 +1,4 @@
-name: Export Jolly Workspace Final Visual Evidence
+name: Chunk Jolly Workspace Final Visual Evidence
 
 on:
   workflow_dispatch:
@@ -7,13 +7,12 @@ permissions:
   contents: read
 
 jobs:
-  export-evidence:
+  chunk-evidence:
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 10
+    timeout-minutes: 8
     defaults:
       run:
         shell: powershell
-
     steps:
       - name: Checkout disposable helper branch
         uses: actions/checkout@v4
@@ -21,46 +20,21 @@ jobs:
           ref: jolly/okayama-workspace-soak-20260904
           fetch-depth: 1
           persist-credentials: false
-
-      - name: Download successful final evidence artifact
+      - name: Encode final PNG into bounded text chunks
+        run: |
+          $ErrorActionPreference = 'Stop'
+          node tools/jolly-workspace/chunk-final-proof.js
+          if ($LASTEXITCODE -ne 0) { throw 'Chunking failed.' }
+          Get-Content tools/jolly-workspace/final-evidence/png-base64/meta.json -Raw
+      - name: Publish chunks only to disposable helper branch
         run: |
           $ErrorActionPreference = 'Stop'
           gh auth status
-          $target = Join-Path $env:RUNNER_TEMP "jolly-final-evidence-$env:GITHUB_RUN_ID"
-          if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
-          New-Item -ItemType Directory -Path $target -Force | Out-Null
-          gh run download 33886192033 -R genkimorimori252525-oss/warfare_wings-1.1.4-1.20.1-forge -n okayama-workspace-windows-soak-33886192033 -D $target
-          if ($LASTEXITCODE -ne 0) { throw 'Artifact download failed.' }
-          $png = Get-ChildItem -LiteralPath $target -Recurse -File -Filter 'command-deck-browser-paired.png' | Select-Object -First 1
-          $html = Get-ChildItem -LiteralPath $target -Recurse -File -Filter 'command-deck-browser-paired.html' | Select-Object -First 1
-          $bridge = Get-ChildItem -LiteralPath $target -Recurse -File -Filter 'browser-bridge-proof.json' | Select-Object -First 1
-          $soak = Get-ChildItem -LiteralPath $target -Recurse -File -Filter 'windows-soak-report.json' | Select-Object -First 1
-          if (-not $png) { throw 'CDP-rendered Command Deck PNG not found.' }
-          if (-not $bridge) { throw 'Browser bridge proof JSON not found.' }
-          if (-not $soak) { throw 'Windows soak report JSON not found.' }
-          $dest = Join-Path $env:GITHUB_WORKSPACE 'tools\jolly-workspace\final-evidence'
-          if (Test-Path -LiteralPath $dest) { Remove-Item -LiteralPath $dest -Recurse -Force }
-          New-Item -ItemType Directory -Path $dest -Force | Out-Null
-          Copy-Item -LiteralPath $png.FullName -Destination (Join-Path $dest 'command-deck-browser-paired.png') -Force
-          if ($html) { Copy-Item -LiteralPath $html.FullName -Destination (Join-Path $dest 'command-deck-browser-paired.html') -Force }
-          Copy-Item -LiteralPath $bridge.FullName -Destination (Join-Path $dest 'browser-bridge-proof.json') -Force
-          Copy-Item -LiteralPath $soak.FullName -Destination (Join-Path $dest 'windows-soak-report.json') -Force
-          Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $dest 'command-deck-browser-paired.png')
-
-      - name: Publish evidence only to disposable helper branch
-        run: |
-          $ErrorActionPreference = 'Stop'
           gh auth setup-git
           git config user.name "Jolly Workspace Evidence"
           git config user.email "jolly-workspace@users.noreply.github.com"
-          git add tools/jolly-workspace/final-evidence
-          git commit -m "test: retain final Jolly Workspace visual proof"
-          if ($LASTEXITCODE -ne 0) { throw 'Evidence commit failed.' }
+          git add tools/jolly-workspace/final-evidence/png-base64
+          git commit -m "test: encode final Command Deck proof for inspection"
+          if ($LASTEXITCODE -ne 0) { throw 'Chunk commit failed.' }
           git push origin HEAD:jolly/okayama-workspace-soak-20260904
-          if ($LASTEXITCODE -ne 0) { throw 'Evidence push failed.' }
-
-      - name: Clean temporary artifact
-        if: always()
-        run: |
-          $target = Join-Path $env:RUNNER_TEMP "jolly-final-evidence-$env:GITHUB_RUN_ID"
-          if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction SilentlyContinue }
+          if ($LASTEXITCODE -ne 0) { throw 'Chunk push failed.' }
