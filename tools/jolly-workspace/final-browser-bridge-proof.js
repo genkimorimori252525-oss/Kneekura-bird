@@ -4,7 +4,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const {spawnSync} = require("node:child_process");
+const {spawn, spawnSync} = require("node:child_process");
 
 const sourceRoot = path.resolve(process.argv[2] || "");
 const outputRoot = path.resolve(process.argv[3] || path.join(os.tmpdir(), "jolly-browser-bridge-proof"));
@@ -59,42 +59,95 @@ async function heartbeat(endpoint, previousNonce = null) {
   return paired.lease;
 }
 
+async function waitForFile(file, timeoutMs = 10000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (fs.existsSync(file) && fs.statSync(file).size > 0) return;
+    await sleep(100);
+  }
+  throw new Error(`timed out waiting for ${file}`);
+}
+
+async function closeChrome(child) {
+  if (!child || child.exitCode !== null) return;
+  try {
+    if (process.platform === "win32") spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], {windowsHide:true, stdio:"ignore"});
+    else child.kill("SIGKILL");
+  } catch (_) {}
+}
+
+async function connectCdp(wsUrl) {
+  const ws = new WebSocket(wsUrl);
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("CDP websocket open timeout")), 5000);
+    ws.addEventListener("open", () => { clearTimeout(timer); resolve(); }, {once:true});
+    ws.addEventListener("error", () => { clearTimeout(timer); reject(new Error("CDP websocket error")); }, {once:true});
+  });
+  let nextId = 1;
+  const pending = new Map();
+  ws.addEventListener("message", event => {
+    let message;
+    try { message = JSON.parse(String(event.data)); } catch (_) { return; }
+    if (!message.id || !pending.has(message.id)) return;
+    const entry = pending.get(message.id);
+    pending.delete(message.id);
+    if (message.error) entry.reject(new Error(JSON.stringify(message.error)));
+    else entry.resolve(message.result || {});
+  });
+  const call = (method, params = {}) => new Promise((resolve, reject) => {
+    const id = nextId++;
+    pending.set(id, {resolve, reject});
+    ws.send(JSON.stringify({id, method, params}));
+    setTimeout(() => {
+      if (!pending.has(id)) return;
+      pending.delete(id);
+      reject(new Error(`CDP timeout: ${method}`));
+    }, 10000);
+  });
+  return {ws, call};
+}
+
 async function renderProof(endpoint) {
   const chrome = findChrome();
   assert.ok(chrome, "Google Chrome is required for rendered Browser Companion proof");
-  await heartbeat(endpoint);
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), "jolly-browser-proof-chrome-"));
-  const screenshot = path.join(outputRoot, "command-deck-browser-paired.png");
-  let shot;
+  const profile = fs.mkdtempSync(path.join(os.tmpdir(), "jolly-browser-proof-cdp-"));
+  const portFile = path.join(profile, "DevToolsActivePort");
+  const child = spawn(chrome, [
+    "--headless=new", "--disable-gpu", "--no-first-run", "--hide-scrollbars",
+    `--user-data-dir=${profile}`, "--remote-debugging-port=0", "--window-size=1600,1100", "about:blank"
+  ], {stdio:"ignore", windowsHide:true});
+  let cdp = null;
   try {
-    shot = spawnSync(chrome, [
-      "--headless=new", "--disable-gpu", "--no-first-run", "--hide-scrollbars",
-      `--user-data-dir=${profile}`, "--window-size=1600,1100", "--virtual-time-budget=3000",
-      `--screenshot=${screenshot}`, endpoint
-    ], {encoding:"utf8", timeout:30000, windowsHide:true});
+    await waitForFile(portFile);
+    const port = Number(fs.readFileSync(portFile, "utf8").split(/\r?\n/)[0]);
+    assert.ok(Number.isInteger(port) && port > 0, "Chrome DevTools port is invalid");
+    const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
+    const target = targets.find(item => item.type === "page") || targets[0];
+    assert.ok(target && target.webSocketDebuggerUrl, "Chrome page target is unavailable");
+    cdp = await connectCdp(target.webSocketDebuggerUrl);
+    await cdp.call("Page.enable");
+    await cdp.call("Runtime.enable");
+    await heartbeat(endpoint);
+    await cdp.call("Page.navigate", {url:endpoint});
+    await sleep(2500);
+    const stateResult = await cdp.call("Runtime.evaluate", {
+      expression:'JSON.stringify({panel:document.querySelector("#prodPanelState")?.textContent||null,lease:document.querySelector("#prodLeaseState")?.textContent||null,html:document.documentElement.outerHTML})',
+      returnByValue:true
+    });
+    const state = JSON.parse(stateResult.result.value);
+    assert.equal(state.panel, "HIDDEN", "Command Deck did not render HIDDEN Browser Companion state");
+    assert.equal(state.lease, "PAIRED", "Command Deck did not render PAIRED Browser Companion state");
+    fs.writeFileSync(path.join(outputRoot, "command-deck-browser-paired.html"), state.html, "utf8");
+    const screenshot = await cdp.call("Page.captureScreenshot", {format:"png", fromSurface:true, captureBeyondViewport:false});
+    const screenshotPath = path.join(outputRoot, "command-deck-browser-paired.png");
+    fs.writeFileSync(screenshotPath, Buffer.from(screenshot.data, "base64"));
+    assert.ok(fs.statSync(screenshotPath).size > 1000, "CDP Command Deck screenshot is unexpectedly small");
+    return {screenshot:screenshotPath, screenshotBytes:fs.statSync(screenshotPath).size, renderedPanel:state.panel, renderedLease:state.lease};
   } finally {
+    try { if (cdp) cdp.ws.close(); } catch (_) {}
+    await closeChrome(child);
     try { fs.rmSync(profile, {recursive:true, force:true, maxRetries:50, retryDelay:100}); } catch (_) {}
   }
-  assert.equal(shot.status, 0, `Chrome screenshot failed: ${String(shot.stderr || "").slice(-500)}`);
-  assert.ok(fs.existsSync(screenshot) && fs.statSync(screenshot).size > 1000, "paired Command Deck screenshot missing");
-
-  await heartbeat(endpoint);
-  const domProfile = fs.mkdtempSync(path.join(os.tmpdir(), "jolly-browser-proof-dom-"));
-  let dom;
-  try {
-    dom = spawnSync(chrome, [
-      "--headless=new", "--disable-gpu", "--no-first-run",
-      `--user-data-dir=${domProfile}`, "--virtual-time-budget=3000", "--dump-dom", endpoint
-    ], {encoding:"utf8", timeout:30000, windowsHide:true, maxBuffer:8 * 1024 * 1024});
-  } finally {
-    try { fs.rmSync(domProfile, {recursive:true, force:true, maxRetries:50, retryDelay:100}); } catch (_) {}
-  }
-  assert.equal(dom.status, 0, `Chrome DOM render failed: ${String(dom.stderr || "").slice(-500)}`);
-  const html = String(dom.stdout || "");
-  assert.match(html, /id="prodPanelState"[^>]*>HIDDEN<\/b>/, "Command Deck did not render HIDDEN Browser Companion state");
-  assert.match(html, /id="prodLeaseState"[^>]*>PAIRED<\/b>/, "Command Deck did not render PAIRED Browser Companion state");
-  fs.writeFileSync(path.join(outputRoot, "command-deck-browser-paired.html"), html, "utf8");
-  return {screenshot, screenshotBytes:fs.statSync(screenshot).size, renderedPanel:"HIDDEN", renderedLease:"PAIRED"};
 }
 
 async function main() {
