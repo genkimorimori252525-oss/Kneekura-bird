@@ -43,10 +43,10 @@ jobs:
           Set-Location $target
           git fetch origin jolly/workspace-production-v1 --depth=1
           if ($LASTEXITCODE -ne 0) { throw 'Failed to fetch Workspace production branch.' }
-          git checkout --detach 31d5ef512d589dc9b8ca9e59ce0d565ec9073c8f
+          git checkout --detach 5c274f58a3bcdf90655cc91d99f3cb97968c8ac5
           if ($LASTEXITCODE -ne 0) { throw 'Failed to checkout exact Workspace production commit.' }
           $actual = (git rev-parse HEAD).Trim()
-          if ($actual -ne '31d5ef512d589dc9b8ca9e59ce0d565ec9073c8f') { throw "Unexpected head: $actual" }
+          if ($actual -ne '5c274f58a3bcdf90655cc91d99f3cb97968c8ac5') { throw "Unexpected head: $actual" }
           "OKAYAMA_WORKSPACE_PATH=$target" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host "Validated exact candidate $actual"
 
