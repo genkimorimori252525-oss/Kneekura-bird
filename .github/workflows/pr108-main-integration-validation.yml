@@ -65,11 +65,11 @@ jobs:
 
               git merge-file $current $base $other
               $mergeExit = $LASTEXITCODE
-              if ($mergeExit -gt 1) { throw "git merge-file failed for $path with exit $mergeExit" }
-              if ($mergeExit -eq 1) {
+              if ($mergeExit -eq 255) { throw "git merge-file failed for $path" }
+              if ($mergeExit -gt 0) {
                 [void]$conflicts.Add($path)
-                Write-Host "::error::Three-way conflict remains in $path"
-                Select-String -LiteralPath $current -Pattern '^(<<<<<<<|=======|>>>>>>>)' -Context 5,5 |
+                Write-Host "::error::Three-way merge reports $mergeExit conflict(s) in $path"
+                Select-String -LiteralPath $current -Pattern '^(<<<<<<<|=======|>>>>>>>)' -Context 8,8 |
                   ForEach-Object { $_ | Out-String | Write-Host }
                 continue
               }
