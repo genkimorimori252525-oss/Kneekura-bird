@@ -35,6 +35,9 @@ import java.util.stream.Collectors;
  * evidence that a natural 600-tick run, networked player, or public command has been exercised.
  * Value snapshots cannot detect same-value writes, and do not cover attitude or fall distance.
  * Matching chunk sets cannot prove exclusive ownership or detect overlapping force requests.
+ * Repeated tick calls below are synchronous, within one GameTest callback, not actual server ticks.
+ * This single-aircraft server probe does not verify client behavior, other aircraft, stop/abort,
+ * fuel, yaw/pitch/roll, fall distance, or writes that preserve the values being compared.
  */
 @GameTestHolder("wwdebug_benchmark_reset_probe")
 @PrefixGameTestTemplate(false)
@@ -143,6 +146,13 @@ public final class BenchmarkPlayerResetIsolationGameTests {
             WWDebugBenchmarkMod.LOGGER.info("benchmark_reset_probe player={} passengers={} phase={} before={}",
                     player.getUUID(), aircraft.getPassengers().stream().map(Entity::getUUID).toList(),
                     field(test, "phase"), before);
+            // Capture the precondition without changing the already-recorded v5 red sequence.
+            boolean controlPresentBeforeTakeoverTick = controls.containsKey(aircraftId);
+            boolean heartbeatPresentBeforeTakeoverTick = heartbeats.contains(aircraftId);
+            PhaseSnapshot suspended = phaseSnapshot(test);
+            WWDebugBenchmarkMod.LOGGER.info(
+                    "benchmark_reset_probe pre_takeover_end phase={} control_present={} heartbeat_present={}",
+                    suspended, controlPresentBeforeTakeoverTick, heartbeatPresentBeforeTakeoverTick);
             BenchmarkManager.tick(server);
             check(sessions.get(server) == session,
                     "inconclusive: session ended, possibly because benchmark caught an exception");
@@ -153,6 +163,57 @@ public final class BenchmarkPlayerResetIsolationGameTests {
                     after, field(test, "phase"));
             check(before.sameAs(after),
                     "benchmark phase reset must not change player-controlled engine, inputs, position or velocity");
+
+            // These assertions intentionally follow the existing v5 red assertion.  If setup
+            // never had stale state, a later absence cannot prove that takeover invalidated it.
+            check(controlPresentBeforeTakeoverTick && heartbeatPresentBeforeTakeoverTick,
+                    "inconclusive: takeover began without both benchmark controls and heartbeat");
+            assertSameActiveTest(sessions, server, session, test);
+            check(suspended.equals(phaseSnapshot(test)),
+                    "the first takeover call must not advance the surrendered benchmark");
+            assertNoBenchmarkCommand(controls, heartbeats, aircraftId);
+            for (int i = 0; i < 3; i++) {
+                BenchmarkManager.tick(server);
+                assertSameActiveTest(sessions, server, session, test);
+                check(aircraft.getControllingPassenger() == player && pilot.isPassengerOfSameVehicle(aircraft),
+                        "player and benchmark pilot must remain aboard during repeated benchmark calls");
+                check(before.sameAs(snapshot(aircraft)),
+                        "repeated benchmark calls must preserve player-controlled values");
+                check(suspended.equals(phaseSnapshot(test)),
+                        "the surrendered benchmark must not advance while the player controls");
+                assertNoBenchmarkCommand(controls, heartbeats, aircraftId);
+            }
+
+            player.stopRiding();
+            check(!player.isPassenger() && pilot.isPassengerOfSameVehicle(aircraft)
+                            && aircraft.getControllingPassenger() == pilot,
+                    "player must dismount and the original benchmark pilot remain aboard");
+            assertSameActiveTest(sessions, server, session, test);
+            check(suspended.equals(phaseSnapshot(test)),
+                    "player dismount must not auto-resume the surrendered benchmark");
+            assertNoBenchmarkCommand(controls, heartbeats, aircraftId);
+            // Dismount itself can invoke other mods. Use its resulting aircraft state as the
+            // baseline; attributing any change inside that operation is outside this probe.
+            Snapshot afterDismount = snapshot(aircraft);
+            for (int i = 0; i < 3; i++) {
+                BenchmarkManager.tick(server);
+                assertSameActiveTest(sessions, server, session, test);
+                check(!player.isPassenger() && pilot.isPassengerOfSameVehicle(aircraft)
+                                && aircraft.getControllingPassenger() == pilot,
+                        "the player must remain dismounted with the original benchmark pilot aboard");
+                check(suspended.equals(phaseSnapshot(test)),
+                        "the surrendered benchmark must not auto-resume after player dismount");
+                assertNoBenchmarkCommand(controls, heartbeats, aircraftId);
+                // tickPilot dispatch happens separately; explicitly exercise the direct writer
+                // after each post-dismount call without installing any new command.
+                BenchmarkManager.applyControl(aircraft);
+                check(afterDismount.sameAs(snapshot(aircraft)),
+                        "post-dismount benchmark must not reapply stale inputs or move the aircraft");
+                assertNoBenchmarkCommand(controls, heartbeats, aircraftId);
+            }
+            WWDebugBenchmarkMod.LOGGER.info(
+                    "benchmark_reset_probe continuity player_calls=3 post_dismount_calls=3 suspended_phase={} result=verified",
+                    suspended);
         } catch (Throwable throwable) {
             failure = throwable;
             throw throwable;
@@ -222,6 +283,26 @@ public final class BenchmarkPlayerResetIsolationGameTests {
             if (AIRCRAFT.equals(field(candidate, "id"))) return candidate;
         }
         throw new IllegalStateException("fixed D4Y candidate was not discovered");
+    }
+
+    private static void assertNoBenchmarkCommand(Map<Object, Object> controls, Set<?> heartbeats, UUID aircraftId) {
+        check(!controls.containsKey(aircraftId) && !heartbeats.contains(aircraftId),
+                "player takeover must invalidate this aircraft's benchmark controls and heartbeat");
+    }
+
+    private static void assertSameActiveTest(Map<Object, Object> sessions, MinecraftServer server,
+                                             Object session, Object test) throws Exception {
+        check(sessions.get(server) == session,
+                "inconclusive: benchmark session ended during continuity checks");
+        List<?> active = (List<?>) field(session, "active");
+        check(active.stream().anyMatch(item -> item == test),
+                "inconclusive: original aircraft test is no longer active");
+    }
+
+    private record PhaseSnapshot(String phase, int phaseTick) { }
+
+    private static PhaseSnapshot phaseSnapshot(Object test) throws Exception {
+        return new PhaseSnapshot(field(test, "phase").toString(), ((Number) field(test, "phaseTick")).intValue());
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})
