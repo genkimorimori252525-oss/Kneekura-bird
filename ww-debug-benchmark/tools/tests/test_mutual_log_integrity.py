@@ -71,6 +71,7 @@ class MutualLogIntegrityTests(unittest.TestCase):
         proc, result = self.verify()
         self.assertEqual(proc.returncode, 0, result)
         self.assertTrue(result["passed"])
+        self.assertIs(result["metrics"]["telemetry_scan_complete"], True)
         self.assertEqual(result["metrics"]["minimum_separation"], 9.5)
 
     def test_carriage_return_record_separator_remains_supported(self):
@@ -92,6 +93,7 @@ class MutualLogIntegrityTests(unittest.TestCase):
         self.assertNotEqual(proc.returncode, 0, result)
         self.assertFalse(result["passed"])
         self.assertTrue(any("primary.jsonl" in error and "invalid JSON" in error for error in result["errors"]), result)
+        self.assertIs(result["metrics"]["telemetry_scan_complete"], False)
         for key in ("primary_min_speed_bps", "opponent_min_speed_bps", "primary_ground_frames",
                     "opponent_ground_frames", "collision_observed_minimum", "collision_observation_rows"):
             self.assertIsNone(result["metrics"][key], (key, result))

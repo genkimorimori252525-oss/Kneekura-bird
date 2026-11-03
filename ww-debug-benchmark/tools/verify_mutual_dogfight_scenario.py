@@ -608,6 +608,7 @@ def main() -> int:
         "errors": errors,
         "metrics": {
             "gradle_status": args.gradle_status,
+            "telemetry_scan_complete": telemetry_complete,
             "crash_reports": [str(path) for path in crash_reports],
             "primary_log": str(primary_entry[0]) if primary_entry else None,
             "opponent_log": str(opponent_entry[0]) if opponent_entry else None,
