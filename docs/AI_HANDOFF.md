@@ -44,11 +44,40 @@ Independent focused fixes are drafts; they are not combined or merged. Do not re
   `e92d52d9`, rejects unverified multi-aircraft summaries and checks single-primary completion,
   PARKED frame and tail ordering. It does not establish 40 consecutive stopped ticks or runway
   position. Its 14 focused tests and saved-log reanalyses do not certify the 7.4 run as safe.
+- Draft [#136](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/136), head
+  `15f53178`, rejects multiple, unreadable or non-regular summary candidates rather than choosing
+  by mtime; it also rejects symlinks/reparse points under the artifact root. Twelve focused tests
+  passed. A single summary still lacks a run ID, so capture one isolated run per root. Windows
+  reparse behavior and concurrent filesystem changes remain unverified; conservative refusal can
+  reject unrelated links. It overlaps the other verifier changes and is integrated only in the
+  local checkpoint described below, not on main.
+- Draft [#137](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/137), head
+  `366f78bf`, rejects non-integer, negative or regressing ticks before filtering the combat
+  window. Six tests and an independent review passed, including a previously hidden dangerous
+  ground frame. It does not prove complete telemetry or continuous separation and is not yet
+  combined with the other drafts.
+- Draft [#138](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/138), head
+  `ac39ef4a`, requires exact unique scene completion values, ordered min/max, and counters no
+  greater than the positive scene age. The 2000-tick age cap matches the current producer and
+  must change with it. Nine tests and independent review passed; it is not yet jointly integrated.
 - These candidates independently start from main and edit the same verifier. Do not merge them as if
   they were already composed: reconcile and rerun their combined regression tests and saved-log
   analysis. Integration of #129–#132 has 55 focused tests and three saved-run reanalyses in a
   local worktree `/workspace/kneekura-mutual-integrated`, commit `038f9f5`. Its changes exceed
-  the single-PR size limit and remain local; the remaining drafts have not been integrated.
+  the single-PR size limit and remain local. A further local integration of #133, #135 and #134
+  is `/workspace/kneekura-mutual-integrated-expanded`, commit `15ab796`, tree `0d7e1304`:
+  97 tests passed; saved #127 first/repeat and UUID low passed, while #128 failed for its 7.4
+  sample and UUID high failed for no P-47N fire. This is reanalysis, not new GameTests. The
+  expanded diff exceeds the PR limit. A further local integration of #136 is in
+  `/workspace/kneekura-mutual-integrated-discovery`, commit `893ecb0`, tree `0774bbae`: 109 tests
+  passed and the same five saved runs had the same verdicts. #136's artifact-root symlink policy
+  is stricter than #132's telemetry discovery; integration tested both, but Windows remains untested.
+  Independent review of `15ab796` also found that completion reason fields accept numeric prefixes
+  with trailing text or duplicate keys and can accept minimum separation greater than maximum.
+  A dangerous collision or ground frame in file order inside combat can also be hidden by a
+  regressing tick. Drafts #137–#138 propose fixes but have not been combined with `893ecb0`;
+  do not call the integration complete. No tick regression was observed in the 10 saved aircraft
+  logs reviewed, but this is not a proof for every run.
   Broken-link and incomplete-read metric fixes are also on #132. A failed result with a
   semantically invalid collision row can still display partial valid samples. No GameTest was
   rerun merely for verifier-only changes.
@@ -88,6 +117,18 @@ Independent focused fixes are drafts; they are not combined or merged. Do not re
   `6697f394875d7122b1583a29991db68e252ec64d9dde7c03703c6531efd649ed` and its README were
   verified by restoring with baseline `2585f44`. Pair-distance script and JSON are under
   `/workspace/issue7-evidence-20261103/mutual-frame-pair-distances-independent.*`.
+  Expanded integration checkpoint bundle `mutual-verifier-15ab796-from-2585f44.bundle` has
+  SHA-256 `bb85d01f8e5cf7e48d004c21552fe9118fdeb417f7aab89e100091413f77e460`; its README
+  records the outstanding false passes, which the 97 tests did not discover.
+  The #136-integrated `mutual-verifier-893ecb0-from-2585f44.bundle` has SHA-256
+  `367ca0665309a1a7c7e802b6d60c5bbc7075e0dd989b8628c21a6326940e45c0`; its README and 109-test
+  evidence explicitly retain the unresolved completion-value and tick-order false passes.
+  The independent analysis ZIP `kneekura-issue7-frame-pair-analysis-20261103.zip` has SHA-256
+  `c2b8ff545cf16888cd13d4b058e9cdf7c2f3ba8d636738a2eb42678302ab7d2d`.
+  The missing-frame analysis ZIP `kneekura-issue7-mutual-frame-gap-66e29f5-20261103.zip` has
+  SHA-256 `e47fdadfdadc5df0c0e2499c7748ad9001a50e8ed31e07357ba269f4c38464ed`. The opponent's
+  mission clock can be held by route ownership, so its unchanged count is conditional evidence;
+  chunk loading, actual entity ticking and logger acceptance were not directly measured.
 - Local evidence archives are ephemeral. SHA-256: `kneekura-issue7-evidence-20261103.zip`
   `973cba1b0ef7e68808179616bf55762c7f3780c38a90992efe2f2f341c6cf6f8`;
   `kneekura-issue7-terrain-authority-final-20261103.zip`
