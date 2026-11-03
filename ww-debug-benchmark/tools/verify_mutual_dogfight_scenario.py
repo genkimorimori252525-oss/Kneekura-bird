@@ -831,7 +831,9 @@ def main() -> int:
             pilot_identity_matches = True
             for rows, pilot in ((primary_rows, primary_pilot), (opponent_rows, opponent_pilot)):
                 in_window = [row for row in rows if start_tick <= tick(row) <= completion_tick]
-                if not in_window or any(normalized_uuid(row.get("pilot_uuid")) != pilot for row in in_window):
+                if not in_window or any(normalized_uuid(row.get("pilot_uuid")) != pilot
+                                        or row.get("pilot_entity_id") != "minecraft:villager"
+                                        for row in in_window):
                     pilot_identity_matches = False
                     break
     # This only establishes that the window can be interpreted from the logs;
