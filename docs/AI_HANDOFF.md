@@ -4,6 +4,34 @@ Last updated: 2026-11-03 (Asia/Tokyo)
 
 ## 2026-11-03 continuation checkpoint
 
+### Natural END observation: pass does not establish no player-input writes
+
+An [evidence-only branch](https://github.com/genkimorimori252525-oss/Kneekura-bird/tree/agent/issue7-natural-end-exploration),
+head `a6355235e4e13971a58ddf8b0b164bc3b2ae5f05`, adds the test-only natural-END probe over
+the unsafe experimental `92682c7`. Local source `9d9ac28`, tree
+`e14cdb200377999b975965b8ae3a43cc928e6b5a`. One fixed-mod GameTest in a new world/JVM passed
+its player-free positive, occupied-stop refusal, three observed same-END pre/post pairs while
+occupied and three after dismount, test cleanup, and scheduled completion. Session elapsed and
+entity tickCount advanced. stdout SHA-256
+`f86173f92ea05df8be53ff2141a242489ce13a69810abcfc5c0a8d9a4ea2df02`.
+
+**Important unclassified change:** while the FakePlayer was aboard, input axes were
+`(0.31,-0.42,0.53)` at END tick 2 pre/post, but `(0,0,0)` by END tick 3 pre; engine target
+remained approximately 0.24. The fixture did not seed aircraft input/position/velocity after
+the player mounted. The change occurred outside the observed END pair; its writer and cause
+are unknown. FakePlayer or native vehicle input handling and AI writers require separate
+read-only investigation and targeted observation. A passing END-pair comparison does **not**
+prove that player-controlled inputs were never written. Same-value writes, intermediate
+changes and other END listeners are also not excluded. Entity tickCount is only a scheduler
+visit, not proof of a particular physics path. The candidate remains unsafe to deploy because
+public stop recovery, exception/shutdown and forced-chunk ownership remain unresolved.
+
+Local logs-only archive `kneekura-issue7-natural-end-9d9ac28-evidence-20261103.zip` SHA-256
+`171c15408f02ea23d973239e1f59eeca61a4834c27ed99d35f4f0bb6bf7086c7`; it contains generated
+test UUIDs and environment details, but no MOD JARs or generated world. The fresh world is
+preserved separately. The fixture's async timeout/stopping teardown is best effort and missing
+completion or cleanup evidence must be classified inconclusive.
+
 ### Experimental suspension: two limited passes, not deployable
 
 Evidence-only [branch](https://github.com/genkimorimori252525-oss/Kneekura-bird/tree/agent/issue7-stop-refusal-exploration-only),
