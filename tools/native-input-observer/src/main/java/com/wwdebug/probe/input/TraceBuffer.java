@@ -7,7 +7,7 @@ import java.util.List;
 
 /** Bounded, thread-safe evidence buffer. A closed report is not a flight verdict. */
 public final class TraceBuffer {
-    public enum Point { TICK_HEAD, TICK_TAIL, SET_HEAD, SET_RETURN, BOUNDARY }
+    public enum Point { TICK_HEAD, TICK_TAIL, SET_HEAD, SET_RETURN, BOUNDARY, EXCLUDED }
     /** Raw float bits preserve NaN payloads and signed zero. */
     public record Axes(int x, int y, int z) { }
     public record Sample(Point point, int serverTick, long gameTime, int entityTick, String side,
@@ -23,7 +23,7 @@ public final class TraceBuffer {
     public record Report(List<Event> events, boolean closed, long dropped, long errors,
                          long unknownCallers, long truncatedStacks, long unmatched,
                          long tickHeads, long tickTails, long setterHeads, long setterReturns,
-                         long boundaries, long sameValueCompleted, boolean saturated, String lastError) {
+                         long boundaries, long excludedHooks, long sameValueCompleted, boolean saturated, String lastError) {
         /** Positive hook hits, matching returns and no lost observations; not a safety verdict. */
         public boolean ready() {
             return closed && !saturated && dropped == 0 && errors == 0 && unknownCallers == 0
@@ -36,7 +36,7 @@ public final class TraceBuffer {
     private final Deque<Sample> openings = new ArrayDeque<>();
     private int size;
     private long sequence, dropped, errors, unknown, truncated, unmatched;
-    private long tickHeads, tickTails, setterHeads, setterReturns, boundaries, sameValueCompleted;
+    private long tickHeads, tickTails, setterHeads, setterReturns, boundaries, excludedHooks, sameValueCompleted;
     private boolean closed, saturated;
     private String lastError = "none";
 
@@ -54,6 +54,38 @@ public final class TraceBuffer {
                 null, null, null, null, null, List.of(), false, label));
     }
 
+    /** Explicitly registered negative-control hook; never included in target hook counts. */
+    public synchronized void excluded(int serverTick, long gameTime, int entityTick, Point hook) {
+        if (hook != Point.TICK_HEAD && hook != Point.TICK_TAIL && hook != Point.SET_HEAD && hook != Point.SET_RETURN) {
+            error("invalid_excluded_hook"); return;
+        }
+        record(new Sample(Point.EXCLUDED, serverTick, gameTime, entityTick, "server", "not_sampled",
+                null, null, null, null, null, List.of(), false, hook.name()));
+    }
+
+    /** Scans a bounded complete caller suffix; benchmark evidence takes precedence. */
+    public record Caller(String classification, List<String> frames, boolean truncated) { }
+    public static Caller classifyCaller(List<String> frames, boolean truncated) {
+        if (frames == null || frames.size() > 128) return new Caller("unknown", List.of(), true);
+        String first = null, benchmark = null;
+        for (String frame : frames) {
+            if (frame == null || frame.length() > 256) return new Caller("unknown", List.of(), true);
+            if (frame.startsWith("com.wwdebug.benchmark.") && benchmark == null) benchmark = frame;
+            if (first == null && !frame.startsWith("java.lang.reflect.") && !frame.startsWith("jdk.internal.reflect.")) first = frame;
+        }
+        List<String> evidence = new ArrayList<>();
+        if (first != null) evidence.add(first);
+        if (benchmark != null && !benchmark.equals(first)) evidence.add(benchmark);
+        // A benchmark frame can be an outer fixture caller, not the setter's writer.
+        String kind = "unknown";
+        if (!truncated && first != null) {
+            if (first.startsWith("com.wwdebug.benchmark.")) kind = "benchmark_direct_context";
+            else if ("immersive_aircraft.entity.VehicleEntity#tickPilot".equals(first))
+                kind = benchmark != null ? "native_with_benchmark_context" : "native_tick_pilot";
+        }
+        return new Caller(kind, List.copyOf(evidence), truncated);
+    }
+
     public synchronized void record(Sample sample) {
         if (closed) { error("record_after_close"); return; }
         if (sample == null || sample.point() == null) { error("invalid_sample"); return; }
@@ -65,13 +97,15 @@ public final class TraceBuffer {
             case SET_HEAD -> { setterHeads = increment(setterHeads); caller(sample); push(sample); }
             case SET_RETURN -> { setterReturns = increment(setterReturns); caller(sample); pop(Point.SET_HEAD, sample); }
             case BOUNDARY -> boundaries = increment(boundaries);
+            case EXCLUDED -> excludedHooks = increment(excludedHooks);
         }
         if (size == events.length) { dropped = increment(dropped); return; }
         events[size++] = new Event(sequence, sample);
     }
 
     private void caller(Sample sample) {
-        if (sample.caller() == null || sample.caller().equals("unknown")) unknown = increment(unknown);
+        if (!"native_tick_pilot".equals(sample.caller()) && !"native_with_benchmark_context".equals(sample.caller())
+                && !"benchmark_direct_context".equals(sample.caller())) unknown = increment(unknown);
         if (sample.truncated()) truncated = increment(truncated);
     }
     private void push(Sample sample) {
@@ -100,7 +134,7 @@ public final class TraceBuffer {
         long open = openings.size();
         long unmatchedTotal = unmatched > Long.MAX_VALUE - open ? Long.MAX_VALUE : unmatched + open;
         return new Report(List.copyOf(copy), closed, dropped, errors, unknown, truncated, unmatchedTotal,
-                tickHeads, tickTails, setterHeads, setterReturns, boundaries, sameValueCompleted, saturated, lastError);
+                tickHeads, tickTails, setterHeads, setterReturns, boundaries, excludedHooks, sameValueCompleted, saturated, lastError);
     }
     public synchronized Report close() { closed = true; return snapshot(); }
 }

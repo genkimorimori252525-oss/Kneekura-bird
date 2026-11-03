@@ -20,32 +20,33 @@ import java.util.UUID;
 public final class NativeInputObserver {
     private static final String FLAG = "wwdebug.nativeInputObserver";
     private static final String VEHICLE = "immersive_aircraft.entity.VehicleEntity";
-    private static final String ADAPTER = "com.wwdebug.benchmark.ReflectiveAircraft";
-    private static final StackWalker WALKER = StackWalker.getInstance(StackWalker.Option.SHOW_REFLECT_FRAMES);
+        private static final StackWalker WALKER = StackWalker.getInstance(StackWalker.Option.SHOW_REFLECT_FRAMES);
     private static Scope scope;
 
     private NativeInputObserver() { }
 
     private record Scope(UUID runToken, UUID aircraftId, Entity aircraft, ServerLevel level,
-                         MinecraftServer server, Thread thread, String dimension, TraceBuffer buffer) { }
-    public record ObservationReport(UUID runToken, UUID aircraftId, String dimension, TraceBuffer.Report trace) { }
-    private record Caller(String classification, List<String> frames, boolean truncated) { }
+                         MinecraftServer server, Thread thread, String dimension, UUID negativeId, Entity negative, TraceBuffer buffer) { }
+    public record ObservationReport(UUID runToken, UUID aircraftId, UUID negativeId, String dimension, TraceBuffer.Report trace) { }
 
     /** Called by an isolated fixture before the target's observed tick. */
     public static synchronized void arm(UUID runToken, ServerLevel level, UUID aircraftId,
-                                        Entity aircraft, int capacity) {
+                                        Entity aircraft, UUID negativeId, Entity negative, int capacity) {
         if (scope != null) throw new IllegalStateException("observer already armed");
         if (!"enabled".equals(System.getProperty(FLAG))) throw new IllegalStateException("observer opt-in absent");
-        if (runToken == null || level == null || aircraftId == null || aircraft == null)
+        if (runToken == null || level == null || aircraftId == null || aircraft == null || negativeId == null || negative == null)
             throw new IllegalArgumentException("missing observer identity");
         MinecraftServer server = level.getServer();
         if (!(server instanceof GameTestServer) || !server.isSameThread() || level.isClientSide
                 || aircraft.level() != level || aircraft.isRemoved() || !aircraftId.equals(aircraft.getUUID())
                 || !"warfare_wings:d4y".equals(String.valueOf(BuiltInRegistries.ENTITY_TYPE.getKey(aircraft.getType())))
-                || !(aircraft instanceof EngineVehicle)) {
+                || !(aircraft instanceof EngineVehicle) || negative == aircraft || negativeId.equals(aircraftId)
+                || negative.level() != level || negative.isRemoved() || !negativeId.equals(negative.getUUID())
+                || !(negative instanceof EngineVehicle)
+                || !"warfare_wings:d4y".equals(String.valueOf(BuiltInRegistries.ENTITY_TYPE.getKey(negative.getType())))) {
             throw new IllegalStateException("observer requires the exact D4Y on the GameTest server thread");
         }
-        scope = new Scope(runToken, aircraftId, aircraft, level, server, Thread.currentThread(), level.dimension().location().toString(), new TraceBuffer(capacity));
+        scope = new Scope(runToken, aircraftId, aircraft, level, server, Thread.currentThread(), level.dimension().location().toString(), negativeId, negative, new TraceBuffer(capacity));
     }
 
     /** A fixture boundary shares the hook sequence. Labels are restricted and never written to disk here. */
@@ -67,7 +68,7 @@ public final class NativeInputObserver {
         }
         TraceBuffer.Report report = s.buffer().close();
         scope = null;
-        return new ObservationReport(s.runToken(), s.aircraftId(), s.dimension(), report);
+        return new ObservationReport(s.runToken(), s.aircraftId(), s.negativeId(), s.dimension(), report);
     }
 
     public static synchronized boolean isArmed() { return scope != null; }
@@ -92,12 +93,20 @@ public final class NativeInputObserver {
         Scope s = scope;
         if (s == null) return;
         try {
-            if (aircraft != s.aircraft()) {
-                if (aircraft != null && s.aircraftId().equals(aircraft.getUUID())) s.buffer().error("uuid_identity_collision");
+            if (aircraft != s.aircraft() && aircraft != s.negative()) {
+                if (aircraft != null && (s.aircraftId().equals(aircraft.getUUID()) || s.negativeId().equals(aircraft.getUUID())))
+                    s.buffer().error("uuid_identity_collision");
                 return;
             }
             if (Thread.currentThread() != s.thread()) { s.buffer().error("hook_wrong_thread"); return; }
             if (!validContext(s)) { s.buffer().error("hook_context_changed"); return; }
+            if (aircraft == s.negative()) {
+                if (aircraft.level() != s.level() || aircraft.isRemoved() || !s.negativeId().equals(aircraft.getUUID())) {
+                    s.buffer().error("negative_context_changed"); return;
+                }
+                s.buffer().excluded(s.server().getTickCount(), s.level().getGameTime(), aircraft.tickCount, point);
+                return;
+            }
             Entity pilot = aircraft.getControllingPassenger();
             String kind = pilot instanceof FakePlayer ? "fake_server_player"
                     : pilot instanceof ServerPlayer ? "server_player"
@@ -105,7 +114,7 @@ public final class NativeInputObserver {
                     : pilot == null ? "none" : "non_player";
             Boolean local = pilot instanceof Player player ? player.isLocalPlayer() : null;
             boolean setter = point == TraceBuffer.Point.SET_HEAD || point == TraceBuffer.Point.SET_RETURN;
-            Caller caller = setter ? caller() : new Caller(null, List.of(), false);
+            TraceBuffer.Caller caller = setter ? caller() : new TraceBuffer.Caller(null, List.of(), false);
             TraceBuffer.Axes args = setter ? axes(ax, ay, az) : null;
             int engineBits = Float.floatToRawIntBits(((EngineVehicle) aircraft).getEngineTarget());
             s.buffer().record(new TraceBuffer.Sample(point, s.server().getTickCount(), s.level().getGameTime(),
@@ -125,8 +134,8 @@ public final class NativeInputObserver {
         return new TraceBuffer.Axes(Float.floatToRawIntBits(x), Float.floatToRawIntBits(y), Float.floatToRawIntBits(z));
     }
 
-    /** Retains only the immediate native caller or the short reflection chain to the adapter. */
-    private static Caller caller() {
+    /** Scans up to 128 callers; stores only the first relevant and first benchmark frame. */
+    private static TraceBuffer.Caller caller() {
         return WALKER.walk(stream -> {
             Iterator<StackFrame> frames = stream.iterator();
             boolean setter = false;
@@ -137,20 +146,15 @@ public final class NativeInputObserver {
                     setter = true; break;
                 }
             }
-            if (!setter) return new Caller("unknown", List.of(), frames.hasNext());
+            if (!setter) return new TraceBuffer.Caller("unknown", List.of(), frames.hasNext());
             List<String> observed = new ArrayList<>();
-            while (frames.hasNext() && observed.size() < 8) {
+            while (frames.hasNext() && observed.size() < 128) {
                 StackFrame f = frames.next();
-                String name = f.getClassName(), method = f.getMethodName();
-                String frame = name + "#" + method;
-                if (frame.length() > 256) return new Caller("unknown", observed, true);
+                String frame = f.getClassName() + "#" + f.getMethodName();
+                if (frame.length() > 256) return new TraceBuffer.Caller("unknown", List.of(), true);
                 observed.add(frame);
-                if (name.equals(VEHICLE) && method.equals("tickPilot")) return new Caller("native_tick_pilot", observed, false);
-                if (name.equals(ADAPTER)) return new Caller("reflective_adapter", observed, false);
-                if (!(name.startsWith("java.lang.reflect.") || name.startsWith("jdk.internal.reflect.")))
-                    return new Caller("other", observed, false);
             }
-            return new Caller("unknown", observed, frames.hasNext());
+            return TraceBuffer.classifyCaller(observed, frames.hasNext());
         });
     }
 }

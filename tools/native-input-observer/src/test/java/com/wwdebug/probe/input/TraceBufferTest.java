@@ -15,16 +15,27 @@ public final class TraceBufferTest {
     public static void main(String[] args) throws Exception {
         TraceBuffer good = new TraceBuffer(16);
         good.mark(1, 1, 1, "setup");
+        good.excluded(1, 1, 1, TraceBuffer.Point.SET_HEAD);
         good.record(event(TraceBuffer.Point.TICK_HEAD, null, false));
         good.record(event(TraceBuffer.Point.SET_HEAD, "native_tick_pilot", false));
         good.record(event(TraceBuffer.Point.SET_RETURN, "native_tick_pilot", false));
         good.record(event(TraceBuffer.Point.TICK_TAIL, null, false));
         TraceBuffer.Report r = good.close();
         check(r.ready(), "balanced positive including same-value setter and boundary");
-        check(r.events().size() == 5 && r.events().get(0).sequence() == 1
-                && r.events().get(4).sequence() == 5, "one sequence for hooks and boundary");
-        check(r.events().get(2).sample().axes().equals(r.events().get(2).sample().arguments()), "same-value recorded");
+        check(r.events().size() == 6 && r.events().get(0).sequence() == 1
+                && r.events().get(5).sequence() == 6, "one sequence for hooks and boundary");
+        check(r.events().get(3).sample().axes().equals(r.events().get(3).sample().arguments()), "same-value recorded");
+        check(r.excludedHooks() == 1 && r.events().get(1).sample().point() == TraceBuffer.Point.EXCLUDED,
+                "named negative hook shares sequence without becoming target setter");
+        check(r.setterHeads() == 1 && r.setterReturns() == 1, "negative does not alter target counts");
         check(!new TraceBuffer(8).close().ready(), "no hooks is not success");
+        var outerBenchmark = TraceBuffer.classifyCaller(List.of("some.Other#call", "com.wwdebug.benchmark.BenchmarkManager#tick"), false);
+        check(outerBenchmark.classification().equals("unknown") && outerBenchmark.frames().contains("com.wwdebug.benchmark.BenchmarkManager#tick"), "unknown caller preserves outer benchmark evidence");
+        check(TraceBuffer.classifyCaller(List.of("some.Other#call"), false).classification().equals("unknown"), "unrecognized is unknown");
+        check(TraceBuffer.classifyCaller(List.of("immersive_aircraft.entity.VehicleEntity#tickPilot", "com.wwdebug.benchmark.BenchmarkManager#tick"), false).classification().equals("native_with_benchmark_context"), "benchmark context retained without attributing direct call");
+        check(TraceBuffer.classifyCaller(List.of("immersive_aircraft.entity.VehicleEntity#tickPilot"), false).classification().equals("native_tick_pilot"), "native caller known");
+        check(TraceBuffer.classifyCaller(List.of("immersive_aircraft.entity.VehicleEntity#tickPilot"), true).classification().equals("unknown"), "unscanned caller tail is unknown");
+        check(TraceBuffer.classifyCaller(List.of("com.wwdebug.benchmark.ReflectiveAircraft#invoke"), false).classification().equals("benchmark_direct_context"), "direct benchmark context recorded");
         TraceBuffer different = new TraceBuffer(8);
         different.mark(1, 1, 1, "boundary");
         different.record(event(TraceBuffer.Point.TICK_HEAD, null, false));
@@ -41,6 +52,22 @@ public final class TraceBufferTest {
         TraceBuffer unknown = new TraceBuffer(8);
         unknown.record(event(TraceBuffer.Point.SET_HEAD, "unknown", false));
         check(!unknown.close().ready() && unknown.snapshot().unknownCallers() == 1, "unknown differs from zero calls");
+        TraceBuffer completeUnknown = new TraceBuffer(8);
+        completeUnknown.mark(1, 1, 1, "window");
+        completeUnknown.record(event(TraceBuffer.Point.TICK_HEAD, null, false));
+        completeUnknown.record(event(TraceBuffer.Point.SET_HEAD, "unknown", false));
+        completeUnknown.record(event(TraceBuffer.Point.SET_RETURN, "unknown", false));
+        completeUnknown.record(event(TraceBuffer.Point.TICK_TAIL, null, false));
+        check(!completeUnknown.close().ready() && completeUnknown.snapshot().unknownCallers() == 2,
+                "unknown cannot pass even with complete hooks and same-value control");
+        TraceBuffer negativeOverflow = new TraceBuffer(1);
+        negativeOverflow.excluded(1, 1, 1, TraceBuffer.Point.SET_HEAD);
+        negativeOverflow.excluded(1, 1, 1, TraceBuffer.Point.SET_RETURN);
+        check(negativeOverflow.snapshot().excludedHooks() == 2 && negativeOverflow.snapshot().dropped() == 1
+                && !negativeOverflow.close().ready(), "negative event overflow fails closed");
+        TraceBuffer arbitrary = new TraceBuffer(8);
+        arbitrary.record(event(TraceBuffer.Point.SET_HEAD, "other", false));
+        check(arbitrary.snapshot().unknownCallers() == 1, "unrecognized classification cannot pass");
         TraceBuffer clipped = new TraceBuffer(8);
         clipped.record(event(TraceBuffer.Point.SET_HEAD, "other", true));
         check(clipped.snapshot().truncatedStacks() == 1 && !clipped.close().ready(), "stack truncation invalidates");

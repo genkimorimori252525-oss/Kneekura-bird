@@ -26,18 +26,37 @@ runtime experiment. No normal project build configuration is modified.
 
 The callbacks are non-cancellable and never deliberately write aircraft state.
 Only an explicit `-Dwwdebug.nativeInputObserver=enabled`, GameTestServer, server
-thread, and exact D4Y object/UUID/world can be armed. One scope binds the entity
-reference, UUID, server, world and unique run token; a boundary shares the
+thread, and exact D4Y object/UUID/world can be armed. One scope binds the target and negative-control D4Y references and UUIDs,
+server, world and unique run token; a boundary shares the
 monotonic event sequence. Disarm returns these identifiers and a bounded trace.
 Axis/engine floats are raw bits. Each setter records arguments and axes at
-HEAD/RETURN, a short caller classification/stack, server/game/entity ticks,
+HEAD/RETURN, a bounded caller classification and selected frames, server/game/entity ticks,
 side, pilot kind and local-player flag. `tickCount` is not proof of an actual
 entity tick. `native_tick_pilot` is a stack classification, not proof of origin
-if another mixin modifies that method. `FakePlayer` is not a real client.
+if another mixin modifies that method. The observer scans at most 128 caller
+frames beyond the setter, retains the first non-reflection frame and first
+`com.wwdebug.benchmark.*` frame, and explicitly identifies benchmark context
+even when the nearest known frame is `tickPilot`. Outer benchmark context is
+not proof that benchmark code performed the setter. Unrecognized callers,
+incomplete scans, and overlong frames are inconclusive. These selected
+frames are not a complete stack trace. `FakePlayer` is not a real client.
+
+The second D4Y is an explicit negative-control object, separate from the target.
+When its actual hook runs, a distinct `EXCLUDED` event records the hook kind in
+the shared sequence without incrementing target hook counts or recording its
+controls. Unknown entities are ignored, and matching UUIDs with a different
+reference are errors. The fixture must confirm the negative entity is registered,
+call a real setter, and verify its HEAD/RETURN events and unchanged target entries
+within explicit boundaries. Merely registering it proves nothing; this code
+never loads chunks or triggers the control. An unloaded addon or unarmed scope
+cannot report a missing hook by itself.
 
 `ready()` only indicates minimum evidence for the **whole closed trace**:
 HEAD/TAIL and setter HEAD/RETURN, a completed same-value setter, a boundary,
 no overflow, unmatched calls, unknown caller, clipped stack or observer error.
+It does not itself require negative-control events; those are checked separately.
+Setter pairing checks argument equality, not equality of HEAD/RETURN ticks,
+caller, or pilot; the fixture must check these fields and window boundaries.
 It does not prove a specified observation window contains any hook. The later
 fixture must validate start/end boundary identities and order, requested ticks,
 positive and non-target/unarmed negative controls, expected same-value setter,
@@ -46,7 +65,8 @@ overflow, class-load, missing report or undischarged arm are inconclusive, not a
 pass. Exceptions, unexpected termination and final cleanup need external checks.
 
 Do not add this JAR to the normal runtime. Even with no scope armed, injected
-callbacks, argument boxing and synchronization can affect timing; linkage or
+callbacks, argument boxing and synchronization can affect timing; while armed,
+scanning up to 128 frames per target setter increases this cost further; linkage or
 initialization errors can prevent the target from running. Positive hooks alone
 cannot prove absent hooks in a particular window. Future work must use an
 isolated fresh world and separate JVM, no parallel experiment, verify the
