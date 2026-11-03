@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import re
+import stat
 import statistics
 import sys
 from pathlib import Path
@@ -145,18 +146,33 @@ def main() -> int:
     crash_reports: list[Path] = []
     try:
         # Path.glob() suppresses scandir errors, which can make an unreadable directory
-        # indistinguishable from an empty one. Do not accept evidence we could not inspect.
-        with os.scandir(crash_dir) as entries:
-            crash_reports = sorted(crash_dir / entry.name for entry in entries
-                                   if entry.name.endswith(".txt") and entry.is_file())
+        # indistinguishable from an empty one. Inspect the path without following symlinks.
+        crash_mode = os.lstat(crash_dir).st_mode
     except FileNotFoundError:
-        pass  # A clean run may not create crash-reports at all.
+        crash_mode = None  # A clean run may not create crash-reports at all.
     except OSError as exception:
         errors.append(f"cannot inspect crash reports {crash_dir}: {type(exception).__name__}")
+        crash_mode = None
+    if crash_mode is not None:
+        if not stat.S_ISDIR(crash_mode):
+            errors.append(f"cannot inspect crash reports {crash_dir}: not a real directory")
+        else:
+            try:
+                with os.scandir(crash_dir) as entries:
+                    for entry in entries:
+                        # Treat every case-insensitive .txt entry as a candidate, including
+                        # directories and symlinks. Never follow an entry to classify it.
+                        if entry.name.casefold().endswith(".txt"):
+                            crash_reports.append(crash_dir / entry.name)
+            except OSError as exception:
+                # Once the path was present, a disappearing or partially read directory is
+                # an inspection failure, not evidence that there were no crash reports.
+                errors.append(f"cannot inspect crash reports {crash_dir}: {type(exception).__name__}")
+            crash_reports.sort()
     require(args.gradle_status == 0, errors,
             f"Gradle GameTest exit code was {args.gradle_status}")
     require(not crash_reports, errors,
-            "crash report created: " + ", ".join(str(path) for path in crash_reports))
+            "crash report candidate present: " + ", ".join(str(path) for path in crash_reports))
     require(bool(primary_rows), errors, "primary A6M telemetry was not produced")
     require(bool(opponent_rows), errors, "opposing P-47N telemetry was not produced")
     require(bool(started), errors, "mutual dogfight scene never started")

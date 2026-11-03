@@ -8,6 +8,7 @@ import runpy
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 
@@ -87,6 +88,70 @@ class MutualRunStatusTests(unittest.TestCase):
         self.assertNotEqual(code, 0, result)
         self.assertTrue(any("cannot inspect crash reports" in error for error in result["errors"]))
 
+    def test_uppercase_crash_extension_is_rejected(self):
+        crash = self.root / "crash-reports/crash-test.TXT"
+        crash.parent.mkdir()
+        crash.write_text("crash", encoding="utf-8")
+        code, result = self.verify(0)
+        self.assertNotEqual(code, 0, result)
+        self.assertIn(str(crash), result["metrics"]["crash_reports"])
+
+    def test_report_named_directory_is_rejected(self):
+        crash = self.root / "crash-reports/crash-test.txt"
+        crash.mkdir(parents=True)
+        code, result = self.verify(0)
+        self.assertNotEqual(code, 0, result)
+        self.assertIn(str(crash), result["metrics"]["crash_reports"])
+
+    def test_dangling_report_symlink_is_rejected(self):
+        crash = self.root / "crash-reports/crash-test.txt"
+        crash.parent.mkdir()
+        try:
+            crash.symlink_to(self.root / "missing-report")
+        except (OSError, NotImplementedError) as exception:
+            self.skipTest(f"symlink creation unavailable: {type(exception).__name__}")
+        code, result = self.verify(0)
+        self.assertNotEqual(code, 0, result)
+        self.assertIn(str(crash), result["metrics"]["crash_reports"])
+
+    def test_dangling_crash_directory_symlink_is_rejected(self):
+        crash_dir = self.root / "crash-reports"
+        try:
+            crash_dir.symlink_to(self.root / "missing-directory", target_is_directory=True)
+        except (OSError, NotImplementedError) as exception:
+            self.skipTest(f"symlink creation unavailable: {type(exception).__name__}")
+        code, result = self.verify(0)
+        self.assertNotEqual(code, 0, result)
+        self.assertTrue(any("cannot inspect crash reports" in error for error in result["errors"]))
+
+    def test_crash_directory_symlink_is_not_followed(self):
+        crash_dir = self.root / "crash-reports"
+        target = self.root / "other-directory"
+        target.mkdir()
+        try:
+            crash_dir.symlink_to(target, target_is_directory=True)
+        except (OSError, NotImplementedError) as exception:
+            self.skipTest(f"symlink creation unavailable: {type(exception).__name__}")
+        output = self.root / "symlink-result.json"
+        verifier = runpy.run_path(str(VERIFIER))
+        real_scandir = os.scandir
+        scanned = []
+
+        def trace_scandir(path):
+            if Path(path) == crash_dir:
+                scanned.append(str(path))
+            return real_scandir(path)
+
+        argv = [str(VERIFIER), "--root", str(self.root), "--gradle-status", "0",
+                "--output", str(output)]
+        with (mock.patch.object(sys, "argv", argv),
+              mock.patch("os.scandir", side_effect=trace_scandir),
+              redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO())):
+            code = verifier["main"]()
+        result = json.loads(output.read_text(encoding="utf-8"))
+        self.assertNotEqual(code, 0, result)
+        self.assertEqual(scanned, [], "must not enumerate a crash-reports symlink target")
+
     def test_crash_report_rejects_otherwise_passing_evidence(self):
         crash = self.root / "crash-reports/crash-test.txt"
         crash.parent.mkdir()
@@ -94,7 +159,7 @@ class MutualRunStatusTests(unittest.TestCase):
         code, result = self.verify(0)
         self.assertNotEqual(code, 0, result)
         self.assertFalse(result["passed"])
-        self.assertTrue(any("crash report created:" in error for error in result["errors"]))
+        self.assertTrue(any("crash report candidate present:" in error for error in result["errors"]))
         self.assertEqual(result["metrics"]["crash_reports"], [str(crash)])
 
     def test_unreadable_crash_directory_fails_with_result_json(self):
@@ -120,6 +185,74 @@ class MutualRunStatusTests(unittest.TestCase):
         self.assertNotEqual(code, 0, result)
         self.assertFalse(result["passed"])
         self.assertTrue(any("cannot inspect crash reports" in error for error in result["errors"]))
+
+    def test_existing_crash_directory_disappearing_on_scan_fails(self):
+        crash_dir = self.root / "crash-reports"
+        crash_dir.mkdir()
+        output = self.root / "disappeared-result.json"
+        verifier = runpy.run_path(str(VERIFIER))
+        real_scandir = os.scandir
+
+        def disappearing_scandir(path):
+            if Path(path) == crash_dir:
+                raise FileNotFoundError("injected scan-start failure")
+            return real_scandir(path)
+
+        argv = [str(VERIFIER), "--root", str(self.root), "--gradle-status", "0",
+                "--output", str(output)]
+        with (mock.patch.object(sys, "argv", argv),
+              mock.patch("os.scandir", side_effect=disappearing_scandir),
+              redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO())):
+            code = verifier["main"]()
+        self.assertTrue(output.exists())
+        result = json.loads(output.read_text(encoding="utf-8"))
+        self.assertNotEqual(code, 0, result)
+        self.assertTrue(any("cannot inspect crash reports" in error for error in result["errors"]))
+
+    def test_scan_error_after_a_crash_entry_fails_with_result_json(self):
+        crash_dir = self.root / "crash-reports"
+        crash_dir.mkdir()
+        output = self.root / "partial-scan-result.json"
+        verifier = runpy.run_path(str(VERIFIER))
+        real_scandir = os.scandir
+        real_rglob = Path.rglob
+
+        class PartialScan:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def __iter__(self):
+                yield SimpleNamespace(name="crash-test.txt", is_file=lambda: True)
+                raise FileNotFoundError("injected mid-scan failure")
+
+        def partial_scandir(path):
+            if Path(path) == crash_dir:
+                return PartialScan()
+            return real_scandir(path)
+
+        def known_rglob(path, pattern):
+            if path == self.root and pattern == "aircraft/*.jsonl":
+                aircraft = self.root / "world/wwdebug/autopilot/run/aircraft"
+                return iter([aircraft / "a6m.jsonl", aircraft / "p47n.jsonl"])
+            if path == self.root and pattern == "validation-summary-*.json":
+                return iter([self.root / "validation-summary-1.json"])
+            return real_rglob(path, pattern)
+
+        argv = [str(VERIFIER), "--root", str(self.root), "--gradle-status", "0",
+                "--output", str(output)]
+        with (mock.patch.object(sys, "argv", argv),
+              mock.patch("os.scandir", side_effect=partial_scandir),
+              mock.patch.object(Path, "rglob", new=known_rglob),
+              redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO())):
+            code = verifier["main"]()
+        self.assertTrue(output.exists())
+        result = json.loads(output.read_text(encoding="utf-8"))
+        self.assertNotEqual(code, 0, result)
+        self.assertTrue(any("cannot inspect crash reports" in error for error in result["errors"]))
+        self.assertIn(str(crash_dir / "crash-test.txt"), result["metrics"]["crash_reports"])
 
 
 if __name__ == "__main__":
