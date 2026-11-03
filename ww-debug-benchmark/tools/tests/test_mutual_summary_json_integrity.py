@@ -70,6 +70,15 @@ class MutualSummaryJsonIntegrityTests(unittest.TestCase):
         self.assertFalse(result["passed"])
         self.assertTrue(any("summary" in error for error in result["errors"]), result)
 
+    def test_nonstandard_numeric_constants_fail_even_in_unused_fields(self):
+        for value in (b"NaN", b"Infinity", b"-Infinity"):
+            with self.subTest(value=value):
+                status, result = self.verify(
+                    b'{"state":"complete","results":[{"passed":true,"unused":' + value + b'}]}')
+                self.assertNotEqual(status, 0, result)
+                self.assertFalse(result["passed"])
+                self.assertTrue(any("summary" in error for error in result["errors"]), result)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -26,6 +26,14 @@ class SummaryDuplicateKeyError(ValueError):
     pass
 
 
+class SummaryInvalidConstantError(ValueError):
+    pass
+
+
+def reject_summary_constant(value: str) -> None:
+    raise SummaryInvalidConstantError(value)
+
+
 def summary_unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in pairs:
@@ -573,8 +581,10 @@ def main() -> int:
     if summary_path:
         try:
             summary = json.loads(summary_path.read_text(encoding="utf-8"),
-                                 object_pairs_hook=summary_unique_object)
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError, SummaryDuplicateKeyError) as exc:
+                                 object_pairs_hook=summary_unique_object,
+                                 parse_constant=reject_summary_constant)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, SummaryDuplicateKeyError,
+                SummaryInvalidConstantError) as exc:
             errors.append(f"cannot read validation summary {summary_path}: {type(exc).__name__}")
             summary = {}
     results = summary.get("results") or []
