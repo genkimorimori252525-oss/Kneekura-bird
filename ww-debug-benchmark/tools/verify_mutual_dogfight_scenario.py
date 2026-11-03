@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import statistics
 import sys
@@ -31,13 +32,6 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
-def tick(row: dict[str, Any]) -> int:
-    try:
-        return int(row.get("server_tick", -1))
-    except (TypeError, ValueError):
-        return -1
-
-
 def numbers(reason: str) -> dict[str, float]:
     return {name: float(value) for name, value in NUMBER.findall(reason)}
 
@@ -49,6 +43,53 @@ def texts(reason: str) -> dict[str, str]:
 def require(condition: bool, errors: list[str], message: str) -> None:
     if not condition:
         errors.append(message)
+
+
+def boundary_tick(events: list[dict[str, Any]], label: str, errors: list[str]) -> int | None:
+    """An ambiguous or unplaceable boundary cannot define a safety window."""
+    if len(events) != 1:
+        errors.append(f"expected exactly one mutual dogfight {label} event; found {len(events)}")
+        return None
+    value = events[0].get("server_tick")
+    if type(value) is not int or value < 0:
+        errors.append(f"mutual dogfight {label} event has missing or invalid tick")
+        return None
+    return value
+
+
+def combat_frame_metrics(frames: list[dict[str, Any]], label: str,
+                         errors: list[str]) -> tuple[float | None, int | None]:
+    """Validate observed samples; this does not imply continuous tick coverage."""
+    if not frames:
+        errors.append(f"{label} has no combat-window frame telemetry")
+        return None, None
+
+    speeds: list[float] = []
+    invalid_speeds = 0
+    invalid_ground = 0
+    ground_frames = 0
+    for frame in frames:
+        value = frame.get("speed_bps")
+        try:
+            speed = float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+        except (ValueError, OverflowError):
+            speed = None
+        if speed is None or not math.isfinite(speed) or speed < 0:
+            invalid_speeds += 1
+        else:
+            speeds.append(speed)
+        ground = frame.get("on_ground")
+        if type(ground) is not bool:
+            invalid_ground += 1
+        elif ground:
+            ground_frames += 1
+
+    if invalid_speeds:
+        errors.append(f"{label} has {invalid_speeds} frames with missing or invalid speed")
+    if invalid_ground:
+        errors.append(f"{label} has {invalid_ground} frames with missing or invalid ground state")
+    return (min(speeds) if not invalid_speeds else None,
+            ground_frames if not invalid_ground else None)
 
 
 def main() -> int:
@@ -119,27 +160,42 @@ def main() -> int:
         if (match := ACTION.search(str(row.get("reason", ""))))
     ]
 
-    start_tick = min((tick(row) for row in started), default=-1)
-    completion_tick = max((tick(row) for row in completed), default=-1)
+    errors: list[str] = []
+    start_tick = boundary_tick(started, "start", errors)
+    completion_tick = boundary_tick(completed, "completion", errors)
+    window_valid = start_tick is not None and completion_tick is not None and completion_tick > start_tick
+    if start_tick is not None and completion_tick is not None and not window_valid:
+        errors.append("mutual dogfight completion must follow start")
 
-    def combat_frames(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        return [
+    def combat_frames(rows: list[dict[str, Any]], label: str) -> tuple[list[dict[str, Any]], bool]:
+        invalid_ticks = sum(
+            1 for row in rows if row.get("event") == "frame"
+            and (type(row.get("server_tick")) is not int or row["server_tick"] < 0)
+        )
+        if invalid_ticks:
+            errors.append(f"{label} has {invalid_ticks} frames with missing or invalid ticks")
+        frames = [
             row for row in rows if row.get("event") == "frame"
-            and start_tick >= 0 and completion_tick >= start_tick
-            and start_tick <= tick(row) <= completion_tick
+            and type(row.get("server_tick")) is int and row["server_tick"] >= 0
+            and window_valid
+            and start_tick <= row["server_tick"] <= completion_tick
         ]
+        return frames, invalid_ticks == 0
 
-    primary_frames = combat_frames(primary_rows)
-    opponent_frames = combat_frames(opponent_rows)
-    primary_speeds = [float(row["speed_bps"]) for row in primary_frames if row.get("speed_bps") is not None]
-    opponent_speeds = [float(row["speed_bps"]) for row in opponent_frames if row.get("speed_bps") is not None]
-    primary_ground = sum(bool(row.get("on_ground")) for row in primary_frames)
-    opponent_ground = sum(bool(row.get("on_ground")) for row in opponent_frames)
+    primary_frames, primary_ticks_valid = combat_frames(primary_rows, "A6M")
+    opponent_frames, opponent_ticks_valid = combat_frames(opponent_rows, "P-47N")
+    primary_min_speed, primary_ground = combat_frame_metrics(primary_frames, "A6M", errors)
+    opponent_min_speed, opponent_ground = combat_frame_metrics(opponent_frames, "P-47N", errors)
+    # An unplaceable sample could belong to the combat window, so even otherwise valid
+    # in-window samples cannot establish a minimum speed or a zero-ground count.
+    if not primary_ticks_valid:
+        primary_min_speed, primary_ground = None, None
+    if not opponent_ticks_valid:
+        opponent_min_speed, opponent_ground = None, None
 
     primary_acquisition_reasons = [str(row.get("reason", "")) for row in primary_acquisitions]
     opponent_acquisition_reasons = [str(row.get("reason", "")) for row in opponent_acquisitions]
 
-    errors: list[str] = []
     require(bool(primary_rows), errors, "primary A6M telemetry was not produced")
     require(bool(opponent_rows), errors, "opposing P-47N telemetry was not produced")
     require(bool(started), errors, "mutual dogfight scene never started")
@@ -170,16 +226,18 @@ def main() -> int:
             f"fighters approached below the hard safety threshold: {min_separation}")
     require(max_separation is not None and max_separation <= 480.0, errors,
             f"fighters separated beyond the combat area: {max_separation}")
-    require(primary_ground == 0, errors,
-            f"A6M touched the ground during mutual combat: {primary_ground} frames")
-    require(opponent_ground == 0, errors,
-            f"P-47N touched the ground during mutual combat: {opponent_ground} frames")
-    if primary_speeds:
-        require(min(primary_speeds) >= 8.5, errors,
-                f"A6M speed became unsafe: {min(primary_speeds):.2f} bps")
-    if opponent_speeds:
-        require(min(opponent_speeds) >= 8.5, errors,
-                f"P-47N speed became unsafe: {min(opponent_speeds):.2f} bps")
+    if primary_ground is not None:
+        require(primary_ground == 0, errors,
+                f"A6M touched the ground during mutual combat: {primary_ground} frames")
+    if opponent_ground is not None:
+        require(opponent_ground == 0, errors,
+                f"P-47N touched the ground during mutual combat: {opponent_ground} frames")
+    if primary_min_speed is not None:
+        require(primary_min_speed >= 8.5, errors,
+                f"A6M speed became unsafe: {primary_min_speed:.2f} bps")
+    if opponent_min_speed is not None:
+        require(opponent_min_speed >= 8.5, errors,
+                f"P-47N speed became unsafe: {opponent_min_speed:.2f} bps")
 
     summary_paths = list(args.root.rglob("validation-summary-*.json"))
     summary_path = max(summary_paths, key=lambda path: path.stat().st_mtime) if summary_paths else None
@@ -215,8 +273,10 @@ def main() -> int:
             "opponent_actions": opponent_actions,
             "primary_fire_count": len(primary_fires),
             "opponent_fire_count": len(opponent_fires),
-            "primary_min_speed_bps": min(primary_speeds) if primary_speeds else None,
-            "opponent_min_speed_bps": min(opponent_speeds) if opponent_speeds else None,
+            "primary_combat_frame_count": len(primary_frames),
+            "opponent_combat_frame_count": len(opponent_frames),
+            "primary_min_speed_bps": primary_min_speed,
+            "opponent_min_speed_bps": opponent_min_speed,
             "primary_ground_frames": primary_ground,
             "opponent_ground_frames": opponent_ground,
             "primary_doctrines": sorted(primary_doctrines),
