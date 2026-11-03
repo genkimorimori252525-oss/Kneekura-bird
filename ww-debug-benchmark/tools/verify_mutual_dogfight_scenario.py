@@ -98,6 +98,39 @@ def combat_frame_metrics(frames: list[dict[str, Any]], label: str,
             ground_frames if not invalid_ground else None)
 
 
+def interior_frame_coverage(frames: list[dict[str, Any]], label: str,
+                            start: int | None, end: int | None, ticks_valid: bool,
+                            errors: list[str]) -> tuple[int | None, int | None, bool]:
+    """Count observed valid ticks without allocating a potentially huge tick range.
+
+    The initial opponent frame can be a direct fixture call before opening; teardown
+    can precede its final tick. Neither boundary is proof of a scheduled entity tick.
+    Complete interior samples still do not prove same-tick ordering or continuous safety.
+    """
+    if start is None or end is None or end <= start or not ticks_valid:
+        return None, None, False
+    expected = end - start - 1
+    if expected == 0:
+        errors.append(f"{label} combat interior is empty; frame coverage is unverified")
+        return 0, None, False
+    ticks: set[int] = set()
+    for frame in frames:
+        when = frame['server_tick']
+        if not start < when < end:
+            continue
+        speed = frame.get('speed_bps')
+        try:
+            speed = float(speed) if type(speed) in (int, float) else None
+        except (ValueError, OverflowError):
+            speed = None
+        if speed is not None and math.isfinite(speed) and speed >= 0 and type(frame.get('on_ground')) is bool:
+            ticks.add(when)
+    missing = expected - len(ticks)
+    if missing:
+        errors.append(f"{label} combat interior frame coverage is incomplete: {missing} ticks lack valid frames")
+    return len(ticks), missing, missing == 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, required=True)
@@ -190,6 +223,10 @@ def main() -> int:
 
     primary_frames, primary_ticks_valid = combat_frames(primary_rows, "A6M")
     opponent_frames, opponent_ticks_valid = combat_frames(opponent_rows, "P-47N")
+    primary_covered, primary_missing, primary_coverage_valid = interior_frame_coverage(
+            primary_frames, "A6M", start_tick, completion_tick, primary_ticks_valid, errors)
+    opponent_covered, opponent_missing, opponent_coverage_valid = interior_frame_coverage(
+            opponent_frames, "P-47N", start_tick, completion_tick, opponent_ticks_valid, errors)
     primary_min_speed, primary_ground = combat_frame_metrics(primary_frames, "A6M", errors)
     opponent_min_speed, opponent_ground = combat_frame_metrics(opponent_frames, "P-47N", errors)
     # An unplaceable sample could belong to the combat window, so even otherwise valid
@@ -232,6 +269,12 @@ def main() -> int:
             f"fighters approached below the hard safety threshold: {min_separation}")
     require(max_separation is not None and max_separation <= 480.0, errors,
             f"fighters separated beyond the combat area: {max_separation}")
+    # Preserve explicit errors for observed unsafe frames, but never present
+    # partial combat-window safety samples as complete values for either plane.
+    if not (primary_coverage_valid and opponent_coverage_valid):
+        primary_min_speed = opponent_min_speed = None
+        primary_ground = opponent_ground = None
+
     summary_paths = list(args.root.rglob("validation-summary-*.json"))
     summary_path = max(summary_paths, key=lambda path: path.stat().st_mtime) if summary_paths else None
     summary: dict[str, Any] = {}
@@ -268,6 +311,10 @@ def main() -> int:
             "opponent_fire_count": len(opponent_fires),
             "primary_combat_frame_count": len(primary_frames),
             "opponent_combat_frame_count": len(opponent_frames),
+            "primary_interior_frame_ticks": primary_covered,
+            "opponent_interior_frame_ticks": opponent_covered,
+            "primary_interior_missing_ticks": primary_missing,
+            "opponent_interior_missing_ticks": opponent_missing,
             "primary_min_speed_bps": primary_min_speed,
             "opponent_min_speed_bps": opponent_min_speed,
             "primary_ground_frames": primary_ground,
