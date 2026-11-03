@@ -4,6 +4,23 @@ Last updated: 2026-11-03 (Asia/Tokyo)
 
 ## 2026-11-03 continuation checkpoint
 
+### Telemetry comparability manifest: draft, not model qualification
+
+Draft [#147](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/147), head
+`75df0235caf022fc5a47949a2974db5ac3b1aadc`, is a 3-file/+679 read-only tool against main
+`2585f44`. It records explicit JSONL input hashes, domain-hashed aircraft/run/type identity,
+observed tick ranges/gaps and available fields; provenance is explicitly unverified. Existing
+fast-simulation time-series comparison remains `NOT_COMPARABLE`, with no interpolation, model
+error or safety verdict. Hashes are linkable pseudonyms; low-entropy values can be guessed.
+
+Twenty synthetic tests passed, including strict UTF-8/CRLF, rejection of BOM/bare CR, bounded
+rows/lines, malformed JSON and identity separation. Independent review confirmed the fixes.
+Read-only saved-log analyses with unknown provenance: A6M full 4,838 frames / zero internal
+gaps; P-47N mutual 1,479 frames / 521 missing ticks. Neither qualifies an aircraft or proves
+unobserved intervals safe. Local output manifests `comparability-a6m-50eb5f5-v1.json` and
+`comparability-p47-50eb5f5-v1.json` contain linkable hashes and require review before sharing.
+No real MOD test was rerun for this tool.
+
 ### Native observer: isolated launch blocked before staging
 
 Experimental observer source [branch](https://github.com/genkimorimori252525-oss/Kneekura-bird/tree/agent/issue7-native-input-observer-evidence),
