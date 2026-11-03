@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from mutual_fixture import fill_interior_frames
 
 VERIFIER = Path(__file__).resolve().parents[1] / "verify_mutual_dogfight_scenario.py"
 PRIMARY = "11111111-1111-4111-8111-111111111111"
@@ -50,6 +51,8 @@ class MutualMonotonicTicksTests(unittest.TestCase):
             self.row("opponent", "control_adapter", 104, f"other_uuid={PRIMARY}:current=9.0",
                      applied_safety_override="collision_avoidance"),
         ]
+        self.primary = fill_interior_frames(self.primary, 100, 300)
+        self.opponent = fill_interior_frames(self.opponent, 100, 300)
         (self.root / "validation-summary-1.json").write_text(json.dumps({
             "state": "complete", "total": 1, "completed": 1, "results": [{
                 "entity_id": "warfare_wings:a6m", "aircraft_uuid": PRIMARY, "passed": True,
@@ -120,7 +123,7 @@ class MutualMonotonicTicksTests(unittest.TestCase):
         self.assertTrue(any("primary telemetry tick decreased" in e for e in result["errors"]), result)
 
     def test_infinite_frame_tick_produces_failed_report(self):
-        self.primary[4]["server_tick"] = float("inf")
+        next(row for row in self.primary if row["event"] == "frame")["server_tick"] = float("inf")
         code, result = self.verify()
         self.assertNotEqual(code, 0, result)
         self.assertTrue(any("InvalidConstantError" in e for e in result["errors"]), result)

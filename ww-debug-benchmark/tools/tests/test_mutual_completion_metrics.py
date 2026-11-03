@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from mutual_fixture import fill_interior_frames
 
 VERIFIER = Path(__file__).resolve().parents[1] / "verify_mutual_dogfight_scenario.py"
 PRIMARY = "AUTOPILOT TEST warfare_wings:a6m"
@@ -72,8 +73,9 @@ class CompletionMetricsTests(unittest.TestCase):
     @staticmethod
     def write_rows(path, name, rows):
         uid, pilot = ((PRIMARY_ID, PRIMARY_PILOT) if name == PRIMARY else (OPPONENT_ID, OPPONENT_PILOT))
-        path.write_text("".join(json.dumps(dict(row, aircraft_name=name, aircraft_uuid=uid, pilot_uuid=pilot)) + "\n"
-                                for row in rows),
+        rows = [dict(row, aircraft_name=name, aircraft_uuid=uid, pilot_uuid=pilot) for row in rows]
+        rows = fill_interior_frames(rows, 10, 210)
+        path.write_text("".join(json.dumps(row) + "\n" for row in rows),
                         encoding="utf-8")
 
     def set_completion(self, reason, server_tick=None):
@@ -219,6 +221,10 @@ class CompletionMetricsTests(unittest.TestCase):
             elif row.get("phase") == "PARKED":
                 row["server_tick"] = 2100
         self.primary.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+        for path in (self.primary, self.opponent):
+            rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+            rows = fill_interior_frames(rows, 10, 2010)
+            path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
         self.set_completion(COMPLETION.replace("age_ticks=200", "age_ticks=2000"))
         proc, result = self.verify()
         self.assertEqual(proc.returncode, 0, result)

@@ -6,7 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from mutual_fixture import combat_identity, complete_summary, parked_cleanup
+from mutual_fixture import combat_identity, complete_summary, fill_interior_frames, parked_cleanup
 
 VERIFIER = Path(__file__).resolve().parents[1] / "verify_mutual_dogfight_scenario.py"
 PRIMARY = "AUTOPILOT TEST warfare_wings:a6m"
@@ -60,6 +60,7 @@ class MutualLogIntegrityTests(unittest.TestCase):
             rows = parked_cleanup(rows, uid)
         if name in (PRIMARY, OPPONENT):
             rows = combat_identity(rows, name == PRIMARY)
+            rows = fill_interior_frames(rows, 10, 210)
         path.write_text("".join(json.dumps(row) + "\n" for row in rows),
                         encoding="utf-8")
 

@@ -4,6 +4,23 @@ PILOT_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 PILOT_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
 
 
+def fill_interior_frames(rows, start, end):
+    """Build a complete baseline once; never repair mutated test evidence in verify()."""
+    result = list(rows)
+    template = next(row for row in result if row.get("event") == "frame"
+                    and start < row.get("server_tick", -1) < end)
+    observed = {row["server_tick"] for row in result if row.get("event") == "frame"
+                and type(row.get("server_tick")) is int}
+    for when in range(start + 1, end):
+        if when in observed:
+            continue
+        frame = dict(template, server_tick=when)
+        index = next((i for i, row in enumerate(result)
+                      if type(row.get("server_tick")) is int and row["server_tick"] > when), len(result))
+        result.insert(index, frame)
+    return result
+
+
 def combat_identity(rows, primary):
     pilot, target = (PILOT_A, PILOT_B) if primary else (PILOT_B, PILOT_A)
     result = []

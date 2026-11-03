@@ -53,9 +53,9 @@ class MutualFrameIntegrityTests(unittest.TestCase):
         # Each interior tick has one valid frame. Boundary ticks are not required:
         # initial setup may write directly, and teardown may precede an entity tick.
         for rows, name in ((self.primary, PRIMARY), (self.opponent, OPPONENT)):
-            rows.extend(row(name, 'frame', tick, speed_bps=25, on_ground=False)
-                        for tick in range(101, 300) if tick != 104)
-            rows.sort(key=lambda item: item['server_tick'])
+            for tick in range(101, 300):
+                if tick != 104:
+                    self.add_combat_frame(rows, row(name, 'frame', tick, speed_bps=25, on_ground=False))
         (self.root / 'validation-summary-1.json').write_text(
             json.dumps(complete_summary(PRIMARY_ID)), encoding='utf-8')
 
@@ -75,10 +75,20 @@ class MutualFrameIntegrityTests(unittest.TestCase):
 
     @staticmethod
     def add_combat_frame(rows, frame):
-        # Insert before the primary completion event, preserving the logged order.
-        index = next((i for i, item in enumerate(rows)
-                      if item['event'] == 'mutual_dogfight_validation_completed'), len(rows))
+        # Insert only this new sample at its natural tick; never reorder existing rows.
+        when = frame.get('server_tick')
+        if type(when) is int and when >= 0:
+            index = next((i for i, item in enumerate(rows)
+                          if type(item.get('server_tick')) is int and item['server_tick'] > when), len(rows))
+        else:
+            index = next((i for i, item in enumerate(rows)
+                          if item['event'] == 'mutual_dogfight_validation_completed'), len(rows))
         rows.insert(index, frame)
+
+    @staticmethod
+    def remove_combat_frame(rows, frame):
+        # Dict equality conflates False with 0 and True with 1; remove this exact object.
+        rows.pop(next(index for index, item in enumerate(rows) if item is frame))
 
     def test_valid_frames_in_window_pass(self):
         code, result = self.verify()
@@ -98,12 +108,10 @@ class MutualFrameIntegrityTests(unittest.TestCase):
         for target in ('primary', 'opponent'):
             with self.subTest(target=target):
                 rows = getattr(self, target)
-                frame = next(item for item in rows if item['event'] == 'frame')
-                old_tick = frame['server_tick']
-                original_index = rows.index(frame)
-                rows.pop(original_index)
-                frame['server_tick'] = 301
-                rows.append(frame)
+                original = list(rows)
+                rows[:] = [item for item in rows if item['event'] != 'frame']
+                rows.append(row(PRIMARY if target == 'primary' else OPPONENT,
+                                'frame', 301, speed_bps=25, on_ground=False))
                 try:
                     code, result = self.verify()
                     self.assertNotEqual(code, 0, result)
@@ -113,9 +121,7 @@ class MutualFrameIntegrityTests(unittest.TestCase):
                     name = 'A6M' if target == 'primary' else 'P-47N'
                     self.assertIn(f'{name} has no combat-window frame telemetry', result['errors'], result)
                 finally:
-                    rows.remove(frame)
-                    frame['server_tick'] = old_tick
-                    rows.insert(original_index, frame)
+                    rows[:] = original
 
     def test_every_frame_needs_valid_nonnegative_finite_numeric_speed(self):
         for target in ('primary', 'opponent'):
@@ -136,7 +142,7 @@ class MutualFrameIntegrityTests(unittest.TestCase):
                         else:
                             self.assertIn(f'{name} has 1 frames with missing or invalid speed', result['errors'], result)
                     finally:
-                        rows.remove(frame)
+                        self.remove_combat_frame(rows, frame)
 
     def test_every_frame_needs_explicit_boolean_ground(self):
         for target in ('primary', 'opponent'):
@@ -154,7 +160,7 @@ class MutualFrameIntegrityTests(unittest.TestCase):
                         name = 'A6M' if target == 'primary' else 'P-47N'
                         self.assertIn(f'{name} has 1 frames with missing or invalid ground state', result['errors'], result)
                     finally:
-                        rows.remove(frame)
+                        self.remove_combat_frame(rows, frame)
 
     def test_missing_speed_or_ground_field_rejected(self):
         for key in ('speed_bps', 'on_ground'):
@@ -189,7 +195,7 @@ class MutualFrameIntegrityTests(unittest.TestCase):
                         name = 'A6M' if target == 'primary' else 'P-47N'
                         self.assertIn(f'{name} has 1 frames with missing or invalid ticks', result['errors'], result)
                     finally:
-                        rows.remove(frame)
+                        self.remove_combat_frame(rows, frame)
 
     def test_boundary_ticks_must_be_nonnegative_integers(self):
         for event in ('mutual_dogfight_validation_started', 'mutual_dogfight_validation_completed'):
@@ -302,8 +308,8 @@ class MutualFrameIntegrityTests(unittest.TestCase):
                     self.assertIn(f'{label} touched the ground during mutual combat: 1 observed frames',
                                   result['errors'], result)
                 finally:
-                    rows.remove(known)
-                    rows.remove(invalid)
+                    self.remove_combat_frame(rows, known)
+                    self.remove_combat_frame(rows, invalid)
 
     def test_known_unsafe_speed_survives_other_invalid_speed_samples(self):
         for target, name, label in (('primary', PRIMARY, 'A6M'), ('opponent', OPPONENT, 'P-47N')):
@@ -321,8 +327,8 @@ class MutualFrameIntegrityTests(unittest.TestCase):
                     self.assertIn(f'{label} has 1 frames with missing or invalid speed', result['errors'], result)
                     self.assertIn(f'{label} speed became unsafe: 8.4 bps', result['errors'], result)
                 finally:
-                    rows.remove(known)
-                    rows.remove(invalid)
+                    self.remove_combat_frame(rows, known)
+                    self.remove_combat_frame(rows, invalid)
 
     def test_unknown_frame_tick_does_not_claim_window_ground_contact(self):
         self.add_combat_frame(self.primary, row(PRIMARY, 'frame', None, speed_bps=8.4, on_ground=True))
