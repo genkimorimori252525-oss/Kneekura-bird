@@ -63,6 +63,9 @@ minecraft {
             if (project.hasProperty('mutualObserveTickets')) {
                 property 'wwdebug.mutualObserveTickets', project.property('mutualObserveTickets').toString()
             }
+            if (project.hasProperty('mutualObserveVisibility')) {
+                property 'wwdebug.mutualObserveVisibility', project.property('mutualObserveVisibility').toString()
+            }
         }
     }
 }

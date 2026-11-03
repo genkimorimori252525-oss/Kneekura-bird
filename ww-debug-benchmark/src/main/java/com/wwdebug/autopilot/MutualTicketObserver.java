@@ -2,6 +2,7 @@ package com.wwdebug.autopilot;
 
 import com.wwdebug.benchmark.WWDebugBenchmarkMod;
 import it.unimi.dsi.fastutil.longs.LongSet;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.gametest.framework.GameTestServer;
 import net.minecraft.server.level.ServerLevel;
@@ -34,7 +35,14 @@ final class MutualTicketObserver {
                     previous = null;
                     return null;
                 }
-                return new Sample(this, level, primary, owned, center, target);
+                boolean visibilityEnabled = false;
+                try {
+                    visibilityEnabled = MutualTicketObservationPolicy.visibilityEnabled(
+                            System.getProperty("wwdebug.mutualObserveVisibility"));
+                } catch (RuntimeException ignored) {
+                    // Without a confirmed opt-in, retain the existing ticket observation.
+                }
+                return new Sample(this, level, primary, owned, center, target, visibilityEnabled);
             } catch (RuntimeException ignored) {
                 // Failure to establish scope or capture a target is unobserved, not false.
                 return null;
@@ -55,6 +63,13 @@ final class MutualTicketObserver {
         private final Boolean removed;
         private final Boolean ownerBefore;
         private final Boolean rangeBefore;
+        private final boolean visibilityEnabled;
+        private final BlockPos targetBlock;
+        private final Boolean blockChunkMatches;
+        private final Boolean compositeBefore;
+        private final Long beforeQueryTick;
+        private final Long beforeQueryEndTick;
+        private boolean visibilityProbeError;
         private Boolean firstRead;
         private Boolean lastRead;
         private Boolean targetForcedBefore;
@@ -63,7 +78,7 @@ final class MutualTicketObserver {
         private boolean probeError;
 
         private Sample(Recorder recorder, ServerLevel level, Entity primary, Set<Long> owned, ChunkPos center,
-                       MutualDogfightValidationManager.ObservationTarget target) {
+                       MutualDogfightValidationManager.ObservationTarget target, boolean visibilityEnabled) {
             this.recorder = recorder;
             this.level = level;
             this.primary = primary;
@@ -75,8 +90,53 @@ final class MutualTicketObserver {
             this.removed = reference == null ? null : reference.isRemoved();
             this.targetKey = Boolean.TRUE.equals(sameLevel) ? reference.chunkPosition().toLong() : null;
             this.ownerBefore = targetKey == null ? null : owned.contains(targetKey);
-            this.rangeBefore = targetKey == null ? null : level.getChunkSource().chunkMap
+            this.visibilityEnabled = visibilityEnabled;
+            BlockPos block = null;
+            Boolean matches = null;
+            if (visibilityEnabled && targetKey != null) {
+                try {
+                    block = reference.blockPosition().immutable();
+                    matches = ChunkPos.asLong(block) == targetKey.longValue();
+                } catch (RuntimeException ignored) {
+                    visibilityProbeError = true;
+                }
+            }
+            this.targetBlock = block;
+            this.blockChunkMatches = matches;
+            this.beforeQueryTick = visibilityEnabled ? queryTick() : null;
+            this.rangeBefore = visibilityEnabled ? safeRange() : targetKey == null ? null : level.getChunkSource().chunkMap
                     .getDistanceManager().inEntityTickingRange(targetKey);
+            this.compositeBefore = visibilityEnabled ? safeComposite() : null;
+            this.beforeQueryEndTick = visibilityEnabled ? queryTick() : null;
+        }
+
+        private Boolean safeRange() {
+            if (targetKey == null) return null;
+            try {
+                return level.getChunkSource().chunkMap.getDistanceManager().inEntityTickingRange(targetKey);
+            } catch (RuntimeException ignored) {
+                visibilityProbeError = true;
+                return null;
+            }
+        }
+
+        private Boolean safeComposite() {
+            if (targetBlock == null || !Boolean.TRUE.equals(blockChunkMatches)) return null;
+            try {
+                return level.isPositionEntityTicking(targetBlock);
+            } catch (RuntimeException ignored) {
+                visibilityProbeError = true;
+                return null;
+            }
+        }
+
+        private Long queryTick() {
+            try {
+                return level.getServer().overworld().getGameTime();
+            } catch (RuntimeException ignored) {
+                visibilityProbeError = true;
+                return null;
+            }
         }
 
         void read(LongSet existingView, long loopKey, boolean loopForced, int index) {
@@ -100,8 +160,11 @@ final class MutualTicketObserver {
         void finish(boolean complete) {
             try {
                 Boolean ownerAfter = targetKey == null ? null : owned.contains(targetKey);
-                Boolean rangeAfter = targetKey == null ? null : level.getChunkSource().chunkMap
+                Long afterQueryTick = visibilityEnabled ? queryTick() : null;
+                Boolean rangeAfter = visibilityEnabled ? safeRange() : targetKey == null ? null : level.getChunkSource().chunkMap
                         .getDistanceManager().inEntityTickingRange(targetKey);
+                Boolean compositeAfter = visibilityEnabled ? safeComposite() : null;
+                Long afterQueryEndTick = visibilityEnabled ? queryTick() : null;
                 var current = MutualDogfightValidationManager.observationTarget(primary.getUUID());
                 Entity endReference = current == null ? null : current.reference();
                 String refAtEnd = current == null || reference == null || endReference == null ? "unknown"
@@ -134,11 +197,34 @@ final class MutualTicketObserver {
                         + ":range_after=" + MutualTicketObservationPolicy.state(rangeAfter)
                         + ":target_action=" + action + ":loop_complete=" + complete
                         + ":probe_error=" + probeError;
+                String fingerprint = details;
+                if (visibilityEnabled) {
+                    String visibilityBefore = MutualTicketObservationPolicy.visibilityAtTicks(
+                            rangeBefore, compositeBefore, beforeQueryTick, beforeQueryEndTick);
+                    String visibilityAfter = MutualTicketObservationPolicy.visibilityAtTicks(
+                            rangeAfter, compositeAfter, afterQueryTick, afterQueryEndTick);
+                    fingerprint = MutualTicketObservationPolicy.visibilityFingerprint(details, blockChunkMatches,
+                            compositeBefore, visibilityBefore, compositeAfter, visibilityAfter, visibilityProbeError);
+                    details += ":visibility_probe=true"
+                            + ":target_block_x=" + (targetBlock == null ? "unknown" : targetBlock.getX())
+                            + ":target_block_y=" + (targetBlock == null ? "unknown" : targetBlock.getY())
+                            + ":target_block_z=" + (targetBlock == null ? "unknown" : targetBlock.getZ())
+                            + ":block_chunk_matches=" + MutualTicketObservationPolicy.state(blockChunkMatches)
+                            + ":before_query_tick=" + number(beforeQueryTick)
+                            + ":before_query_end_tick=" + number(beforeQueryEndTick)
+                            + ":composite_before=" + MutualTicketObservationPolicy.state(compositeBefore)
+                            + ":visibility_before=" + visibilityBefore
+                            + ":after_query_tick=" + number(afterQueryTick)
+                            + ":after_query_end_tick=" + number(afterQueryEndTick)
+                            + ":composite_after=" + MutualTicketObservationPolicy.state(compositeAfter)
+                            + ":visibility_after=" + visibilityAfter
+                            + ":visibility_probe_error=" + visibilityProbeError;
+                }
                 long tick = level.getServer().overworld().getGameTime();
-                if (MutualTicketObservationPolicy.emit(recorder.previous, details, tick)) {
+                if (MutualTicketObservationPolicy.emit(recorder.previous, fingerprint, tick)) {
                     WWDebugBenchmarkMod.LOGGER.info("Mutual GameTest force observation server_tick={} primary_uuid={} {}",
                             tick, primary.getUUID(), details);
-                    recorder.previous = details;
+                    recorder.previous = fingerprint;
                 }
             } catch (RuntimeException ignored) {
                 // A missing observation is unknown; it must not change the validation loop.
@@ -147,6 +233,10 @@ final class MutualTicketObserver {
 
         private static String value(UUID uuid) {
             return uuid == null ? "unknown" : uuid.toString();
+        }
+
+        private static String number(Long number) {
+            return number == null ? "unknown" : number.toString();
         }
     }
 }
