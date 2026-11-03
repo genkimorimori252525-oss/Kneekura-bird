@@ -4,6 +4,12 @@ Last updated: 2026-11-03 (Asia/Tokyo)
 
 ## 2026-11-03 continuation checkpoint
 
+The two-aircraft exception-abort probe preparation was interrupted by an automatic safety
+review flagging possible cybersecurity risk; no MOD run or exception result exists. Preserve
+the uncommitted staged worktree `/workspace/kneekura-benchmark-exception-abort` (base
+`92682c7`) and its local logs; it is not reviewed or ready to run. Follow the applicable
+review conditions before resuming; #145/#148 stop results are separate evidence.
+
 ### Ticket ownership journal: pure model only
 
 Draft [#149](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/149), head
