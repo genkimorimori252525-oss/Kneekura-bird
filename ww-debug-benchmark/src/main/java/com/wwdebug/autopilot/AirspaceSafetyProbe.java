@@ -15,9 +15,9 @@ import java.util.List;
  * <p>Two callers depend on this agreeing with itself, and they are not obviously connected:
  * {@code FighterCombatFacade} asks {@link #collisionRisk(Entity)} to decide whether to
  * <em>suppress</em> combat, while {@code FormationFlightManager} runs the same arithmetic to decide
- * whether to <em>write</em> an avoidance manoeuvre. The arbiter then reports
- * {@code COLLISION_AVOIDANCE} on the strength of the first while the aircraft is actually flown by
- * the second.</p>
+ * whether to <em>write</em> an avoidance manoeuvre. The arbiter reports a terrain dispatch first;
+ * otherwise it can report {@code COLLISION_AVOIDANCE} on risk alone even when no avoidance input
+ * was written.</p>
  *
  * <p>Both used to carry their own copy of the five constants and their own copy of the danger
  * expression. They agreed exactly, so nothing was broken — but changing one and not the other would

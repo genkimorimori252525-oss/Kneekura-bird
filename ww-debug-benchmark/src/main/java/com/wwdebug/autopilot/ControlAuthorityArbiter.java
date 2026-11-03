@@ -119,7 +119,7 @@ public final class ControlAuthorityArbiter {
         }
 
         BenchmarkManager.applyControl(aircraft);
-        AutonomousFlightManager.applyControl(aircraft);
+        boolean terrainDispatched = AutonomousFlightManager.dispatchControl(aircraft);
         MutualDogfightMissionHoldAdapter.apply(aircraft);
         ControlOutcome formation = FormationFlightManager.applyControl(aircraft);
 
@@ -129,6 +129,9 @@ public final class ControlAuthorityArbiter {
             // A converted layer leaves its write to us; an unconverted one has already performed it.
             combat.pendingWrite().ifPresent(proposal -> write(aircraft, proposal));
             return combat.authority();
+        }
+        if (terrainDispatched) {
+            return Authority.TERRAIN_AVOIDANCE;
         }
         if (formation.authority() == Authority.COLLISION_AVOIDANCE || collisionRisk) {
             // Collision avoidance is intentionally still a direct writer during the staged
