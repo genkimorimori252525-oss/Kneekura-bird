@@ -4,7 +4,10 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
+import math
+import os
 import re
 import statistics
 import sys
@@ -16,17 +19,123 @@ NUMBER = re.compile(r"([a-z_]+)=(-?\d+(?:\.\d+)?)")
 ACTION = re.compile(r"(?:^|:)to=([A-Z_]+)")
 
 
-def read_jsonl(path: Path) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    try:
-        for line in path.read_text(encoding="utf-8").splitlines():
+class DuplicateKeyError(ValueError):
+    pass
+
+
+class InvalidConstantError(ValueError):
+    pass
+
+
+class NonFiniteNumberError(ValueError):
+    pass
+
+
+def unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise DuplicateKeyError("duplicate JSON object key")
+        result[key] = value
+    return result
+
+
+def reject_json_constant(value: str) -> None:
+    raise InvalidConstantError(value)
+
+
+def finite_json_float(value: str) -> float:
+    number = float(value)
+    if not math.isfinite(number):
+        raise NonFiniteNumberError("JSON number exceeds finite float range")
+    return number
+
+
+def telemetry_paths(root: Path, errors: list[str]):
+    """Find candidates without hiding directory scan errors or following recursive symlinks."""
+    pending = [root]
+    reported: set[str] = set()
+
+    def report(path: str, exc: OSError) -> None:
+        if path not in reported:
+            errors.append(f"cannot scan telemetry directory {path}: {type(exc).__name__}")
+            reported.add(path)
+
+    while pending:
+        directory = pending.pop()
+        try:
+            with os.scandir(directory) as stream:
+                entries = list(stream)
+        except OSError as exc:
+            report(str(directory), exc)
+            continue
+        for entry in entries:
             try:
-                value = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(value, dict):
+                is_real_directory = entry.is_dir(follow_symlinks=False)
+                # rglob('aircraft/*.jsonl') follows a symlink for its literal aircraft
+                # component, but does not recursively follow unrelated symlink directories.
+                if entry.name == "aircraft" and (is_real_directory or entry.is_dir()):
+                    try:
+                        with os.scandir(entry.path) as aircraft_entries:
+                            candidates = [Path(child.path) for child in aircraft_entries
+                                          if fnmatch.fnmatch(child.name, "*.jsonl")]
+                    except OSError as exc:
+                        report(entry.path, exc)
+                    else:
+                        yield from candidates
+                if is_real_directory:
+                    pending.append(Path(entry.path))
+            except OSError as exc:
+                report(entry.path, exc)
+
+
+def read_jsonl(path: Path, errors: list[str]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    reported: set[str] = set()
+
+    def report_corruption(kind: str, line_number: int) -> None:
+        if kind not in reported:
+            errors.append(f"{kind} in telemetry log {path} at line {line_number}")
+            reported.add(kind)
+
+    try:
+        # Surrogate escapes let us reject invalid bytes per line while preserving the previous
+        # universal-newline handling for LF, CRLF and CR-delimited historical logs.
+        with path.open("r", encoding="utf-8", errors="surrogateescape", newline=None) as stream:
+            for line_number, line in enumerate(stream, 1):
+                try:
+                    line.encode("utf-8")
+                except UnicodeEncodeError:
+                    report_corruption("invalid UTF-8", line_number)
+                    continue
+                try:
+                    value = json.loads(line, object_pairs_hook=unique_json_object,
+                                       parse_constant=reject_json_constant,
+                                       parse_float=finite_json_float)
+                except json.JSONDecodeError:
+                    report_corruption("invalid JSON", line_number)
+                    continue
+                except DuplicateKeyError:
+                    report_corruption("DuplicateKeyError", line_number)
+                    continue
+                except InvalidConstantError as exc:
+                    report_corruption(f"InvalidConstantError {exc}", line_number)
+                    continue
+                except NonFiniteNumberError:
+                    report_corruption("NonFiniteNumberError", line_number)
+                    continue
+                except ValueError:
+                    report_corruption("JSON parser ValueError", line_number)
+                    continue
+                except RecursionError:
+                    report_corruption("JSON parser RecursionError", line_number)
+                    continue
+                if not isinstance(value, dict):
+                    report_corruption("non-object JSON", line_number)
+                    continue
                 rows.append(value)
-    except OSError:
+    except OSError as exc:
+        errors.append(f"cannot read telemetry log {path}: {type(exc).__name__}")
         return []
     return rows
 
@@ -58,9 +167,10 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
+    errors: list[str] = []
     logs: dict[str, tuple[Path, list[dict[str, Any]]]] = {}
-    for path in args.root.rglob("aircraft/*.jsonl"):
-        rows = read_jsonl(path)
+    for path in telemetry_paths(args.root, errors):
+        rows = read_jsonl(path, errors)
         name = next((str(row.get("aircraft_name")) for row in rows if row.get("aircraft_name")), path.name)
         logs[name] = (path, rows)
 
@@ -139,7 +249,6 @@ def main() -> int:
     primary_acquisition_reasons = [str(row.get("reason", "")) for row in primary_acquisitions]
     opponent_acquisition_reasons = [str(row.get("reason", "")) for row in opponent_acquisitions]
 
-    errors: list[str] = []
     require(bool(primary_rows), errors, "primary A6M telemetry was not produced")
     require(bool(opponent_rows), errors, "opposing P-47N telemetry was not produced")
     require(bool(started), errors, "mutual dogfight scene never started")
