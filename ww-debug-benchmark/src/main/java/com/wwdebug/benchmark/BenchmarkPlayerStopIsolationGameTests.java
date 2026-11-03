@@ -113,6 +113,13 @@ public final class BenchmarkPlayerStopIsolationGameTests {
             playerCase.aircraft.setDeltaMovement(new Vec3(0.11, 0.07, 0.13));
             ReflectiveAircraft.applyControl(playerCase.aircraft, 0.31f, -0.42f, 0.53f, 0.24f);
             Snapshot sentinel = snapshot(playerCase.aircraft);
+            Vec3 expectedPosition = initialPosition.add(1.0, 3.0, 1.0);
+            Vec3 expectedVelocity = new Vec3(0.11, 0.07, 0.13);
+            WWDebugBenchmarkMod.LOGGER.info(
+                    "benchmark_stop_probe sentinel actual={} expected_x={} expected_y={} expected_z={} expected_engine={} expected_position={} expected_velocity={} delta_x={} delta_y={} delta_z={} delta_engine={} delta_position={} delta_velocity={}",
+                    sentinel, 0.31, -0.42, 0.53, 0.24, expectedPosition, expectedVelocity,
+                    sentinel.x() - 0.31, sentinel.y() + 0.42, sentinel.z() - 0.53, sentinel.engine() - 0.24,
+                    sentinel.position().subtract(expectedPosition), sentinel.velocity().subtract(expectedVelocity));
             check(Math.abs(sentinel.x() - 0.31) < 0.001 && Math.abs(sentinel.y() + 0.42) < 0.001
                             && Math.abs(sentinel.z() - 0.53) < 0.001 && Math.abs(sentinel.engine() - 0.24) < 0.001
                             && sentinel.position().distanceToSqr(initialPosition.add(1.0, 3.0, 1.0)) < 1.0e-8
