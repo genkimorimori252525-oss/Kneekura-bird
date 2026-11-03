@@ -7,6 +7,8 @@ import tempfile
 import unittest
 
 VERIFIER = Path(__file__).resolve().parents[1] / "verify_mutual_dogfight_scenario.py"
+PRIMARY_ID = "11111111-1111-4111-8111-111111111111"
+OPPONENT_ID = "22222222-2222-4222-8222-222222222222"
 
 
 class MutualSummaryJsonIntegrityTests(unittest.TestCase):
@@ -18,7 +20,10 @@ class MutualSummaryJsonIntegrityTests(unittest.TestCase):
         logs.mkdir(parents=True)
         self.summary = self.root / "validation-summary-1.json"
         primary = [
-            {"event": "mutual_dogfight_validation_started", "server_tick": 10},
+            {"event": "mutual_dogfight_validation_started", "server_tick": 10,
+             "reason": f"primary_uuid={PRIMARY_ID}:opponent_uuid={OPPONENT_ID}"},
+            {"event": "control_adapter", "server_tick": 15, "applied_safety_override": "collision_avoidance",
+             "reason": f"other_uuid={OPPONENT_ID}:current=9.0"},
             {"event": "mutual_dogfight_validation_status", "server_tick": 15, "reason": "separation=9.5"},
             {"event": "combat_target_acquired", "reason": "target_faction=blue:explicit_faction_hostile=true"},
             {"event": "air_combat_action_transition", "reason": "doctrine=turn_fighter:to=TURN"},
@@ -29,14 +34,16 @@ class MutualSummaryJsonIntegrityTests(unittest.TestCase):
                        "opponent_track_ticks=90:primary_combat_ticks=110:opponent_combat_ticks=110"},
         ]
         opponent = [
+            {"event": "control_adapter", "server_tick": 15, "applied_safety_override": "collision_avoidance",
+             "reason": f"other_uuid={PRIMARY_ID}:current=9.0"},
             {"event": "combat_target_acquired", "reason": "target_faction=red:explicit_faction_hostile=true"},
             {"event": "air_combat_action_transition", "reason": "doctrine=energy_fighter:to=TURN"},
             {"event": "weapon_fire"},
             {"event": "frame", "server_tick": 15, "speed_bps": 30, "on_ground": False},
         ]
-        for filename, name, rows in (("primary.jsonl", "AUTOPILOT TEST warfare_wings:a6m", primary),
-                                     ("opponent.jsonl", "MUTUAL BLUE P47N", opponent)):
-            (logs / filename).write_text("".join(json.dumps(dict(row, aircraft_name=name)) + "\n"
+        for filename, name, uid, rows in (("primary.jsonl", "AUTOPILOT TEST warfare_wings:a6m", PRIMARY_ID, primary),
+                                          ("opponent.jsonl", "MUTUAL BLUE P47N", OPPONENT_ID, opponent)):
+            (logs / filename).write_text("".join(json.dumps(dict(row, aircraft_name=name, aircraft_uuid=uid)) + "\n"
                                                  for row in rows), encoding="utf-8")
 
     def verify(self, summary):
@@ -48,6 +55,10 @@ class MutualSummaryJsonIntegrityTests(unittest.TestCase):
                               capture_output=True, text=True, check=False)
         self.assertTrue(output.exists(), proc.stderr)
         return proc.returncode, json.loads(output.read_text(encoding="utf-8"))
+
+    def assert_summary_error(self, result, error_type):
+        expected = f"cannot read validation summary {self.summary}: {error_type}"
+        self.assertIn(expected, result["errors"], result)
 
     def test_valid_summary_passes(self):
         status, result = self.verify(b'{"state":"complete","results":[{"passed":true}],"unused":1.25e3}')
@@ -62,13 +73,13 @@ class MutualSummaryJsonIntegrityTests(unittest.TestCase):
                 status, result = self.verify(summary)
                 self.assertNotEqual(status, 0, result)
                 self.assertFalse(result["passed"])
-                self.assertTrue(any("summary" in error for error in result["errors"]), result)
+                self.assert_summary_error(result, "SummaryDuplicateKeyError")
 
     def test_invalid_utf8_saves_failed_result(self):
         status, result = self.verify(b'{"state":"complete","results":[{"passed":true}],"note":"\xff"}')
         self.assertNotEqual(status, 0, result)
         self.assertFalse(result["passed"])
-        self.assertTrue(any("summary" in error for error in result["errors"]), result)
+        self.assert_summary_error(result, "UnicodeDecodeError")
 
     def test_nonstandard_numeric_constants_fail_even_in_unused_fields(self):
         for value in (b"NaN", b"Infinity", b"-Infinity"):
@@ -77,7 +88,7 @@ class MutualSummaryJsonIntegrityTests(unittest.TestCase):
                     b'{"state":"complete","results":[{"passed":true,"unused":' + value + b'}]}')
                 self.assertNotEqual(status, 0, result)
                 self.assertFalse(result["passed"])
-                self.assertTrue(any("summary" in error for error in result["errors"]), result)
+                self.assert_summary_error(result, "SummaryInvalidConstantError")
 
     def test_overflowing_numbers_fail_even_in_unused_fields(self):
         for value in (b"1e9999", b"-1e9999"):
@@ -86,7 +97,7 @@ class MutualSummaryJsonIntegrityTests(unittest.TestCase):
                     b'{"state":"complete","results":[{"passed":true}],"unused":' + value + b'}')
                 self.assertNotEqual(status, 0, result)
                 self.assertFalse(result["passed"])
-                self.assertTrue(any("summary" in error for error in result["errors"]), result)
+                self.assert_summary_error(result, "ValueError")
 
     def test_parser_limits_save_failed_result(self):
         values = [b'{"unused":' + b'[' * 10000 + b'0' + b']' * 10000 + b'}']
@@ -97,7 +108,7 @@ class MutualSummaryJsonIntegrityTests(unittest.TestCase):
                 status, result = self.verify(value)
                 self.assertNotEqual(status, 0, result)
                 self.assertFalse(result["passed"])
-                self.assertTrue(any("summary" in error for error in result["errors"]), result)
+                self.assert_summary_error(result, "RecursionError" if b'[' in value else "ValueError")
 
     def test_non_object_summary_saves_failed_result(self):
         for value in (b"null", b"false", b"2", b'"text"', b"[]", b"[{}]"):
@@ -105,7 +116,7 @@ class MutualSummaryJsonIntegrityTests(unittest.TestCase):
                 status, result = self.verify(value)
                 self.assertNotEqual(status, 0, result)
                 self.assertFalse(result["passed"])
-                self.assertTrue(any("summary" in error for error in result["errors"]), result)
+                self.assert_summary_error(result, "ValueError")
 
 
 if __name__ == "__main__":
