@@ -8,34 +8,46 @@ Last updated: 2026-11-03 (Asia/Tokyo)
 
 - Draft [#122](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/122) records this
   handoff. Draft [#123](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/123)
-  contains fixed-mod safety regression tests; its remote head is `0364be1b`.
+  contains fixed-mod safety regression tests; its current remote head is `42fb0813`, stacked on
+  [#126](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/126). The earlier #123
+  head `0364be1b` is preserved by branch `agent/control-safety-evidence-0364be1b`.
   Draft [#124](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/124) fixes a
-  full/landing telemetry identity error. It is necessary but not sufficient before integrating
-  #123: focused/dedicated verifiers and diagnostics may also select the added fixture logs by
-  modification time. Audit or isolate those consumers. #124 head
+  full/landing telemetry identity error. #126 isolates the new fixtures' individual logs without
+  deleting them; general existing focused/dedicated log selection remains a separate issue. #124 head
   `23892040` preserves `aircraft=all` in synthetic tests; real multi-aircraft verification remains.
 - With the same test and fixed mods, current main plus the test passed all 61 GameTests, while
   #101 head `9c21ca34e3f91485f71cf845063bc78fb4c66be2` failed the expected startup engine-input
   assertion. This demonstrates the specific no-avoidance-write case on the real mod, not all
   flight axes or collision safety. The first two fixture runs failed before the assertion because
-  the test aircraft lacked usable fuel; their logs were preserved. Final test source SHA-256:
+  the test aircraft lacked usable fuel; their logs were preserved. The first corrected test source SHA-256:
   `22e31bf600b2cfddb7f2f936a9b333b80a35f5b6d589b9cb6fdc1de94c4a42d4`.
 - On the passing main run, the original full verifier incorrectly selected a later unrelated
   test aircraft's two-frame log and returned pass. The summary aircraft UUID was different. The
   #124 fix reprocessed the saved run and selected the matching 4,838-frame log. Its streaming
   implementation reduced a synthetic 24-file load from about 1.25 GiB peak RSS to 10 MiB on
-  Linux; this is not a 24-aircraft GameTest. The final #123 tree `3e661ea8` passed build,
-  deterministic simulation 12/12 and real-mod GameTest 64/64. Terrain and player takeover tests
-  also failed their intended assertions under separate unsafe local mutations. See
+  Linux; this is not a 24-aircraft GameTest. The earlier #123 tree `3e661ea8` passed build,
+  deterministic simulation 12/12 and real-mod GameTest 64/64. The current stacked tree `6abe4795`
+  also passed 64/64 and preserved four fixture logs separately. Terrain and player takeover tests
+  failed their intended assertions under separate unsafe local mutations. See
   `docs/validation/2026-11-03/collision-and-verifier.md`.
-  Other scenario verifiers and
-  malformed-JSONL handling remain separate audit items.
+  Other scenario verifiers remain separate audit items. Draft
+  [#125](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/125), stacked on #124,
+  fails closed on damaged full/landing candidate logs; see its compatibility limits.
 - Cloud evidence is under `/workspace/issue7-evidence-20261103/` in this instance, including
   mod hashes, logs, verifier results and the preserved first two run directories. This path is
   ephemeral: do not assume it exists in a later session. No mod jars were committed or published.
   The main test worktree is `/workspace/kneekura-collision-test`; local commit `9d7180a` has the
-  first passing fixture; local `e230d75` has the same final tree as #123 head but a different commit
-  ID. Additional test changes may follow; inspect live GitHub.
+  first passing fixture; local `fb1c5c0` has the same tree as #123 head but a different commit ID.
+  Additional test changes may follow; inspect live GitHub.
+- Draft [#127](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/127), head
+  `e774ae86`, reports terrain authority when this invocation dispatched a terrain-informed output
+  during collision risk. Local `fcfddbe` has the same tree `05246519`: build 0, simulator 12/12,
+  A6M full and mutual dogfight each GameTest 64/64, Gradle 0 and verifier pass. Full finished
+  PARKED with route evidence; mutual recorded fire events 8/1, minimum separation 10.83 and zero
+  combat ground frames. An earlier implementation `1ece7bf` crashed at required Mixin injection;
+  that failure was retained and the injection target corrected without lowering `require=1`.
+  #127 leaves the pre-existing stale terrain-only reporting case without collision risk unresolved;
+  a separate red test for that case is being prepared. Dispatch does not prove reflection success.
 - Before converting autonomy, separately verify combat suppression and the claimed-without-output
   case. The present tests cover player takeover input values and terrain input in controlled cases,
   not every axis and write count. A risk-only ownership label can disagree with the
@@ -61,9 +73,9 @@ successes do not establish every aircraft's mission, role, and combat completion
 basic air combat; afterward, aim for WWII-style techniques selected at appropriate times and
 natural frequencies according to pilot proficiency. This sequencing was recorded on Issue #7.
 
-PR #101 is retained as evidence, not a baseline to merge blindly. On its head `9c21ca34`, static
-inspection shows that collision risk with no formation avoidance write and no terrain proposal
-can discard the pending base-autonomy proposal. This has not been reproduced in the actual mod.
+PR #101 is retained as evidence, not a baseline to merge blindly. On its head `9c21ca34`, an
+actual fixed-mod GameTest reproduced discarded base-autonomy engine input when collision risk held
+but formation did not write avoidance. This is one controlled case, not flight safety as a whole.
 On current main, base autonomy still writes before that branch, so the same loss has not been
 established there. The arbiter can nevertheless report collision avoidance when that layer did
 not write. Combat suppression must remain in force; do not equate a risk predicate with an
@@ -84,9 +96,9 @@ absent in this checkout. Record mod versions and hashes and preserve fresh logs 
 before treating any new run as evidence. The existing Cloud network policy is restricted and
 enforced. GitHub Actions is stopped; do not enable it or change runner registration.
 
-Next: resolve #123's log interference in all affected scenario verifiers/diagnostics, then cover
-the combat claim-without-output branch and the test-only opponent's direct autonomy call before
-retrying the proposal conversion on current main. Keep the
+Next: finish the separate stale terrain-only reporting hypothesis, review #126 → #123 → #127 and
+#124 → #125 as draft stacks, then cover the combat claim-without-output branch and the test-only
+opponent's direct autonomy call before retrying the proposal conversion on current main. Keep the
 existing safety gates unchanged. Follow any behavior change with build, targeted fixed-mod GameTest
 and telemetry/verifier inspection; do not call the test-only or approximate-model results real-mod
 qualification. The raw Cloud artifacts are ephemeral, as documented in the validation record.

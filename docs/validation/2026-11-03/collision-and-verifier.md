@@ -29,6 +29,8 @@ These are controlled tests, not qualification of all aircraft, roles, or combat 
 | Main plus collision, terrain, and player tests, local `e230d75` / #123 head `0364be1b` (tree `3e661ea8`) | Build 0, simulator 12/12, GameTest 64/64, Gradle 0; A6M summary 1/1 `PARKED`, no crash report | In controlled cases, terrain input survived concurrent collision risk and a player takeover retained all four input values. |
 | Local unsafe terrain mutation `928537e` | GameTest fails, Gradle 1 | Suppressing terrain output fails the terrain-input assertion. |
 | Local unsafe player mutation `76182d4` | GameTest fails, Gradle 1 | Bypassing the player gate fails the player-input assertion. |
+| #127 local `1ece7bf` | Build 0, simulator 12/12; GameTest startup crash, Gradle 1 | The required route Mixin still targeted the wrapper after the method body moved. |
+| #127 local `fcfddbe` / remote `e774ae86`, tree `05246519` | Build 0, simulator 12/12; A6M full and mutual dogfight each GameTest 64/64, Gradle 0 | The full route completed and returned PARKED. Mutual verifier passed with fire events 8/1, separation minimum 10.83 and zero combat ground frames. |
 
 The first corrected main run exposed a verifier defect: `verify_flight_scenario.py` selected the
 newer test aircraft's two-frame log while reading a different aircraft's successful summary and
@@ -61,3 +63,8 @@ Raw logs, full telemetry, and verifier JSON are retained in the Cloud workspace 
 the hashes above do not themselves preserve those files. Transfer or publish raw artifacts only
 after reviewing their contents and repository storage policy. No GitHub Actions or runner changes
 were made.
+
+The local `kneekura-issue7-terrain-authority-final-20261103.zip` preserves the #127 full,
+mutual, Mixin failure and naive-mutation records without mod jars or world data. Its SHA-256 is
+`448b1dacc6f219b847a28f890e994ffe56bc8648aed03308a9cc400e615074ce`. It is a workspace artifact,
+not a durable GitHub artifact; the older local ZIPs preserve the earlier test and focused-turn runs.
