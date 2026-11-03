@@ -172,6 +172,19 @@ class MutualFrameIntegrityTests(unittest.TestCase):
                 finally:
                     boundary['server_tick'] = old
 
+    def test_coerced_boundaries_cannot_hide_a_ground_contact_frame(self):
+        start = next(item for item in self.primary
+                     if item['event'] == 'mutual_dogfight_validation_started')
+        end = next(item for item in self.primary
+                   if item['event'] == 'mutual_dogfight_validation_completed')
+        start['server_tick'] = True
+        end['server_tick'] = 104.9
+        self.primary.append(row(PRIMARY, 'frame', 105, speed_bps=25, on_ground=True))
+        code, result = self.verify()
+        self.assertNotEqual(code, 0, result)
+        self.assertFalse(result['passed'])
+        self.assertIsNone(result['metrics']['primary_ground_frames'])
+
     def test_completion_must_follow_start(self):
         boundary = next(item for item in self.primary
                         if item['event'] == 'mutual_dogfight_validation_completed')
