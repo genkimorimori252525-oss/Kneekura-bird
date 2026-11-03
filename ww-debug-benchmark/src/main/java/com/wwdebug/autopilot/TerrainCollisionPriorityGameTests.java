@@ -151,6 +151,47 @@ public final class TerrainCollisionPriorityGameTests {
                     "the dismounted control tick must not overwrite the sentinel engine input");
             check(unpilotedOwner != ControlAuthorityArbiter.Authority.TERRAIN_AVOIDANCE,
                     "a retained terrain marker must not report a new terrain input after dismount");
+
+            // Keep the same unpiloted aircraft and live terrain marker, but remove its only
+            // collision threat. No controller dispatched terrain in this call either.
+            nearby.discard();
+            check(level.getGameTime() == terrainDecisionTick && TerrainAvoidancePlanner.active(aircraft),
+                    "the retained terrain marker must still be live without collision risk");
+            check(!AirspaceSafetyProbe.collisionRisk(aircraft),
+                    "removing the neighboring aircraft must clear collision risk");
+            check(AutonomousFlightManager.status(aircraft.getUUID()).isEmpty(),
+                    "the autonomous session must remain stopped after the pilot dismounts");
+            check(!MobPilotGate.isMobPiloted(aircraft) && !MobPilotGate.isPlayerControlled(aircraft),
+                    "the no-risk case must remain unpiloted");
+            check(Math.abs(ReflectiveAircraft.engineTarget(aircraft) - 0.42) < 0.001,
+                    "the engine sentinel must remain observable before the no-risk call");
+
+            ControlAuthorityArbiter.Authority noRiskOwner = ControlAuthorityArbiter.applyControl(aircraft);
+            check(level.getGameTime() == terrainDecisionTick && TerrainAvoidancePlanner.active(aircraft),
+                    "the retained terrain marker must remain live through the no-risk call");
+            check(!AirspaceSafetyProbe.collisionRisk(aircraft)
+                            && AutonomousFlightManager.status(aircraft.getUUID()).isEmpty(),
+                    "the no-risk control call must not recreate a session or collision risk");
+            check(Math.abs(ReflectiveAircraft.engineTarget(aircraft) - 0.42) < 0.001,
+                    "the unpiloted no-risk control call must not overwrite the engine sentinel");
+            check(noRiskOwner != ControlAuthorityArbiter.Authority.TERRAIN_AVOIDANCE,
+                    "a retained terrain marker must not report terrain without a current dispatch");
+
+            // Do not call active() here: it would itself remove the expired entry and conceal a
+            // regression in the arbiter's existing expiry cleanup.
+            Map<UUID, Long> terrainMarkers = terrainMarkers();
+            terrainMarkers.put(aircraft.getUUID(), level.getGameTime() - 1L);
+            check(terrainMarkers.get(aircraft.getUUID()) < level.getGameTime(),
+                    "the test must install an expired terrain marker before the arbiter call");
+            ControlAuthorityArbiter.Authority expiredOwner = ControlAuthorityArbiter.applyControl(aircraft);
+            check(!terrainMarkers.containsKey(aircraft.getUUID()),
+                    "the no-risk arbiter call must remove the expired terrain marker");
+            check(expiredOwner != ControlAuthorityArbiter.Authority.TERRAIN_AVOIDANCE,
+                    "an expired terrain marker must not report terrain authority");
+            check(!AirspaceSafetyProbe.collisionRisk(aircraft)
+                            && AutonomousFlightManager.status(aircraft.getUUID()).isEmpty()
+                            && Math.abs(ReflectiveAircraft.engineTarget(aircraft) - 0.42) < 0.001,
+                    "expiry cleanup must not restore risk, a session or automated engine input");
         }
         helper.succeed();
     }
@@ -173,6 +214,16 @@ public final class TerrainCollisionPriorityGameTests {
             ((Map<?, ?>) field(owner, name).get(null)).remove(aircraftUuid);
         } catch (ReflectiveOperationException exception) {
             throw new IllegalStateException("could not clear " + name + " after test", exception);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<UUID, Long> terrainMarkers() {
+        try {
+            return (Map<UUID, Long>) field(TerrainAvoidancePlanner.class,
+                    "ACTIVE_UNTIL_GAME_TICK").get(null);
+        } catch (ReflectiveOperationException exception) {
+            throw new IllegalStateException("could not inspect the test terrain marker", exception);
         }
     }
 

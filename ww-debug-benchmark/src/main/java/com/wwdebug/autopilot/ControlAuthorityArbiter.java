@@ -138,9 +138,9 @@ public final class ControlAuthorityArbiter {
             // conversion. It ran before combat, and combat stands down while collision risk holds.
             return Authority.COLLISION_AVOIDANCE;
         }
-        if (TerrainAvoidancePlanner.active(aircraft)) {
-            return Authority.TERRAIN_AVOIDANCE;
-        }
+        // Expire an old safety marker as before, but do not treat a marker retained from an
+        // earlier tick as a terrain dispatch for this tick.
+        TerrainAvoidancePlanner.active(aircraft);
         if (formation.claimed()) {
             formation.pendingWrite().ifPresent(proposal -> write(aircraft, proposal));
             return formation.authority();
