@@ -226,7 +226,7 @@ class MutualRunStatusTests(unittest.TestCase):
         output = self.root / "partial-scan-result.json"
         verifier = runpy.run_path(str(VERIFIER))
         real_scandir = os.scandir
-        real_rglob = Path.rglob
+        crash_scans = 0
 
         class PartialScan:
             def __enter__(self):
@@ -240,23 +240,19 @@ class MutualRunStatusTests(unittest.TestCase):
                 raise FileNotFoundError("injected mid-scan failure")
 
         def partial_scandir(path):
+            nonlocal crash_scans
             if Path(path) == crash_dir:
-                return PartialScan()
+                crash_scans += 1
+                # First the telemetry tree is inspected, then crash reports,
+                # then the independently strict summary tree is inspected.
+                if crash_scans == 2:
+                    return PartialScan()
             return real_scandir(path)
-
-        def known_rglob(path, pattern):
-            if path == self.root and pattern == "aircraft/*.jsonl":
-                aircraft = self.root / "world/wwdebug/autopilot/run/aircraft"
-                return iter([aircraft / "a6m.jsonl", aircraft / "p47n.jsonl"])
-            if path == self.root and pattern == "validation-summary-*.json":
-                return iter([self.root / "validation-summary-1.json"])
-            return real_rglob(path, pattern)
 
         argv = [str(VERIFIER), "--root", str(self.root), "--gradle-status", "0",
                 "--output", str(output)]
         with (mock.patch.object(sys, "argv", argv),
               mock.patch("os.scandir", side_effect=partial_scandir),
-              mock.patch.object(Path, "rglob", new=known_rglob),
               redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO())):
             code = verifier["main"]()
         self.assertTrue(output.exists())
@@ -264,6 +260,8 @@ class MutualRunStatusTests(unittest.TestCase):
         self.assertNotEqual(code, 0, result)
         self.assertTrue(any("cannot inspect crash reports" in error for error in result["errors"]))
         self.assertIn(str(crash_dir / "crash-test.txt"), result["metrics"]["crash_reports"])
+        self.assertIs(result["metrics"]["telemetry_scan_complete"], True)
+        self.assertFalse(any("cannot inspect summary tree" in error for error in result["errors"]), result)
 
 
 if __name__ == "__main__":

@@ -213,13 +213,19 @@ raise SystemExit(result)
             except (OSError, NotImplementedError):
                 self.skipTest("directory symlinks are unavailable")
             proc, result = self.verify()
-            self.assertEqual(proc.returncode, 0, result)
+            # Telemetry discovery ignores unrelated directory links, but the
+            # summary artifact tree rejects any link because its contents are unknown.
+            self.assertNotEqual(proc.returncode, 0, result)
+            self.assertIs(result["metrics"]["telemetry_scan_complete"], True)
+            self.assertTrue(any("cannot inspect summary tree link" in error and str(alias) in error
+                                for error in result["errors"]), result)
             holder = self.root / "holder"
             holder.mkdir()
             (holder / "aircraft").symlink_to(aircraft, target_is_directory=True)
             proc, result = self.verify()
             self.assertNotEqual(proc.returncode, 0, result)
             self.assertTrue(any("broken.jsonl" in error for error in result["errors"]), result)
+            self.assertIs(result["metrics"]["telemetry_scan_complete"], False)
 
 
 if __name__ == "__main__":

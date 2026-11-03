@@ -12,6 +12,8 @@ VERIFIER = Path(__file__).resolve().parents[1] / "verify_mutual_dogfight_scenari
 PRIMARY = "15a7c379-1310-4def-b8a0-fdaa8b1787b1"
 OPPONENT = "f93acc19-18a9-44de-9f33-f0ddc38f7095"
 OTHER = "7bd32675-6cff-4a29-a777-0e76c2348004"
+PRIMARY_PILOT = "2a8ad002-ac1b-4f83-8903-60fb4366ddee"
+OPPONENT_PILOT = "696d5d49-c397-4b53-a30d-f7eeaa531887"
 
 
 class MutualSummaryDiscoveryTests(unittest.TestCase):
@@ -25,19 +27,23 @@ class MutualSummaryDiscoveryTests(unittest.TestCase):
         opponent = "MUTUAL BLUE P47N"
 
         def row(name, aircraft_id, event, tick, reason="", **extra):
-            return {"aircraft_name": name, "aircraft_uuid": aircraft_id, "event": event,
+            return {"aircraft_name": name, "aircraft_uuid": aircraft_id,
+                    "pilot_uuid": PRIMARY_PILOT if aircraft_id == PRIMARY else OPPONENT_PILOT, "event": event,
                     "server_tick": tick, "reason": reason, **extra}
 
         self.primary_path = logs / "primary.jsonl"
         self.primary_rows = [
             row(primary, PRIMARY, "mutual_dogfight_validation_started", 100,
-                f"primary_uuid={PRIMARY}:opponent_uuid={OPPONENT}"),
+                f"primary_uuid={PRIMARY}:primary_pilot_uuid={PRIMARY_PILOT}:"
+                f"opponent_uuid={OPPONENT}:opponent_pilot_uuid={OPPONENT_PILOT}"),
             row(primary, PRIMARY, "combat_target_acquired", 101,
-                "target_faction=blue:explicit_faction_hostile=true"),
+                f"uuid={OPPONENT_PILOT}:target_faction=blue:explicit_faction_hostile=true"),
             row(primary, PRIMARY, "air_combat_action_transition", 102,
                 "to=INTERCEPT:doctrine=turn_fighter"),
-            row(primary, PRIMARY, "weapon_fire", 103),
+            row(primary, PRIMARY, "weapon_fire", 103, f"target_uuid={OPPONENT_PILOT}"),
             row(primary, PRIMARY, "frame", 104, speed_bps=25, on_ground=False),
+            row(primary, PRIMARY, "control_adapter", 104, f"other_uuid={OPPONENT}:current=9.0",
+                applied_safety_override="collision_avoidance"),
             row(primary, PRIMARY, "mutual_dogfight_validation_completed", 300,
                 "minimum_separation=10.0:maximum_separation=100.0:"
                 "primary_track_ticks=150:opponent_track_ticks=150:"
@@ -52,11 +58,13 @@ class MutualSummaryDiscoveryTests(unittest.TestCase):
         self.write_primary()
         rows = [
             row(opponent, OPPONENT, "combat_target_acquired", 101,
-                "target_faction=red:explicit_faction_hostile=true"),
+                f"uuid={PRIMARY_PILOT}:target_faction=red:explicit_faction_hostile=true"),
             row(opponent, OPPONENT, "air_combat_action_transition", 102,
                 "to=INTERCEPT:doctrine=energy_fighter"),
-            row(opponent, OPPONENT, "weapon_fire", 103),
+            row(opponent, OPPONENT, "weapon_fire", 103, f"target_uuid={PRIMARY_PILOT}"),
             row(opponent, OPPONENT, "frame", 104, speed_bps=25, on_ground=False),
+            row(opponent, OPPONENT, "control_adapter", 104, f"other_uuid={PRIMARY}:current=9.0",
+                applied_safety_override="collision_avoidance"),
         ]
         (logs / "opponent.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows),
                                             encoding="utf-8")
@@ -108,6 +116,7 @@ class MutualSummaryDiscoveryTests(unittest.TestCase):
         code, report = self.run_verifier()
         self.assertNotEqual(code, 0)
         self.assertFalse(report['passed'])
+        self.assertIn('expected exactly one validation summary in the artifact tree, found 2', report['errors'])
 
     def test_summary_named_directory_cannot_coexist_with_valid_summary(self):
         (self.root / 'validation-summary-1.json').write_text(json.dumps(self.summary))
@@ -152,6 +161,7 @@ class MutualSummaryDiscoveryTests(unittest.TestCase):
         code, report = self.run_verifier(mock.patch('os.scandir', deny_hidden))
         self.assertNotEqual(code, 0)
         self.assertFalse(report['passed'])
+        self.assertIn(f'cannot inspect summary tree {hidden}: PermissionError', report['errors'])
 
     def test_summary_stat_failure_still_writes_failed_result(self):
         from unittest import mock
@@ -165,6 +175,7 @@ class MutualSummaryDiscoveryTests(unittest.TestCase):
         code, report = self.run_verifier(mock.patch.object(Path, 'stat', deny_summary))
         self.assertNotEqual(code, 0)
         self.assertFalse(report['passed'])
+        self.assertIn(f'cannot inspect summary tree {path}: PermissionError', report['errors'])
 
     def test_summary_read_failure_still_writes_failed_result(self):
         from unittest import mock
@@ -178,6 +189,7 @@ class MutualSummaryDiscoveryTests(unittest.TestCase):
         code, report = self.run_verifier(mock.patch.object(Path, 'read_text', deny_summary))
         self.assertNotEqual(code, 0)
         self.assertFalse(report['passed'])
+        self.assertIn(f'cannot read validation summary {path}: PermissionError', report['errors'])
 
     def test_partial_directory_iteration_cannot_pass(self):
         import os
@@ -202,17 +214,21 @@ class MutualSummaryDiscoveryTests(unittest.TestCase):
         code, report = self.run_verifier(mock.patch('os.scandir', scan))
         self.assertNotEqual(code, 0)
         self.assertFalse(report['passed'])
+        self.assertIn(f'cannot inspect summary tree {hidden}: OSError', report['errors'])
 
     def test_missing_summary_fails(self):
         code, report = self.run_verifier()
         self.assertNotEqual(code, 0)
         self.assertFalse(report['passed'])
+        self.assertIn('expected exactly one validation summary in the artifact tree, found 0', report['errors'])
 
     def test_invalid_summary_encoding_still_writes_failure(self):
         (self.root / 'validation-summary-1.json').write_bytes(b'\xff')
         code, report = self.run_verifier()
         self.assertNotEqual(code, 0)
         self.assertFalse(report['passed'])
+        self.assertIn(f'cannot read validation summary {self.root / "validation-summary-1.json"}: UnicodeDecodeError',
+                      report['errors'])
 
     def test_unscanned_symlink_directory_cannot_hide_summary(self):
         (self.root / 'validation-summary-1.json').write_text(json.dumps(self.summary))
@@ -225,6 +241,7 @@ class MutualSummaryDiscoveryTests(unittest.TestCase):
             code, report = self.run_verifier()
         self.assertNotEqual(code, 0)
         self.assertFalse(report['passed'])
+        self.assertIn(f'cannot inspect summary tree link: {self.root / "linked"}', report['errors'])
 
 if __name__ == '__main__':
     unittest.main()
