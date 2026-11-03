@@ -107,7 +107,7 @@ class MutualSummaryTests(unittest.TestCase):
                 self.assertFalse(result["passed"])
 
     def test_multiple_aircraft_summary_can_include_the_same_primary(self):
-        secondary = dict(self.summary["results"][0], entity_id="warfare_wings:b17",
+        secondary = dict(self.summary["results"][0], entity_id="warfare_wings:p51d",
                          aircraft_uuid=OTHER)
         self.summary["total"] = self.summary["completed"] = 2
         self.summary["results"].append(secondary)
@@ -115,8 +115,17 @@ class MutualSummaryTests(unittest.TestCase):
         self.assertEqual(code, 0, result)
         self.assertTrue(result["passed"])
 
+    def test_valid_resource_location_syntax_does_not_assume_a_fixed_fighter_list(self):
+        # Registry and measured fighter membership cannot be established from a summary alone.
+        secondary = dict(self.summary["results"][0], entity_id="other.mod-1:nested/path.2-test_3",
+                         aircraft_uuid=OTHER)
+        self.summary["total"] = self.summary["completed"] = 2
+        self.summary["results"].append(secondary)
+        code, result = self.verify()
+        self.assertEqual(code, 0, result)
+
     def test_multiple_aircraft_summary_rejects_bad_or_ambiguous_results(self):
-        secondary = dict(self.summary["results"][0], entity_id="warfare_wings:b17",
+        secondary = dict(self.summary["results"][0], entity_id="warfare_wings:p51d",
                          aircraft_uuid=OTHER)
         self.summary["total"] = self.summary["completed"] = 2
         self.summary["results"].append(secondary)
@@ -124,6 +133,12 @@ class MutualSummaryTests(unittest.TestCase):
         for key, value in (("passed", "false"), ("reason", "failed"),
                            ("final_phase", "CRUISE_OUTBOUND"),
                            ("last_transition_reason", "unknown"),
+                           ("entity_id", " "), ("entity_id", "bad id"),
+                           ("entity_id", "warfare_wings:"), ("entity_id", ":p51d"),
+                           ("entity_id", "Warfare_Wings:p51d"),
+                           ("entity_id", "warfare_wings:p51d:extra"),
+                           ("entity_id", ["warfare_wings:p51d"]), ("entity_id", True),
+                           ("entity_id", "p51d"), ("entity_id", "warfare_wings:a6m"),
                            ("aircraft_uuid", None), ("aircraft_uuid", "invalid"),
                            ("aircraft_uuid", PRIMARY.upper())):
             with self.subTest(key=key, value=value):
@@ -134,7 +149,7 @@ class MutualSummaryTests(unittest.TestCase):
                 self.assertFalse(result["passed"])
 
     def test_multiple_aircraft_summary_requires_primary_a6m(self):
-        secondary = dict(self.summary["results"][0], entity_id="warfare_wings:b17",
+        secondary = dict(self.summary["results"][0], entity_id="warfare_wings:p51d",
                          aircraft_uuid=OTHER)
         self.summary["total"] = self.summary["completed"] = 2
         self.summary["results"].append(secondary)

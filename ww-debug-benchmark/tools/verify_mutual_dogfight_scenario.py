@@ -20,6 +20,8 @@ from typing import Any
 TEXT = re.compile(r"([a-z_]+)=([^:]+)")
 NUMBER = re.compile(r"([a-z_]+)=(-?\d+(?:\.\d+)?)")
 ACTION = re.compile(r"(?:^|:)to=([A-Z_]+)")
+# Candidate IDs are ResourceLocation.toString() values, with explicit namespace.
+ENTITY_ID = re.compile(r"[a-z0-9_.-]+:[a-z0-9/._-]+")
 
 
 class SummaryDuplicateKeyError(ValueError):
@@ -408,9 +410,15 @@ def verify_primary_summary(summary: Any, primary_rows: list[dict[str, Any]],
     result_uuids = [normalized_uuid(row.get("aircraft_uuid")) for row in results]
     require(None not in result_uuids and len(set(result_uuids)) == len(result_uuids),
             errors, "post-combat summary aircraft UUIDs must be valid and unique")
+    entity_ids = [row.get("entity_id") for row in results]
+    valid_ids = all(isinstance(value, str) and ENTITY_ID.fullmatch(value)
+                    for value in entity_ids)
+    require(bool(valid_ids), errors, "post-combat summary aircraft entity_id is invalid")
+    if valid_ids:
+        # startAll deduplicates fighter profiles by ResourceLocation; startOne has one result.
+        require(len(set(entity_ids)) == len(entity_ids), errors,
+                "post-combat summary aircraft entity_ids must be unique")
     for result in results:
-        require(isinstance(result.get("entity_id"), str) and bool(result["entity_id"]),
-                errors, "post-combat summary aircraft entity_id is invalid")
         for field, expected in (("passed", True), ("reason", "completed_full_mission"),
                                 ("final_phase", "PARKED"),
                                 ("last_transition_reason", "complete_stop_stable_for_40_ticks")):
