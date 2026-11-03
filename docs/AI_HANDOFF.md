@@ -30,15 +30,51 @@ Independent focused fixes are drafts; they are not combined or merged. Do not re
   `e1e27be0`, checks both participants' sampled adapter distances with conservative rounding;
   19 tests passed. Reanalysis of #127 first / #128 / #127 repeat gives 10.1 pass / 7.4 fail /
   8.1 pass. Samples do not prove continuous separation or absence of contact.
-- These three independently start from main and edit the same verifier. Do not merge them as if
+- Draft [#132](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/132), head
+  `7db096c9`, checks mutual candidate JSONL integrity and discovery errors, including broken
+  `aircraft` links. On scan/read failure it hides incomplete telemetry metrics. Syntactically
+  valid but semantically invalid events can still leave partial samples in a failed result.
+  [#133](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/133), head `fb51d51d`,
+  rejects malformed summary JSON and saves a failed result. Python integer size limits depend on
+  configuration, float underflow and memory remain unbounded.
+  [#134](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/134), head `dbbcf9fd`, validates participant and
+  pilot identity, action/doctrine, acquisition/loss and shot order, with 21 focused tests.
+  None of these independent candidates alone implements the separation gate.
+- Draft [#135](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/135), head
+  `e92d52d9`, rejects unverified multi-aircraft summaries and checks single-primary completion,
+  PARKED frame and tail ordering. It does not establish 40 consecutive stopped ticks or runway
+  position. Its 14 focused tests and saved-log reanalyses do not certify the 7.4 run as safe.
+- These candidates independently start from main and edit the same verifier. Do not merge them as if
   they were already composed: reconcile and rerun their combined regression tests and saved-log
-  analysis. Further work is needed for strict candidate-log and summary parsing, scene/participant
-  identity, action/doctrine matching and event ordering. Independent audits reproduced false
-  passes in those areas; no saved GameTest was rerun merely for these verifier changes.
+  analysis. Integration of #129–#132 has 55 focused tests and three saved-run reanalyses in a
+  local worktree `/workspace/kneekura-mutual-integrated`, commit `038f9f5`. Its changes exceed
+  the single-PR size limit and remain local; the remaining drafts have not been integrated.
+  Broken-link and incomplete-read metric fixes are also on #132. A failed result with a
+  semantically invalid collision row can still display partial valid samples. No GameTest was
+  rerun merely for verifier-only changes.
+- The main mutual verifier is single-scene. A candidate that accepts multi-aircraft summaries
+  without validating each scene can incorrectly qualify unverified aircraft. Keep `aircraft=all`
+  fail-closed until each result UUID, primary log, opponent and pilot UUID, combat and return
+  evidence are matched per scene. Neither a frame nor a summary proves 40 consecutive stopped
+  ticks or runway position by itself.
 - To isolate the 7.4 sample, design opt-in, logged and versioned fixture UUID ordering before
   entity insertion, then compare both orders on fresh JVM/worlds. UUID ordering changes escape
   and combat choices; it does not make all flight deterministic. Preserve original thresholds,
   scenario inputs, status, crash reports and raw telemetry. Investigate actual contact separately.
+- UUID order exploration is preserved at branch `agent/issue7-uuid-order-exploration-only`, GitHub
+  commit `98e02be55f0f8f18d40997786e81027bb6c46a30`, tree `4f099c6d`, the same tree as local
+  `66e29f5`. It is based on #128 and is not an integration PR. Explicit A6M mutual runs with low
+  and high UUID order both built, passed simulator 12/12, and completed GameTest 64/64 with Gradle
+  0. Four entity registrations were accepted and visible in both fresh worlds. Low: primary /
+  opponent fire 6/1, scene minimum 11.75, adapter sampled minimum 10.9; the local #129–#132
+  integrated verifier passed. High: fire 2/0, scene minimum 13.21, adapter sampled minimum 12.5;
+  the verifier correctly failed because P-47N did not fire. The individual #133–#135 candidates
+  also failed high; they are not integrated. These sparse rounded samples do not prove continuous
+  separation or absence of contact. UUID also affects defense choices, and other randomness is
+  not fixed; this comparison does not establish why the original 7.4 occurred. Keep #128 on hold.
+  The fixture cannot rule out UUID collisions in unloaded chunks: use an empty new world and
+  separate JVM for each run, preserve old worlds before starting, and check all 4 registrations and
+  logs. Failure cleanup does not restore preexisting equipment; failure injection is untested.
 - Local evidence archives are ephemeral. SHA-256: `kneekura-issue7-evidence-20261103.zip`
   `973cba1b0ef7e68808179616bf55762c7f3780c38a90992efe2f2f341c6cf6f8`;
   `kneekura-issue7-terrain-authority-final-20261103.zip`
