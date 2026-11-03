@@ -24,8 +24,9 @@ Independent focused fixes are drafts; they are not combined or merged. Do not re
   `631a6503`, requires the supplied successful Gradle exit status and no crash report; 13 tests
   passed. It does not validate other evidence. Symlink and Windows junction behavior has limits.
 - Draft [#130](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/130), head
-  `cf3b639a`, checks the ordered combat window, both participants' frames, finite nonnegative
-  speed and explicit ground flags; 13 tests passed. Frame gaps remain possible.
+  `b5f40695`, checks the ordered combat window, both participants' frames, finite nonnegative
+  speed and explicit ground flags, and preserves observed dangerous values in errors even with
+  invalid samples. Eighteen focused tests passed. Frame gaps remain possible in this draft alone.
 - Draft [#131](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/131), head
   `e1e27be0`, checks both participants' sampled adapter distances with conservative rounding;
   19 tests passed. Reanalysis of #127 first / #128 / #127 repeat gives 10.1 pass / 7.4 fail /
@@ -62,6 +63,18 @@ Independent focused fixes are drafts; they are not combined or merged. Do not re
   must change with it. Age may not exceed elapsed server ticks under the fixed-mod normal tick
   contract, but may be less; arbitrary external same-tick calls are not covered. Fifteen tests
   and independent review passed. Its later window-invalid metric handling is locally integrated below.
+- Draft [#139](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/139), head
+  `5dda753b`, stacked on #134, requires the observed pilot ID to match the fixed villager fixture
+  and pilot UUID. It depends on #132 strict JSONL and #137 ordered ticks; it does not qualify
+  arbitrary mobs, fill missing ticks, or prove zero AI inputs after player takeover. Twenty-four
+  focused tests passed. Draft [#140](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/140),
+  head `121a892c`, stacked on #130, requires both aircraft to have a frame at every strict interior
+  combat tick. Its 26 tests passed; all 11 earlier saved runs failed this new coverage condition.
+  Missing frames do not establish a crash, and full frame coverage still does not prove continuous
+  separation, physical contact or player control exclusion. Both drafts require joint integration.
+  `kneekura-issue7-interior-frame-coverage-e416de9-20261103.zip` has SHA-256
+  `a0166a0eddb9c7d002371c9e75e2ac893baa95c9caefdf25816f594c8bc342ff`; its input hashes were
+  cross-checked against the earlier archives.
 - These candidates independently start from main and edit the same verifier. Do not merge them as if
   they were already composed: reconcile and rerun their combined regression tests and saved-log
   analysis. Integration of #129–#132 has 55 focused tests and three saved-run reanalyses in a
@@ -89,9 +102,22 @@ Independent focused fixes are drafts; they are not combined or merged. Do not re
   invalid-window metric handling and participant/pilot identity checks, with 139 tests and the same
   five verdicts. Its `scene_window_valid` requires scanning, tick order, valid scene boundaries and
   participant identity; it is not a combat verdict or continuous safety proof.
-  The same tree and 40-step history are preserved on the **evidence-only, do not merge** branch
-  `agent/issue7-verifier-integration-evidence-only`, GitHub head
-  `721e5307c05c16499053d70b9eca10a94ca4d651`. Reconcile the individual draft PRs separately.
+  **Important:** those earlier `pass` verdicts do not establish safety through frame gaps. In the
+  five saved runs, the P-47N lacks 299 / 276 / 198 / 220 / 521 interior ticks respectively
+  (start < tick < completion), including three runs reported as pass. The initial opponent frame
+  comes from fixture direct `applyControl`; its completion-tick frame can be absent because of
+  teardown. Ground/velocity metrics describe observed frames only. #140 and the later local
+  integration fail closed on interior coverage. Frame coverage alone still cannot prove continuous
+  separation, bounding box contact, or same-tick order. Main's verifier also admits player pilot
+  entity IDs if UUIDs match; #139 checks the fixed villager fixture. The production player gate,
+  its regression test and the observed pilot type are distinct evidence.
+  A later local integration with #130's observed-danger fix and #139–#140 is
+  `/workspace/kneekura-mutual-integrated-coverage-split`, commit `8bfd29c`, tree `934f722a`:
+  156 tests passed, but all 13 saved runs failed due to missing opponent interior frames; known
+  7.4 and no-fire errors remain. The identical tree and per-change history are preserved on the
+  **evidence-only, do not merge** branch `agent/issue7-verifier-integration-evidence-only`, GitHub
+  head `7a41184c4bde2d828784af95a233da6c0d46a7c0`. A 12-file fixture commit was split into two
+  six-file commits without changing the final tree. Reconcile the individual drafts separately.
   Independent review of `15ab796` also found that completion reason fields accept numeric prefixes
   with trailing text or duplicate keys and can accept minimum separation greater than maximum.
   A dangerous collision or ground frame in file order inside combat can also be hidden by a
@@ -157,6 +183,9 @@ Independent focused fixes are drafts; they are not combined or merged. Do not re
   The 139-test `mutual-verifier-8bd26d6-from-2585f44.bundle` has SHA-256
   `e1051c50e667b0f101bc57f41b4bcd68ad7a79fb6395f1fab446f93bb0b449f0` and was restored from
   `2585f44`; its integration-only changes also exceed the single PR size limit.
+  The newer 156-test `mutual-verifier-8bfd29c-from-2585f44.bundle` has SHA-256
+  `822ea2c70630073c45185a29c547940f8593fdfc5e65d2507f7f1a1863f73b84` and was restored from
+  the same baseline. Its 13 saved runs all fail the interior frame-coverage requirement.
   The independent analysis ZIP `kneekura-issue7-frame-pair-analysis-20261103.zip` has SHA-256
   `c2b8ff545cf16888cd13d4b058e9cdf7c2f3ba8d636738a2eb42678302ab7d2d`.
   The missing-frame analysis ZIP `kneekura-issue7-mutual-frame-gap-66e29f5-20261103.zip` has
