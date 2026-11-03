@@ -136,8 +136,14 @@ class MutualMonotonicTicksTests(unittest.TestCase):
                                             speed_bps=25, on_ground=True))
                     code, result = self.verify()
                     self.assertNotEqual(code, 0, result)
+                    expected = (f"{role} telemetry tick decreased" if kind == "decreasing"
+                                else f"{role} telemetry tick must be a nonnegative integer")
+                    self.assertTrue(any(expected in error for error in result["errors"]), result)
                     metrics = result["metrics"]
-                    for key in ("start_tick", "completion_tick", "minimum_separation", "maximum_separation",
+                    for key in ("start_tick", "completion_tick", "scene_age_ticks", "minimum_separation", "maximum_separation",
+                                "collision_observed_minimum", "collision_observation_rows",
+                                "collision_observation_rows_by_aircraft", "other_aircraft_collision_observed_minimum",
+                                "primary_combat_frame_count", "opponent_combat_frame_count",
                                 "primary_track_ticks", "opponent_track_ticks", "primary_combat_ticks",
                                 "opponent_combat_ticks", "primary_actions", "opponent_actions",
                                 "primary_fire_count", "opponent_fire_count", "primary_min_speed_bps",
@@ -145,6 +151,8 @@ class MutualMonotonicTicksTests(unittest.TestCase):
                                 "primary_doctrines", "opponent_doctrines"):
                         self.assertIsNone(metrics[key], (key, result))
                     self.assertEqual(metrics["gradle_status"], 0)
+                    self.assertIs(metrics["telemetry_scan_complete"], True)
+                    self.assertEqual(metrics["crash_reports"], [])
                     self.assertIsNotNone(metrics["primary_log"])
                     self.assertIsNotNone(metrics["opponent_log"])
                     self.assertIsNotNone(metrics["validation_summary"])
