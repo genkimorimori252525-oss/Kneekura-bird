@@ -467,10 +467,13 @@ def verify_primary_summary(summary: Any, primary_rows: list[dict[str, Any]],
         parked_i, parked = transitions[-1]
         end_i, end = ends[0]
         ticks = [completion.get("server_tick"), parked.get("server_tick"), end.get("server_tick")]
+        terminal_ticks = [row.get("server_tick") for row in primary_rows[parked_i:end_i + 1]]
         terminal_ok = (
             completion_i < parked_i < end_i == len(primary_rows) - 1
             and all(type(value) is int and value >= 0 for value in ticks)
             and ticks[0] <= ticks[1] <= ticks[2]
+            and all(type(value) is int and value >= 0 for value in terminal_ticks)
+            and terminal_ticks == sorted(terminal_ticks)
             and parked.get("phase") == "PARKED"
             and parked.get("reason") == "BRAKE->PARKED:complete_stop_stable_for_40_ticks"
             and end.get("phase") == "PARKED"

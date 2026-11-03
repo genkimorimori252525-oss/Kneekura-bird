@@ -214,6 +214,29 @@ class MutualSummaryTests(unittest.TestCase):
                 code, result = self.verify()
                 self.assertNotEqual(code, 0, result)
 
+    def test_every_parked_event_tick_is_valid_and_ordered_until_cleanup(self):
+        baseline = copy.deepcopy(self.primary_rows)
+        for bad_tick in (None, True, "400", -1, 399, 401):
+            with self.subTest(tick=bad_tick):
+                self.primary_rows = copy.deepcopy(baseline)
+                event = dict(self.primary_rows[-2], event="control_authority_change",
+                             server_tick=bad_tick)
+                self.primary_rows.insert(-1, event)
+                self.write_primary()
+                code, result = self.verify()
+                self.assertNotEqual(code, 0, result)
+
+        # A terminal tick later than the inserted records cannot mask their reversal.
+        self.primary_rows = copy.deepcopy(baseline)
+        self.primary_rows.insert(-1, dict(self.primary_rows[-2], event="control_authority_change",
+                                          server_tick=402))
+        self.primary_rows.insert(-1, dict(self.primary_rows[-2], event="control_authority_change",
+                                          server_tick=401))
+        self.primary_rows[-1]["server_tick"] = 403
+        self.write_primary()
+        code, result = self.verify()
+        self.assertNotEqual(code, 0, result)
+
     def test_multiple_aircraft_summary_requires_primary_a6m(self):
         secondary = dict(self.summary["results"][0], entity_id="warfare_wings:p51d",
                          aircraft_uuid=OTHER)
