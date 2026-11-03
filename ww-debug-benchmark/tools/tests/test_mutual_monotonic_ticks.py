@@ -64,6 +64,7 @@ class MutualMonotonicTicksTests(unittest.TestCase):
         name = "AUTOPILOT TEST warfare_wings:a6m" if role == "primary" else "MUTUAL BLUE P47N"
         return {"aircraft_name": name, "aircraft_uuid": PRIMARY if role == "primary" else OPPONENT,
                 "pilot_uuid": PRIMARY_PILOT if role == "primary" else OPPONENT_PILOT,
+                "pilot_entity_id": "minecraft:villager",
                 "event": event, "server_tick": tick, "reason": reason, **fields}
 
     def verify(self):
@@ -144,6 +145,8 @@ class MutualMonotonicTicksTests(unittest.TestCase):
                     self.assertTrue(any(expected in error for error in result["errors"]), result)
                     metrics = result["metrics"]
                     for key in ("start_tick", "completion_tick", "scene_age_ticks", "minimum_separation", "maximum_separation",
+                                "primary_interior_frame_ticks", "opponent_interior_frame_ticks",
+                                "primary_interior_missing_ticks", "opponent_interior_missing_ticks",
                                 "collision_observed_minimum", "collision_observation_rows",
                                 "collision_observation_rows_by_aircraft", "other_aircraft_collision_observed_minimum",
                                 "primary_combat_frame_count", "opponent_combat_frame_count",

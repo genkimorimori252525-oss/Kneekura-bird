@@ -102,7 +102,9 @@ class MutualLogIntegrityTests(unittest.TestCase):
         self.assertTrue(any("primary.jsonl" in error and "invalid JSON" in error for error in result["errors"]), result)
         self.assertIs(result["metrics"]["telemetry_scan_complete"], False)
         self.assertIs(result["metrics"]["scene_window_valid"], False)
-        for key in ("scene_age_ticks", "primary_min_speed_bps", "opponent_min_speed_bps", "primary_ground_frames",
+        for key in ("scene_age_ticks", "primary_interior_frame_ticks", "opponent_interior_frame_ticks",
+                    "primary_interior_missing_ticks", "opponent_interior_missing_ticks",
+                    "primary_min_speed_bps", "opponent_min_speed_bps", "primary_ground_frames",
                     "opponent_ground_frames", "collision_observed_minimum", "collision_observation_rows"):
             self.assertIsNone(result["metrics"][key], (key, result))
 

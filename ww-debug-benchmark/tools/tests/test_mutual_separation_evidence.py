@@ -13,6 +13,8 @@ PRIMARY = "11111111-1111-4111-8111-111111111111"
 OPPONENT = "22222222-2222-4222-8222-222222222222"
 OTHER = "33333333-3333-4333-8333-333333333333"
 WINDOW_METRICS = ("start_tick", "completion_tick", "scene_age_ticks", "minimum_separation", "maximum_separation",
+                  "primary_interior_frame_ticks", "opponent_interior_frame_ticks",
+                  "primary_interior_missing_ticks", "opponent_interior_missing_ticks",
                   "collision_observed_minimum", "collision_observation_rows", "collision_observation_rows_by_aircraft",
                   "other_aircraft_collision_observed_minimum", "primary_track_ticks", "opponent_track_ticks",
                   "primary_combat_ticks", "opponent_combat_ticks", "primary_actions", "opponent_actions",

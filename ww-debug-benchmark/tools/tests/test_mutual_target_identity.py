@@ -15,6 +15,8 @@ AIRCRAFT_B = "f93acc19-18a9-44de-9f33-f0ddc38f7095"
 PILOT_B = "696d5d49-c397-4b53-a30d-f7eeaa531887"
 OTHER = "7bd32675-6cff-4a29-a777-0e76c2348004"
 WINDOW_METRICS = ("start_tick", "completion_tick", "scene_age_ticks", "minimum_separation", "maximum_separation",
+                  "primary_interior_frame_ticks", "opponent_interior_frame_ticks",
+                  "primary_interior_missing_ticks", "opponent_interior_missing_ticks",
                   "collision_observed_minimum", "collision_observation_rows", "collision_observation_rows_by_aircraft",
                   "other_aircraft_collision_observed_minimum", "primary_track_ticks", "opponent_track_ticks",
                   "primary_combat_ticks", "opponent_combat_ticks", "primary_actions", "opponent_actions",
@@ -194,8 +196,11 @@ class MutualTargetIdentityTests(unittest.TestCase):
 
 
     def test_fixed_fixture_requires_villager_on_each_combat_window_row(self):
-        for role, rows in (("primary", self.primary), ("opponent", self.opponent)):
+        crash = self.make_crash()
+        for role, rows in (("primary", self.primary_identity_probes), ("opponent", self.opponent_identity_probes)):
             for index, row in enumerate(rows):
+                if not 100 <= row["server_tick"] <= 300:
+                    continue
                 for value in (None, "minecraft:player", "none", "minecraft:armor_stand",
                               "mod:unknown", "minecraft:villager ", True, 42, ["minecraft:villager"]):
                     with self.subTest(role=role, index=index, event=row["event"], value=value):
@@ -208,17 +213,24 @@ class MutualTargetIdentityTests(unittest.TestCase):
                             self.assertNotEqual(code, 0, result)
                             self.assertIn(f"{role} combat-window log must identify the fixed villager pilot",
                                           result["errors"], result)
+                            self.assert_unknown_window(result, crash)
                         finally:
                             row["pilot_entity_id"] = "minecraft:villager"
 
     def test_fixed_fixture_rejects_player_takeover_row_even_if_uuid_is_unchanged(self):
-        for rows in (self.primary, self.opponent):
-            row = dict(rows[1], event="frame", pilot_entity_id="minecraft:player",
+        for role, rows in (("primary", self.primary), ("opponent", self.opponent)):
+            acquisition = next(row for row in rows if row["event"] == "combat_target_acquired")
+            row = dict(acquisition, event="frame", pilot_entity_id="minecraft:player",
                        speed_bps=25, on_ground=False)
-            rows.insert(2, row)
+            rows.insert(rows.index(acquisition) + 1, row)
             try:
                 code, result = self.verify()
                 self.assertNotEqual(code, 0, result)
+                self.assertIn(f"{role} combat-window log must identify the fixed villager pilot",
+                              result["errors"], result)
+                self.assertIs(result["metrics"]["scene_window_valid"], False, result)
+                for key in WINDOW_METRICS:
+                    self.assertIsNone(result["metrics"][key], (key, result))
             finally:
                 rows.remove(row)
 
@@ -228,6 +240,19 @@ class MutualTargetIdentityTests(unittest.TestCase):
         self.opponent.append(dict(self.opponent[-1], server_tick=301, pilot_entity_id="none"))
         code, result = self.verify()
         self.assertEqual(code, 0, result)
+
+    def test_invalid_pilot_type_preserves_unsafe_distance_diagnostic(self):
+        crash = self.make_crash()
+        frame = next(row for row in self.primary_identity_probes if row["event"] == "frame")
+        frame["pilot_entity_id"] = "minecraft:player"
+        adapter = next(row for row in self.primary if row["event"] == "control_adapter")
+        adapter["reason"] = f"other_uuid={AIRCRAFT_B}:current=7.4"
+        code, result = self.verify()
+        self.assertNotEqual(code, 0, result)
+        self.assertIn("primary combat-window log must identify the fixed villager pilot", result["errors"], result)
+        self.assertIn("rounded mutual collision observation does not establish 8-block separation: 7.4",
+                      result["errors"], result)
+        self.assert_unknown_window(result, crash)
 
     def test_both_participants_acquire_and_fire_at_the_other_pilot(self):
         code, result = self.verify()

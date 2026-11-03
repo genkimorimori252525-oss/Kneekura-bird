@@ -29,7 +29,8 @@ class MutualSummaryTests(unittest.TestCase):
 
         def row(name, aircraft_id, event, tick, reason="", **extra):
             return {"aircraft_name": name, "aircraft_uuid": aircraft_id,
-                    "pilot_uuid": PRIMARY_PILOT if aircraft_id == PRIMARY else OPPONENT_PILOT, "event": event,
+                    "pilot_uuid": PRIMARY_PILOT if aircraft_id == PRIMARY else OPPONENT_PILOT,
+                    "pilot_entity_id": "minecraft:villager", "event": event,
                     "server_tick": tick, "reason": reason, **extra}
 
         self.primary_path = logs / "primary.jsonl"

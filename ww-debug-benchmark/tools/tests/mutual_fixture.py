@@ -27,6 +27,7 @@ def combat_identity(rows, primary):
     for source in rows:
         row = dict(source)
         row.setdefault("pilot_uuid", pilot)
+        row.setdefault("pilot_entity_id", "minecraft:villager")
         event = row.get("event")
         if "server_tick" not in row and event in ("combat_target_acquired", "air_combat_action_transition", "weapon_fire"):
             row["server_tick"] = {"combat_target_acquired": 12, "air_combat_action_transition": 13,

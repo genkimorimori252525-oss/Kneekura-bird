@@ -19,6 +19,8 @@ COMPLETION = ("reciprocal_fire_confirmed:age_ticks=200:"
               "primary_combat_ticks=150:opponent_combat_ticks=150:"
               "minimum_separation=9.5:maximum_separation=40.0")
 WINDOW_METRICS = ("start_tick", "completion_tick", "scene_age_ticks", "minimum_separation", "maximum_separation",
+                  "primary_interior_frame_ticks", "opponent_interior_frame_ticks",
+                  "primary_interior_missing_ticks", "opponent_interior_missing_ticks",
                   "collision_observed_minimum", "collision_observation_rows", "collision_observation_rows_by_aircraft",
                   "other_aircraft_collision_observed_minimum", "primary_track_ticks", "opponent_track_ticks",
                   "primary_combat_ticks", "opponent_combat_ticks", "primary_actions", "opponent_actions",
@@ -73,7 +75,8 @@ class CompletionMetricsTests(unittest.TestCase):
     @staticmethod
     def write_rows(path, name, rows):
         uid, pilot = ((PRIMARY_ID, PRIMARY_PILOT) if name == PRIMARY else (OPPONENT_ID, OPPONENT_PILOT))
-        rows = [dict(row, aircraft_name=name, aircraft_uuid=uid, pilot_uuid=pilot) for row in rows]
+        rows = [dict(row, aircraft_name=name, aircraft_uuid=uid, pilot_uuid=pilot,
+                     pilot_entity_id="minecraft:villager") for row in rows]
         rows = fill_interior_frames(rows, 10, 210)
         path.write_text("".join(json.dumps(row) + "\n" for row in rows),
                         encoding="utf-8")
