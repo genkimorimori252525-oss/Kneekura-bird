@@ -215,6 +215,31 @@ Independent focused fixes are drafts; they are not combined or merged. Do not re
   and analysis are under ephemeral `mutual-visibility-f5e2389-analysis-20261103/`.
   The archive `kneekura-issue7-mutual-visibility-observer-f5e2389-20261103.zip` has SHA-256
   `ee1ee5774a54fce10100f558ca4fcba69fa4edf1f818e2fced515dc2b7423c8c`.
+- Direct visibility observation is on `agent/issue7-mutual-direct-visibility-exploration`, GitHub
+  commit `12328262a6304e556207e204b23372357156ab39`, tree `5baac13c`, matching local `733f6fb`.
+  On fixed Minecraft 1.20.1 / Forge 47.4.20 the public `ServerLevel.isNaturalSpawningAllowed`
+  method returns the entity visibility ticking condition; it is not evidence of general spawn
+  eligibility. The opt-in probe requires the exact server class and versions; other runtime
+  transformation remains possible. Build/preflight 12/12 passed, and fresh-world low/high each
+  passed 64/64 GameTests / Gradle 0. Both failed the combat verifier: low opponent fire 0
+  (scene 9.12, adapter 8.2), high adapter 7.4 (scene 8.07, fire 8/1). The direct visibility was
+  false with range true at 9 low and 14 high END observations; query order is non-atomic, samples
+  are intermittent, and cause/contact are not established. Inputs and the repeatable analysis are
+  in `mutual-direct-733f6fb-analysis-20261103/` in ephemeral evidence.
+  Archive `kneekura-issue7-mutual-direct-visibility-733f6fb-20261103.zip` has SHA-256
+  `fba1320d013eba193a26455447f49a1a9b28d08f0d3c8d9ef896729ab10bb875`.
+- **Temporary opponent region-ticket intervention is on hold, not implemented.** Fixed Forge's
+  add/remove update normal and ticking trackers separately; an exception can leave partial state,
+  and public range checks cannot prove that this owner's ticket was removed. Ticket comparison
+  uses type identity hash and key but not `forceTicks`, so a unique key is not an absolute proof
+  against every collision. Before any opt-in experiment, establish a ledger and independently
+  observable cleanup for partial failure, scene exit, lost pilot/opponent, abort, timeout and
+  server stop, with other-owner tickets and vanilla forced chunks preserved. Use separate fresh
+  worlds/JVMs serially; static UUID-keyed scene/session maps also prohibit concurrent fixed-ID runs.
+  `forceTicks=false`, explicit remove and a bounded expiry are distinct; expiry is not cleanup
+  proof. Do not substitute persistent `ForgeChunkManager.forceChunk` or `forceTicks=true`.
+  Ticket changes alter scheduling/load and cannot qualify normal servers; opening geometry and
+  safety criteria remain unchanged. Issue #7 records the detailed remaining conditions.
 - Local evidence archives are ephemeral. SHA-256: `kneekura-issue7-evidence-20261103.zip`
   `973cba1b0ef7e68808179616bf55762c7f3780c38a90992efe2f2f341c6cf6f8`;
   `kneekura-issue7-terrain-authority-final-20261103.zip`
