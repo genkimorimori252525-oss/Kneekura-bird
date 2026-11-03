@@ -7,6 +7,7 @@ import argparse
 import json
 import math
 import sys
+import uuid
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -104,9 +105,88 @@ def require(condition: bool, errors: list[str], message: str) -> None:
         errors.append(message)
 
 
+def summary_aircraft_logs(paths: Iterable[Path], summary: dict[str, Any],
+                          errors: list[str]) -> dict[str, tuple[Path, int, int]]:
+    """Match each aircraft while retaining only per-file counts, not telemetry rows."""
+    results = summary.get("results")
+    if not isinstance(results, list) or not results or not all(isinstance(row, dict) for row in results):
+        errors.append("full/landing verification requires summary aircraft results")
+        return {}
+    aircraft_ids: list[str] = []
+    for result in results:
+        aircraft_uuid = result.get("aircraft_uuid")
+        try:
+            if not isinstance(aircraft_uuid, str):
+                raise ValueError("not a string")
+            normalized = str(uuid.UUID(aircraft_uuid))
+        except ValueError:
+            errors.append("summary aircraft UUID is missing or invalid")
+            return {}
+        if normalized in aircraft_ids:
+            errors.append(f"summary aircraft UUID occurs more than once: {normalized}")
+            return {}
+        aircraft_ids.append(normalized)
+
+    matches: dict[str, list[tuple[Path, int, int]]] = {
+        aircraft_uuid: [] for aircraft_uuid in aircraft_ids
+    }
+    for path in paths:
+        first_id: str | None = None
+        matching_ids: set[str] = set()
+        mixed = False
+        row_count = 0
+        frame_count = 0
+        try:
+            with path.open(encoding="utf-8") as stream:
+                for line in stream:
+                    try:
+                        row = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if not isinstance(row, dict):
+                        continue
+                    row_count += 1
+                    frame_count += row.get("event") == "frame"
+                    try:
+                        value = row.get("aircraft_uuid")
+                        row_id = str(uuid.UUID(value)) if isinstance(value, str) else None
+                    except ValueError:
+                        row_id = None
+                    if row_count == 1:
+                        first_id = row_id
+                    elif row_id != first_id:
+                        mixed = True
+                    if row_id in matches:
+                        matching_ids.add(row_id)
+        except OSError:
+            continue
+        for aircraft_uuid in matching_ids:
+            matches[aircraft_uuid].append((path, row_count, frame_count))
+            if mixed:
+                errors.append(f"telemetry log contains missing or mixed aircraft UUIDs: {path}")
+
+    selected: dict[str, tuple[Path, int, int]] = {}
+    for aircraft_uuid, candidates in matches.items():
+        if len(candidates) != 1:
+            errors.append(f"expected one telemetry log for summary aircraft {aircraft_uuid}, found {len(candidates)}")
+            continue
+        path, row_count, frame_count = candidates[0]
+        if frame_count == 0:
+            errors.append(f"no flight frames for summary aircraft {aircraft_uuid}")
+        selected[aircraft_uuid] = (path, row_count, frame_count)
+    return selected
+
+
 def verify_summary(summary: dict[str, Any], errors: list[str], metrics: dict[str, Any]) -> None:
     results = summary.get("results") or []
-    total = int(summary.get("total") or 0)
+    if not isinstance(results, list) or any(not isinstance(row, dict) for row in results):
+        errors.append("validation summary results are malformed")
+        return
+    try:
+        total = int(summary.get("total") or 0)
+    except (TypeError, ValueError):
+        errors.append("validation summary total is malformed")
+        return
     failures = [row for row in results if not row.get("passed")]
     metrics["summary_total"] = total
     metrics["summary_passed"] = total - len(failures)
@@ -265,17 +345,27 @@ def main() -> int:
     profile_paths = list(args.root.rglob("flight_profiles.json"))
     require(bool(profile_paths), errors, "no measured flight_profiles.json was produced or staged")
 
-    log_path = latest(args.root.rglob("aircraft/*.jsonl"))
-    rows = read_jsonl(log_path)
-    frames = [row for row in rows if row.get("event") == "frame"]
-    require(bool(rows), errors, "no per-aircraft autonomous-flight telemetry was produced")
-    require(bool(frames), errors, "no autonomous-flight frame telemetry was produced")
-    metrics["telemetry_log"] = str(log_path) if log_path else None
-    metrics["frame_count"] = len(frames)
-
     summary_path = latest(args.root.rglob("validation-summary-*.json"))
     summary = read_json(summary_path)
     metrics["summary_path"] = str(summary_path) if summary_path else None
+
+    if args.scenario in {"full", "landing"}:
+        logs = summary_aircraft_logs(args.root.rglob("aircraft/*.jsonl"), summary, errors)
+        metrics["telemetry_logs"] = {key: str(value[0]) for key, value in logs.items()}
+        metrics["frame_counts"] = {key: value[2] for key, value in logs.items()}
+        log_path = next(iter(logs.values()))[0] if len(logs) == 1 else None
+        row_count = sum(value[1] for value in logs.values())
+        frame_count = sum(value[2] for value in logs.values())
+    else:
+        log_path = latest(args.root.rglob("aircraft/*.jsonl"))
+        rows = read_jsonl(log_path)
+        frames = [row for row in rows if row.get("event") == "frame"]
+        row_count = len(rows)
+        frame_count = len(frames)
+    require(bool(row_count), errors, "no per-aircraft autonomous-flight telemetry was produced")
+    require(bool(frame_count), errors, "no autonomous-flight frame telemetry was produced")
+    metrics["telemetry_log"] = str(log_path) if log_path else None
+    metrics["frame_count"] = frame_count
 
     if args.scenario in {"full", "landing"}:
         require(bool(summary), errors, "no autonomous-flight validation summary was produced")
