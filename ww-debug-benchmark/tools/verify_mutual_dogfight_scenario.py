@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify two explicitly hostile autonomous fighters acquire, manoeuvre, fire and separate safely."""
+"""Verify one A6M mutual-combat scene; multi-aircraft validation is not supported."""
 
 from __future__ import annotations
 
@@ -8,12 +8,15 @@ import json
 import re
 import statistics
 import sys
+import uuid
 from pathlib import Path
 from typing import Any
 
 TEXT = re.compile(r"([a-z_]+)=([^:]+)")
 NUMBER = re.compile(r"([a-z_]+)=(-?\d+(?:\.\d+)?)")
 ACTION = re.compile(r"(?:^|:)to=([A-Z_]+)")
+# Candidate IDs are ResourceLocation.toString() values, with explicit namespace.
+ENTITY_ID = re.compile(r"[a-z0-9_.-]+:[a-z0-9/._-]+")
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -49,6 +52,123 @@ def texts(reason: str) -> dict[str, str]:
 def require(condition: bool, errors: list[str], message: str) -> None:
     if not condition:
         errors.append(message)
+
+
+def normalized_uuid(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return str(uuid.UUID(value))
+    except ValueError:
+        return None
+
+
+def verify_primary_summary(summary: Any, primary_rows: list[dict[str, Any]],
+                           started: list[dict[str, Any]], errors: list[str]) -> None:
+    if not isinstance(summary, dict):
+        errors.append("primary post-combat mission summary is not an object")
+        return
+    require(summary.get("state") == "complete", errors,
+            "primary post-combat mission summary was not complete")
+    results = summary.get("results")
+    if not isinstance(results, list) or not results or not all(isinstance(row, dict) for row in results):
+        errors.append("primary post-combat summary must contain aircraft results")
+        return
+    # The verifier selects one A6M scene only; it cannot establish evidence
+    # for other sequential candidates in an aircraft=all run.
+    require(len(results) == 1, errors,
+            "mutual verification supports exactly one A6M summary result; aircraft=all is unsupported")
+    for field in ("total", "completed"):
+        value = summary.get(field)
+        require(type(value) is int and value == len(results), errors,
+                f"primary post-combat summary {field} does not match result count")
+
+    result_uuids = [normalized_uuid(row.get("aircraft_uuid")) for row in results]
+    require(None not in result_uuids and len(set(result_uuids)) == len(result_uuids),
+            errors, "post-combat summary aircraft UUIDs must be valid and unique")
+    entity_ids = [row.get("entity_id") for row in results]
+    valid_ids = all(isinstance(value, str) and ENTITY_ID.fullmatch(value)
+                    for value in entity_ids)
+    require(bool(valid_ids), errors, "post-combat summary aircraft entity_id is invalid")
+    if valid_ids:
+        # startAll deduplicates fighter profiles by ResourceLocation; startOne has one result.
+        require(len(set(entity_ids)) == len(entity_ids), errors,
+                "post-combat summary aircraft entity_ids must be unique")
+    for result in results:
+        for field, expected in (("passed", True), ("reason", "completed_full_mission"),
+                                ("final_phase", "PARKED"),
+                                ("last_transition_reason", "complete_stop_stable_for_40_ticks")):
+            actual = result.get(field)
+            valid = actual is True if field == "passed" else actual == expected
+            require(valid, errors, f"post-combat summary {field} is invalid")
+
+    row_uuids = {normalized_uuid(row.get("aircraft_uuid")) for row in primary_rows}
+    start_uuids = {normalized_uuid(texts(str(row.get("reason", ""))).get("primary_uuid"))
+                   for row in started}
+    primary_ids = row_uuids & start_uuids
+    primary_id = next(iter(primary_ids)) if len(primary_ids) == 1 else None
+    # The scene opponent is a temporary aircraft, discarded before the
+    # primary validation run continues; it is not a result candidate.
+    opponents: list[str | None] = []
+    for row in started:
+        reason = row.get("reason")
+        fields = [part[len("opponent_uuid="):] for part in reason.split(":")
+                  if part.startswith("opponent_uuid=")] if isinstance(reason, str) else []
+        opponents.append(normalized_uuid(fields[0]) if len(fields) == 1 else None)
+    opponent_id = opponents[0] if len(opponents) == 1 else None
+    require(opponent_id is not None and opponent_id != primary_id and opponent_id not in result_uuids,
+            errors, "scene opponent UUID must be distinct from all summary aircraft")
+    primary_results = [row for row in results
+                       if row.get("entity_id") == "warfare_wings:a6m"
+                       and normalized_uuid(row.get("aircraft_uuid")) == primary_id]
+    require(primary_id is not None and row_uuids == {primary_id} and start_uuids == {primary_id}
+            and len(primary_results) == 1, errors,
+            "primary A6M summary UUID does not uniquely match the primary log and scene")
+
+    # The validator records success at PARKED, then force-stops the session
+    # with validation_aircraft_cleanup; closeAircraft writes session_end last.
+    completions = [(i, row) for i, row in enumerate(primary_rows)
+                   if row.get("event") == "mutual_dogfight_validation_completed"]
+    transitions = [(i, row) for i, row in enumerate(primary_rows)
+                   if row.get("event") == "phase_transition"]
+    ends = [(i, row) for i, row in enumerate(primary_rows)
+            if row.get("event") == "session_end"]
+    terminal_ok = False
+    if len(completions) == 1 and transitions and len(ends) == 1:
+        completion_i, completion = completions[0]
+        parked_i, parked = transitions[-1]
+        end_i, end = ends[0]
+        ticks = [completion.get("server_tick"), parked.get("server_tick"), end.get("server_tick")]
+        terminal_ticks = [row.get("server_tick") for row in primary_rows[parked_i:end_i + 1]]
+        terminal_ok = (
+            completion_i < parked_i < end_i == len(primary_rows) - 1
+            and all(type(value) is int and value >= 0 for value in ticks)
+            and ticks[0] <= ticks[1] <= ticks[2]
+            and all(type(value) is int and value >= 0 for value in terminal_ticks)
+            and terminal_ticks == sorted(terminal_ticks)
+            and parked.get("phase") == "PARKED"
+            and parked.get("reason") == "BRAKE->PARKED:complete_stop_stable_for_40_ticks"
+            and end.get("phase") == "PARKED"
+            and end.get("reason") == "validation_aircraft_cleanup"
+            and all(row.get("phase") != "ABORTED" for row in primary_rows)
+            and all(row.get("phase") == "PARKED" for row in primary_rows[parked_i:])
+        )
+        # BRAKE records the transition and a frame from the same snapshot.
+        # Later parked frames, if any, must remain grounded and below the
+        # controller's strict 0.25 blocks/second horizontal-speed threshold.
+        frames = [row for row in primary_rows[parked_i + 1:end_i] if row.get("event") == "frame"]
+        frame_ticks = [row.get("server_tick") for row in frames]
+        terminal_ok = terminal_ok and bool(frames) and all(
+            type(value) is int and value >= 0 for value in frame_ticks
+        ) and frame_ticks[0] == ticks[1] and all(
+            ticks[1] <= value <= ticks[2] for value in frame_ticks
+        ) and frame_ticks == sorted(frame_ticks) and all(
+            row.get("on_ground") is True
+            and type(row.get("horizontal_speed_bps")) in (int, float)
+            and 0 <= row["horizontal_speed_bps"] < 0.25 for row in frames
+        )
+    require(terminal_ok, errors,
+            "primary post-combat log does not establish parked validation cleanup")
 
 
 def main() -> int:
@@ -189,11 +309,7 @@ def main() -> int:
             summary = json.loads(summary_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             summary = {}
-    results = summary.get("results") or []
-    require(summary.get("state") == "complete", errors,
-            "primary post-combat mission summary was not complete")
-    require(bool(results) and all(bool(row.get("passed")) for row in results), errors,
-            "primary A6M did not return to a passed parked mission")
+    verify_primary_summary(summary, primary_rows, started, errors)
 
     result = {
         "scenario": "dogfight_mutual",
