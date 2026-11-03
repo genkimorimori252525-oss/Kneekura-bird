@@ -8,12 +8,14 @@ import json
 import re
 import statistics
 import sys
+import uuid
 from pathlib import Path
 from typing import Any
 
 TEXT = re.compile(r"([a-z_]+)=([^:]+)")
 NUMBER = re.compile(r"([a-z_]+)=(-?\d+(?:\.\d+)?)")
-ACTION = re.compile(r"(?:^|:)to=([A-Z_]+)")
+COMBAT_ACTIONS = {"INTERCEPT", "ATTACK_APPROACH", "FIRING_PASS", "BREAK_AWAY",
+                  "EXTEND", "REPOSITION", "DISENGAGE"}
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -32,10 +34,8 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
 
 
 def tick(row: dict[str, Any]) -> int:
-    try:
-        return int(row.get("server_tick", -1))
-    except (TypeError, ValueError):
-        return -1
+    value = row.get("server_tick")
+    return value if type(value) is int and value >= 0 else -1
 
 
 def numbers(reason: str) -> dict[str, float]:
@@ -51,6 +51,106 @@ def require(condition: bool, errors: list[str], message: str) -> None:
         errors.append(message)
 
 
+def normalized_uuid(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return str(uuid.UUID(value))
+    except ValueError:
+        return None
+
+
+def reason_field(row: dict[str, Any], field: str) -> str | None:
+    """Read one unambiguous field from the colon-delimited event reason."""
+    reason = row.get("reason")
+    if not isinstance(reason, str):
+        return None
+    values = []
+    for part in reason.split(":"):
+        key, sep, value = part.partition("=")
+        if sep and key.strip() == field:
+            if key != field:
+                return None
+            values.append(value)
+    return values[0] if len(values) == 1 else None
+
+
+def reason_uuid(row: dict[str, Any], field: str) -> str | None:
+    return normalized_uuid(reason_field(row, field))
+
+
+def combat_transitions(rows: list[dict[str, Any]], doctrine: str) -> list[str]:
+    """Accept only a unique valid action paired with the expected doctrine on one row."""
+    actions: list[str] = []
+    for row in rows:
+        action = reason_field(row, "to")
+        if reason_field(row, "doctrine") == doctrine and action in COMBAT_ACTIONS:
+            actions.append(action)
+    return actions
+
+
+def verify_participants(started: list[dict[str, Any]], completed: list[dict[str, Any]],
+                        primary_rows: list[dict[str, Any]], opponent_rows: list[dict[str, Any]],
+                        primary_acquisitions: list[dict[str, Any]],
+                        opponent_acquisitions: list[dict[str, Any]],
+                        primary_fires: list[dict[str, Any]], opponent_fires: list[dict[str, Any]],
+                        start_tick: int, completion_tick: int, errors: list[str]) -> None:
+    for label, rows in (("primary", primary_rows), ("opponent", opponent_rows)):
+        require(all(tick(row) >= 0 for row in rows), errors,
+                f"{label} telemetry must have nonnegative integer server ticks")
+    if len(started) != 1 or len(completed) != 1 or start_tick < 0 or completion_tick <= start_tick:
+        errors.append("mutual dogfight must have one ordered start and completion")
+        return
+    fields = ("primary_uuid", "primary_pilot_uuid", "opponent_uuid", "opponent_pilot_uuid")
+    ids = [reason_uuid(started[0], field) for field in fields]
+    if None in ids or len(set(ids)) != 4:
+        errors.append("mutual dogfight start must identify four distinct participant UUIDs")
+        return
+    primary_id, primary_pilot, opponent_id, opponent_pilot = ids
+
+    for label, rows, aircraft_id, pilot_id in (
+            ("primary", primary_rows, primary_id, primary_pilot),
+            ("opponent", opponent_rows, opponent_id, opponent_pilot)):
+        in_window = [row for row in rows if start_tick <= tick(row) <= completion_tick]
+        require(bool(in_window) and all(
+            normalized_uuid(row.get("aircraft_uuid")) == aircraft_id
+            and normalized_uuid(row.get("pilot_uuid")) == pilot_id for row in in_window),
+            errors, f"{label} combat-window log does not match the scene aircraft and pilot")
+
+    for label, rows, field, expected in (
+            ("primary acquisition", primary_acquisitions, "uuid", opponent_pilot),
+            ("opponent acquisition", opponent_acquisitions, "uuid", primary_pilot),
+            ("primary fire", primary_fires, "target_uuid", opponent_pilot),
+            ("opponent fire", opponent_fires, "target_uuid", primary_pilot)):
+        require(bool(rows) and all(reason_uuid(row, field) == expected for row in rows),
+                errors, f"{label} must target the opposing pilot in the combat window")
+
+    # The per-aircraft logger appends synchronously and awareness runs before
+    # weapons. Same-tick acquisition therefore counts only if logged first.
+    # A target acquired solely before the scenario is insufficient evidence.
+    for label, rows, expected in (("primary", primary_rows, opponent_pilot),
+                                  ("opponent", opponent_rows, primary_pilot)):
+        acquisition_tick: int | None = None
+        last_event_tick = start_tick
+        for row in rows:
+            row_tick = tick(row)
+            if not start_tick <= row_tick <= completion_tick:
+                continue
+            event = row.get("event")
+            if event not in ("combat_target_acquired", "combat_target_lost", "weapon_fire"):
+                continue
+            require(row_tick >= last_event_tick, errors,
+                    f"{label} acquisition, loss and fire ticks must be ordered in the log")
+            last_event_tick = row_tick
+            if event == "combat_target_acquired":
+                acquisition_tick = row_tick if reason_uuid(row, "uuid") == expected else None
+            elif event == "combat_target_lost":
+                acquisition_tick = None
+            elif event == "weapon_fire":
+                require(acquisition_tick is not None and acquisition_tick <= row_tick, errors,
+                        f"{label} fired without prior in-window acquisition of the opposing pilot")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, required=True)
@@ -58,22 +158,18 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
-    logs: dict[str, tuple[Path, list[dict[str, Any]]]] = {}
+    logs: list[tuple[str, Path, list[dict[str, Any]]]] = []
     for path in args.root.rglob("aircraft/*.jsonl"):
         rows = read_jsonl(path)
         name = next((str(row.get("aircraft_name")) for row in rows if row.get("aircraft_name")), path.name)
-        logs[name] = (path, rows)
+        logs.append((name, path, rows))
 
-    primary_entry = next(
-        ((path, rows) for name, (path, rows) in logs.items()
-         if name.startswith("AUTOPILOT TEST warfare_wings:a6m")),
-        None,
-    )
-    opponent_entry = next(
-        ((path, rows) for name, (path, rows) in logs.items()
-         if "MUTUAL BLUE P47N" in name),
-        None,
-    )
+    primary_candidates = [(path, rows) for name, path, rows in logs
+                          if name.startswith("AUTOPILOT TEST warfare_wings:a6m")]
+    opponent_candidates = [(path, rows) for name, path, rows in logs
+                           if "MUTUAL BLUE P47N" in name]
+    primary_entry = primary_candidates[0] if len(primary_candidates) == 1 else None
+    opponent_entry = opponent_candidates[0] if len(opponent_candidates) == 1 else None
     primary_rows = primary_entry[1] if primary_entry else []
     opponent_rows = opponent_entry[1] if opponent_entry else []
 
@@ -98,29 +194,24 @@ def main() -> int:
     primary_combat_ticks = completion_values.get("primary_combat_ticks", 0.0)
     opponent_combat_ticks = completion_values.get("opponent_combat_ticks", 0.0)
 
-    primary_doctrines = {
-        value["doctrine"]
-        for row in primary_transitions
-        if "doctrine" in (value := texts(str(row.get("reason", ""))))
-    }
-    opponent_doctrines = {
-        value["doctrine"]
-        for row in opponent_transitions
-        if "doctrine" in (value := texts(str(row.get("reason", ""))))
-    }
-    primary_actions = [
-        match.group(1)
-        for row in primary_transitions
-        if (match := ACTION.search(str(row.get("reason", ""))))
-    ]
-    opponent_actions = [
-        match.group(1)
-        for row in opponent_transitions
-        if (match := ACTION.search(str(row.get("reason", ""))))
-    ]
-
     start_tick = min((tick(row) for row in started), default=-1)
     completion_tick = max((tick(row) for row in completed), default=-1)
+
+    def within_window(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return [row for row in rows if start_tick >= 0 and completion_tick >= start_tick
+                and start_tick <= tick(row) <= completion_tick]
+
+    primary_acquisitions = within_window(primary_acquisitions)
+    opponent_acquisitions = within_window(opponent_acquisitions)
+    primary_fires = within_window(primary_fires)
+    opponent_fires = within_window(opponent_fires)
+    primary_transitions = within_window(primary_transitions)
+    opponent_transitions = within_window(opponent_transitions)
+
+    primary_actions = combat_transitions(primary_transitions, "turn_fighter")
+    opponent_actions = combat_transitions(opponent_transitions, "energy_fighter")
+    primary_doctrines = {"turn_fighter"} if primary_actions else set()
+    opponent_doctrines = {"energy_fighter"} if opponent_actions else set()
 
     def combat_frames(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return [
@@ -136,20 +227,24 @@ def main() -> int:
     primary_ground = sum(bool(row.get("on_ground")) for row in primary_frames)
     opponent_ground = sum(bool(row.get("on_ground")) for row in opponent_frames)
 
-    primary_acquisition_reasons = [str(row.get("reason", "")) for row in primary_acquisitions]
-    opponent_acquisition_reasons = [str(row.get("reason", "")) for row in opponent_acquisitions]
-
     errors: list[str] = []
+    require(len(primary_candidates) == 1, errors, "primary A6M log must be unambiguous")
+    require(len(opponent_candidates) == 1, errors, "opposing P-47N log must be unambiguous")
+    verify_participants(started, completed, primary_rows, opponent_rows,
+                        primary_acquisitions, opponent_acquisitions,
+                        primary_fires, opponent_fires, start_tick, completion_tick, errors)
     require(bool(primary_rows), errors, "primary A6M telemetry was not produced")
     require(bool(opponent_rows), errors, "opposing P-47N telemetry was not produced")
     require(bool(started), errors, "mutual dogfight scene never started")
     require(bool(completed), errors, "mutual dogfight scene never completed")
-    require(any("target_faction=blue" in reason and "explicit_faction_hostile=true" in reason
-                for reason in primary_acquisition_reasons), errors,
-            "A6M never explicitly acquired the blue-faction opponent")
-    require(any("target_faction=red" in reason and "explicit_faction_hostile=true" in reason
-                for reason in opponent_acquisition_reasons), errors,
-            "P-47N never explicitly acquired the red-faction opponent")
+    require(bool(primary_acquisitions) and all(reason_field(row, "target_faction") == "blue"
+                and reason_field(row, "explicit_faction_hostile") == "true"
+                for row in primary_acquisitions), errors,
+            "A6M acquisitions must identify the blue-faction opponent as explicitly hostile")
+    require(bool(opponent_acquisitions) and all(reason_field(row, "target_faction") == "red"
+                and reason_field(row, "explicit_faction_hostile") == "true"
+                for row in opponent_acquisitions), errors,
+            "P-47N acquisitions must identify the red-faction opponent as explicitly hostile")
     require(primary_track_ticks >= 80, errors,
             f"A6M did not track the P-47N long enough: {primary_track_ticks}")
     require(opponent_track_ticks >= 80, errors,
@@ -158,8 +253,8 @@ def main() -> int:
             f"A6M air-combat control was not sustained: {primary_combat_ticks}")
     require(opponent_combat_ticks >= 100, errors,
             f"P-47N air-combat control was not sustained: {opponent_combat_ticks}")
-    require(bool(primary_transitions), errors, "A6M selected no air-combat actions")
-    require(bool(opponent_transitions), errors, "P-47N selected no air-combat actions")
+    require(bool(primary_actions), errors, "A6M selected no air-combat actions")
+    require(bool(opponent_actions), errors, "P-47N selected no air-combat actions")
     require("turn_fighter" in primary_doctrines, errors,
             f"A6M doctrine was not turn_fighter: {sorted(primary_doctrines)}")
     require("energy_fighter" in opponent_doctrines, errors,
