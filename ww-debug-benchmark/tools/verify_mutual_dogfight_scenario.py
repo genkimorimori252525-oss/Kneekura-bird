@@ -449,6 +449,34 @@ def verify_primary_summary(summary: Any, primary_rows: list[dict[str, Any]],
             and len(primary_results) == 1, errors,
             "primary A6M summary UUID does not uniquely match the primary log and scene")
 
+    # The validator records success at PARKED, then force-stops the session
+    # with validation_aircraft_cleanup; closeAircraft writes session_end last.
+    completions = [(i, row) for i, row in enumerate(primary_rows)
+                   if row.get("event") == "mutual_dogfight_validation_completed"]
+    transitions = [(i, row) for i, row in enumerate(primary_rows)
+                   if row.get("event") == "phase_transition"]
+    ends = [(i, row) for i, row in enumerate(primary_rows)
+            if row.get("event") == "session_end"]
+    terminal_ok = False
+    if len(completions) == 1 and transitions and len(ends) == 1:
+        completion_i, completion = completions[0]
+        parked_i, parked = transitions[-1]
+        end_i, end = ends[0]
+        ticks = [completion.get("server_tick"), parked.get("server_tick"), end.get("server_tick")]
+        terminal_ok = (
+            completion_i < parked_i < end_i == len(primary_rows) - 1
+            and all(type(value) is int and value >= 0 for value in ticks)
+            and ticks[0] <= ticks[1] <= ticks[2]
+            and parked.get("phase") == "PARKED"
+            and parked.get("reason") == "BRAKE->PARKED:complete_stop_stable_for_40_ticks"
+            and end.get("phase") == "PARKED"
+            and end.get("reason") == "validation_aircraft_cleanup"
+            and all(row.get("phase") != "ABORTED" for row in primary_rows)
+            and all(row.get("phase") == "PARKED" for row in primary_rows[parked_i:])
+        )
+    require(terminal_ok, errors,
+            "primary post-combat log does not establish parked validation cleanup")
+
 
 def main() -> int:
     parser = argparse.ArgumentParser()
