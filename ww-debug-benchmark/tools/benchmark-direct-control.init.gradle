@@ -1,0 +1,12 @@
+// Added alongside benchmark-reset-isolated.init.gradle only for the direct-call fixture.
+gradle.beforeProject { p ->
+    p.tasks.configureEach { t ->
+        if (t.name == 'runGameTestServer') {
+            t.doFirst {
+                def cfg = t.getRunConfig().get()
+                cfg.property('wwdebug.benchmarkPlayerProbeMode', 'direct')
+                println 'BENCHMARK_PLAYER_PROBE_MODE=' + cfg.getProperties().get('wwdebug.benchmarkPlayerProbeMode')
+            }
+        }
+    }
+}
