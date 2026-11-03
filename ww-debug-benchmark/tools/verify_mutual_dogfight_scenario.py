@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import statistics
 import sys
@@ -140,8 +141,18 @@ def main() -> int:
     opponent_acquisition_reasons = [str(row.get("reason", "")) for row in opponent_acquisitions]
 
     errors: list[str] = []
-    crash_reports = sorted(path for path in (args.root / "crash-reports").glob("*.txt")
-                           if path.is_file())
+    crash_dir = args.root / "crash-reports"
+    crash_reports: list[Path] = []
+    try:
+        # Path.glob() suppresses scandir errors, which can make an unreadable directory
+        # indistinguishable from an empty one. Do not accept evidence we could not inspect.
+        with os.scandir(crash_dir) as entries:
+            crash_reports = sorted(crash_dir / entry.name for entry in entries
+                                   if entry.name.endswith(".txt") and entry.is_file())
+    except FileNotFoundError:
+        pass  # A clean run may not create crash-reports at all.
+    except OSError as exception:
+        errors.append(f"cannot inspect crash reports {crash_dir}: {type(exception).__name__}")
     require(args.gradle_status == 0, errors,
             f"Gradle GameTest exit code was {args.gradle_status}")
     require(not crash_reports, errors,

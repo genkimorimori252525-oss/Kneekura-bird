@@ -1,10 +1,15 @@
 """Exercise mutual verification's process and crash-report acceptance gates."""
+from contextlib import redirect_stderr, redirect_stdout
+import io
 import json
+import os
 from pathlib import Path
+import runpy
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 VERIFIER = Path(__file__).resolve().parents[1] / "verify_mutual_dogfight_scenario.py"
@@ -70,6 +75,18 @@ class MutualRunStatusTests(unittest.TestCase):
         self.assertFalse(result["passed"])
         self.assertIn("Gradle GameTest exit code was 1", result["errors"])
 
+    def test_empty_crash_directory_is_accepted(self):
+        (self.root / "crash-reports").mkdir()
+        code, result = self.verify(0)
+        self.assertEqual(code, 0, result)
+        self.assertEqual(result["metrics"]["crash_reports"], [])
+
+    def test_crash_path_that_is_not_a_directory_fails(self):
+        (self.root / "crash-reports").write_text("not a directory", encoding="utf-8")
+        code, result = self.verify(0)
+        self.assertNotEqual(code, 0, result)
+        self.assertTrue(any("cannot inspect crash reports" in error for error in result["errors"]))
+
     def test_crash_report_rejects_otherwise_passing_evidence(self):
         crash = self.root / "crash-reports/crash-test.txt"
         crash.parent.mkdir()
@@ -79,6 +96,30 @@ class MutualRunStatusTests(unittest.TestCase):
         self.assertFalse(result["passed"])
         self.assertTrue(any("crash report created:" in error for error in result["errors"]))
         self.assertEqual(result["metrics"]["crash_reports"], [str(crash)])
+
+    def test_unreadable_crash_directory_fails_with_result_json(self):
+        crash_dir = self.root / "crash-reports"
+        crash_dir.mkdir()
+        output = self.root / "denied-result.json"
+        verifier = runpy.run_path(str(VERIFIER))
+        real_scandir = os.scandir
+
+        def denied_scandir(path):
+            if Path(path) == crash_dir:
+                raise PermissionError("injected directory read failure")
+            return real_scandir(path)
+
+        argv = [str(VERIFIER), "--root", str(self.root), "--gradle-status", "0",
+                "--output", str(output)]
+        with (mock.patch.object(sys, "argv", argv),
+              mock.patch("os.scandir", side_effect=denied_scandir),
+              redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO())):
+            code = verifier["main"]()
+        self.assertTrue(output.exists())
+        result = json.loads(output.read_text(encoding="utf-8"))
+        self.assertNotEqual(code, 0, result)
+        self.assertFalse(result["passed"])
+        self.assertTrue(any("cannot inspect crash reports" in error for error in result["errors"]))
 
 
 if __name__ == "__main__":
