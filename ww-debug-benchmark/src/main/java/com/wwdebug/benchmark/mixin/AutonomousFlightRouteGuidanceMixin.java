@@ -13,7 +13,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(targets = "com.wwdebug.autopilot.AutonomousFlightManager", remap = false)
 abstract class AutonomousFlightRouteGuidanceMixin {
     @ModifyVariable(
-            method = "applyControl",
+            method = "dispatchControl",
             at = @At(value = "STORE"),
             ordinal = 0,
             require = 1,

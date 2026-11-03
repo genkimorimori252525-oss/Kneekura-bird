@@ -120,12 +120,37 @@ public final class TerrainCollisionPriorityGameTests {
                     "collision risk must still coexist with terrain avoidance");
             check(Math.abs(ReflectiveAircraft.engineTarget(aircraft) - 1.0) < 0.001,
                     "terrain engine input must survive concurrent collision risk");
-            // On main ee4e970 the legacy arbiter reports COLLISION_AVOIDANCE even though the
-            // terrain controller wrote the input. Accept the corrected TERRAIN_AVOIDANCE label too:
-            // this test protects the input, not the known reporting discrepancy.
-            check(owner == ControlAuthorityArbiter.Authority.COLLISION_AVOIDANCE
-                            || owner == ControlAuthorityArbiter.Authority.TERRAIN_AVOIDANCE,
-                    "the arbiter must report a safety authority for the overlapping risks");
+            check(owner == ControlAuthorityArbiter.Authority.TERRAIN_AVOIDANCE,
+                    "the arbiter must report terrain as owner when terrain input wins over collision risk");
+
+            // The terrain marker remains live for two ticks after its last decision. Dismount
+            // within this same server tick so a marker from the preceding call cannot be mistaken
+            // for a new terrain input after the autonomous session is stopped.
+            long terrainDecisionTick = level.getGameTime();
+            ReflectiveAircraft.applyControl(aircraft, 0.0f, 0.0f, 0.0f, 0.42f);
+            check(Math.abs(ReflectiveAircraft.engineTarget(aircraft) - 0.42) < 0.001,
+                    "the occupied aircraft must accept the dismount sentinel");
+            pilot.stopRiding();
+            check(!MobPilotGate.isMobPiloted(aircraft) && !MobPilotGate.isPlayerControlled(aircraft),
+                    "the aircraft must have neither a mob pilot nor a player after dismount");
+            check(level.getGameTime() == terrainDecisionTick && TerrainAvoidancePlanner.active(aircraft),
+                    "the previous terrain marker must still be live in the same server tick");
+            check(AirspaceSafetyProbe.collisionRisk(aircraft),
+                    "collision risk must persist after the pilot dismounts");
+            check(Math.abs(ReflectiveAircraft.engineTarget(aircraft) - 0.42) < 0.001,
+                    "dismount must leave the sentinel available for the next arbiter call");
+
+            ControlAuthorityArbiter.Authority unpilotedOwner = ControlAuthorityArbiter.applyControl(aircraft);
+            check(level.getGameTime() == terrainDecisionTick && TerrainAvoidancePlanner.active(aircraft),
+                    "the terrain marker must remain live while the arbiter handles the dismount");
+            check(AutonomousFlightManager.status(aircraft.getUUID()).isEmpty(),
+                    "the arbiter must stop the autonomous session after mob dismount");
+            check(AirspaceSafetyProbe.collisionRisk(aircraft),
+                    "the dismounted control tick must still have collision risk");
+            check(Math.abs(ReflectiveAircraft.engineTarget(aircraft) - 0.42) < 0.001,
+                    "the dismounted control tick must not overwrite the sentinel engine input");
+            check(unpilotedOwner != ControlAuthorityArbiter.Authority.TERRAIN_AVOIDANCE,
+                    "a retained terrain marker must not report a new terrain input after dismount");
         }
         helper.succeed();
     }
