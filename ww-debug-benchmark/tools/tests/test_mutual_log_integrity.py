@@ -38,8 +38,8 @@ class MutualLogIntegrityTests(unittest.TestCase):
              "reason": f"other_uuid={OPPONENT_ID}:current=9.0"},
             {"event": "mutual_dogfight_validation_status", "server_tick": 15, "reason": "separation=9.5"},
             {"event": "frame", "server_tick": 15, "speed_bps": 30, "on_ground": False},
-            {"event": "mutual_dogfight_validation_completed", "server_tick": 20,
-             "reason": "minimum_separation=9.5:maximum_separation=40:primary_track_ticks=90:"
+            {"event": "mutual_dogfight_validation_completed", "server_tick": 210,
+             "reason": "age_ticks=200:minimum_separation=9.5:maximum_separation=40:primary_track_ticks=90:"
                        "opponent_track_ticks=90:primary_combat_ticks=110:opponent_combat_ticks=110"},
         ])
         self.write_rows(self.opponent, OPPONENT, [
@@ -100,7 +100,7 @@ class MutualLogIntegrityTests(unittest.TestCase):
         self.assertFalse(result["passed"])
         self.assertTrue(any("primary.jsonl" in error and "invalid JSON" in error for error in result["errors"]), result)
         self.assertIs(result["metrics"]["telemetry_scan_complete"], False)
-        for key in ("primary_min_speed_bps", "opponent_min_speed_bps", "primary_ground_frames",
+        for key in ("scene_age_ticks", "primary_min_speed_bps", "opponent_min_speed_bps", "primary_ground_frames",
                     "opponent_ground_frames", "collision_observed_minimum", "collision_observation_rows"):
             self.assertIsNone(result["metrics"][key], (key, result))
 

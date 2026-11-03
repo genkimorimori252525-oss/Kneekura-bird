@@ -38,7 +38,7 @@ class MutualFrameIntegrityTests(unittest.TestCase):
             row(PRIMARY, 'control_adapter', 104, f'other_uuid={OPPONENT_ID}:current=9.0',
                 applied_safety_override='collision_avoidance'),
             row(PRIMARY, 'mutual_dogfight_validation_completed', 300,
-                'minimum_separation=10.0:maximum_separation=100.0:'
+                'age_ticks=200:minimum_separation=10.0:maximum_separation=100.0:'
                 'primary_track_ticks=150:opponent_track_ticks=150:'
                 'primary_combat_ticks=150:opponent_combat_ticks=150'),
         ]

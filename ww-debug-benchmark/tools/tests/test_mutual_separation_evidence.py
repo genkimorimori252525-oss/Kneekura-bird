@@ -28,8 +28,8 @@ class MutualSeparationEvidenceTests(unittest.TestCase):
                                         f"primary_uuid={PRIMARY}:opponent_uuid={OPPONENT}"))
         self.primary.append(self.row(PRIMARY, "AUTOPILOT TEST warfare_wings:a6m",
                                      "mutual_dogfight_validation_completed", 200,
-                                     "minimum_separation=9.0:maximum_separation=100.0:primary_track_ticks=100:"
-                                     "opponent_track_ticks=100:primary_combat_ticks=120:opponent_combat_ticks=120"))
+                                     "age_ticks=100:minimum_separation=9.0:maximum_separation=100.0:primary_track_ticks=100:"
+                                     "opponent_track_ticks=100:primary_combat_ticks=100:opponent_combat_ticks=100"))
         summary = complete_summary(PRIMARY)
         (self.root / "validation-summary-1.json").write_text(json.dumps(summary), encoding="utf-8")
         self.primary_sample = self.collision(value="9.0")
@@ -222,7 +222,7 @@ class MutualSeparationEvidenceTests(unittest.TestCase):
                 completion["reason"] = original.replace("maximum_separation=100.0", replacement)
                 proc, result = self.verify()
                 self.assertNotEqual(proc.returncode, 0, result)
-                self.assertIn("scene completion has a missing, ambiguous or invalid rounded maximum_separation", result["errors"])
+                self.assertIn("scene completion has missing, ambiguous or invalid rounded maximum_separation", result["errors"])
 
     def test_start_event_must_identify_the_same_unique_pair(self):
         self.add_row(self.primary, self.collision(value="9.0"))
@@ -245,7 +245,7 @@ class MutualSeparationEvidenceTests(unittest.TestCase):
                 completion["reason"] = original.replace("minimum_separation=9.0", replacement)
                 proc, result = self.verify()
                 self.assertNotEqual(proc.returncode, 0, result)
-                self.assertIn("scene completion has a missing, ambiguous or invalid rounded minimum_separation", result["errors"])
+                self.assertIn("scene completion has missing, ambiguous or invalid rounded minimum_separation", result["errors"])
 
     def test_scene_window_requires_ordered_integer_ticks(self):
         self.add_row(self.primary, self.collision(value="9.0"))
