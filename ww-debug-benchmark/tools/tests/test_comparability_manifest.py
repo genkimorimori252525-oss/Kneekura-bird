@@ -1,6 +1,7 @@
 """Public manifests summarize explicit synthetic telemetry without exposing its contents."""
 import copy
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -37,10 +38,10 @@ class ComparabilityManifestTests(unittest.TestCase):
                 "reason": PRIVATE, "custom_field": "private-arbitrary-field"}
 
     def verify(self, *, raw_telemetry=None, raw_provenance=None, timeout=3):
-        self.telemetry.write_text(raw_telemetry if raw_telemetry is not None else
-                                  "".join(json.dumps(row) + "\n" for row in self.rows), encoding="utf-8")
-        self.provenance.write_text(raw_provenance if raw_provenance is not None else
-                                   json.dumps(self.provenance_data), encoding="utf-8")
+        telemetry = raw_telemetry if raw_telemetry is not None else "".join(json.dumps(row) + "\n" for row in self.rows)
+        provenance = raw_provenance if raw_provenance is not None else json.dumps(self.provenance_data)
+        self.telemetry.write_bytes(telemetry if isinstance(telemetry, bytes) else telemetry.encode('utf-8'))
+        self.provenance.write_bytes(provenance if isinstance(provenance, bytes) else provenance.encode('utf-8'))
         before = {path: path.read_bytes() for path in (self.telemetry, self.provenance, self.other)}
         proc = subprocess.run([sys.executable, str(CLI), "--telemetry", str(self.telemetry),
                                "--provenance", str(self.provenance)], capture_output=True,
@@ -259,6 +260,55 @@ class ComparabilityManifestTests(unittest.TestCase):
                     '{"source_head":NaN}', '{"source_head":1e9999}', 'null'):
             with self.subTest(raw=raw):
                 self.assert_invalid(raw_provenance=raw)
+
+    def test_utf8_and_newline_contract(self):
+        log = "".join(json.dumps(row) + "\n" for row in self.rows)
+        prov = json.dumps(self.provenance_data)
+        for encoding in ('utf-16', 'utf-32', 'utf-8-sig'):
+            with self.subTest(encoding=encoding, source='telemetry'):
+                self.assert_invalid(raw_telemetry=log.encode(encoding))
+            with self.subTest(encoding=encoding, source='provenance'):
+                self.assert_invalid(raw_provenance=prov.encode(encoding))
+        self.assert_invalid(raw_telemetry=log.replace('\n', '\r'))
+        lines = log.encode('utf-8').split(b'\n')
+        self.assert_invalid(raw_telemetry=lines[0] + b'\n\xef\xbb\xbf' + lines[1] + b'\n')
+        proc, manifest = self.verify(raw_telemetry=log.replace('\n', '\r\n'))
+        self.assertEqual(proc.returncode, 0, manifest)
+        self.assertEqual(manifest['frame_ticks']['observed_count'], 3)
+
+    def test_resource_limits_and_final_symlink(self):
+        spec = importlib.util.spec_from_file_location('comparability_under_test', CLI)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        module.MAX_ROWS = 2
+        raw = ''.join(json.dumps(self.frame(t)) + '\n' for t in (1, 2, 3)).encode()
+        with self.assertRaises(module.Invalid) as failure:
+            module.parse_telemetry(raw)
+        self.assertEqual(failure.exception.code, 'telemetry_limits_exceeded')
+        single = json.dumps(self.frame(1)).encode('utf-8')
+        module.MAX_LINE = len(single)
+        self.assertEqual(module.parse_telemetry(single + b'\n')['frame_ticks']['observed_count'], 1)
+        self.assertEqual(module.parse_telemetry(single + b'\r\n')['frame_ticks']['observed_count'], 1)
+        module.MAX_LINE = len(single) - 1
+        with self.assertRaises(module.Invalid) as failure:
+            module.parse_telemetry(single + b'\n')
+        self.assertEqual(failure.exception.code, 'telemetry_limits_exceeded')
+        module.MAX_LINE = 16
+        with self.assertRaises(module.Invalid) as failure:
+            module.parse_telemetry(raw)
+        self.assertEqual(failure.exception.code, 'telemetry_limits_exceeded')
+        module.MAX_BYTES = 4
+        path = self.root / 'oversize'
+        path.write_bytes(b'12345')
+        with self.assertRaises(module.Invalid) as failure:
+            module.read_explicit(path)
+        self.assertEqual(failure.exception.code, 'input_not_regular_or_too_large')
+        link = self.root / 'link'
+        link.symlink_to(path)
+        with self.assertRaises(module.Invalid) as failure:
+            module.read_explicit(link)
+        self.assertEqual(failure.exception.code, 'input_unreadable')
+        self.assertEqual(path.read_bytes(), b'12345')
 
     def test_large_tick_gap_is_one_interval_not_enumerated(self):
         self.rows = [self.frame(1), self.frame(10**12)]

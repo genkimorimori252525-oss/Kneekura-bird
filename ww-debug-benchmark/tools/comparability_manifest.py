@@ -7,6 +7,7 @@ this tool does not discover files, fill gaps, calculate model errors or decide f
 import argparse
 from collections import Counter
 import hashlib
+import io
 import json
 import math
 import os
@@ -105,7 +106,11 @@ def parse_json(raw):
     def bad_constant(_):
         raise Invalid('nonfinite_json_number')
     try:
-        parsed = json.loads(raw, object_pairs_hook=unique_object, parse_constant=bad_constant)
+        # json.loads(bytes) guesses UTF-16/32; this contract is explicitly UTF-8 without BOM.
+        text = raw.decode('utf-8', errors='strict')
+        if text.startswith('\ufeff'):
+            raise Invalid('utf8_bom_not_allowed')
+        parsed = json.loads(text, object_pairs_hook=unique_object, parse_constant=bad_constant)
         finite_tree(parsed)
         return parsed
     except Invalid:
@@ -207,9 +212,22 @@ def parse_telemetry(raw):
     backwards_rows = 0
     rows = 0
     malformed_fields = 0
-    for line in raw.splitlines():
+    stream = io.BytesIO(raw)
+    while True:
+        # Bound each read before parsing; do not split the entire input into a list of rows.
+        line = stream.readline(MAX_LINE + 3)
+        if not line:
+            break
         rows += 1
-        if rows > MAX_ROWS or len(line) > MAX_LINE:
+        if rows > MAX_ROWS:
+            raise Invalid('telemetry_limits_exceeded')
+        if line.endswith(b'\n'):
+            line = line[:-1]
+            if line.endswith(b'\r'):
+                line = line[:-1]
+        if b'\r' in line:
+            raise Invalid('invalid_line_ending')
+        if len(line) > MAX_LINE:
             raise Invalid('telemetry_limits_exceeded')
         row = parse_json(line)
         if not isinstance(row, dict):
