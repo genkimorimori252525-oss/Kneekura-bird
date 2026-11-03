@@ -54,6 +54,17 @@ def require(condition: bool, errors: list[str], message: str) -> None:
         errors.append(message)
 
 
+def boundary_tick(events: list[dict[str, Any]], label: str, errors: list[str]) -> int:
+    if len(events) != 1:
+        errors.append(f"expected exactly one mutual dogfight {label} event; found {len(events)}")
+        return -1
+    value = events[0].get("server_tick")
+    if type(value) is not int or value < 0:
+        errors.append(f"mutual dogfight {label} event has missing or invalid server tick")
+        return -1
+    return value
+
+
 def completion_metrics(completed: list[dict[str, Any]], errors: list[str]) -> dict[str, float | None]:
     """Decode the completion's exact fields; an ambiguous record is not evidence."""
     counters = ("primary_track_ticks", "opponent_track_ticks",
@@ -187,8 +198,17 @@ def main() -> int:
         if (match := ACTION.search(str(row.get("reason", ""))))
     ]
 
-    start_tick = min((tick(row) for row in started), default=-1)
-    completion_tick = max((tick(row) for row in completed), default=-1)
+    start_tick = boundary_tick(started, "start", errors)
+    completion_tick = boundary_tick(completed, "completion", errors)
+    if start_tick >= 0 and completion_tick >= 0:
+        if completion_tick < start_tick:
+            errors.append("mutual dogfight completion tick precedes start tick")
+        elif (completion_values["age_ticks"] is not None
+              and completion_values["age_ticks"] > completion_tick - start_tick):
+            # Under the fixed-mod normal tick path, age increases at most once per gameTime.
+            # Missing aircraft ticks may make age smaller; external repeated calls at the same
+            # gameTime are not prevented by the producer and are outside this validation contract.
+            errors.append("scene completion age_ticks exceeds elapsed server ticks")
 
     def combat_frames(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return [
