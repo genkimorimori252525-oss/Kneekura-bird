@@ -4,6 +4,46 @@ Last updated: 2026-11-03 (Asia/Tokyo)
 
 ## 2026-11-03 continuation checkpoint
 
+### Direct benchmark entry: narrowly guarded; END reset remains red
+
+Draft [#142](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/142), head
+`1fff98ce`, adds the isolated direct-entry GameTest on #141. Against main-equivalent production
+code, the FakePlayer-controlled D4Y's axes and engine `(0.31, -0.42, 0.53, 0.24)` all became
+zero on direct `BenchmarkManager.applyControl`; positive control and cleanup were recorded,
+one required GameTest failed (stdout SHA-256
+`7a07a406cd2eec814b7103153e3992c112161060c954c27c5a235a9c477a5d78`).
+
+Draft [#143](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/143), head
+`4a07a1f28c9f3bd71542b28f5853f3e89ad5ba1c`, is a **one-file, seven-line** main-based
+production guard: for a controlling player, use the existing `MobPilotGate`, clear the target
+aircraft's benchmark control and heartbeat, and return. In local fixture tree `ae1b3d88`
+(commit `70814fc`, with the same production patch), Java 17 / Gradle 8.8 build succeeded,
+deterministic simulation passed 12/12, and one isolated fixed-mod direct GameTest passed.
+The positive control applied stored controls; the player inputs stayed unchanged, target
+state was cleared, a second UUID marker survived, and immediate dismount did not replay
+stale input. stdout SHA-256 `58a7721aec4f66c851c341cd321132d9318c377edcbe946e4df788d817604328`.
+
+**Do not merge or treat player safety as solved.** A new world/JVM with that same patched
+fixture still produced #141's END/reset violation: player-controlled engine 0.24→0, position
+reset to the anchor, and velocity zeroed; one required GameTest failed, Gradle exit 1.
+stdout SHA-256 `436ce7c4876d8e41e7bdfb8c7c007d94907b8f1a7224e5e549db55ca9a5f0848`.
+The normal arbiter returns before this direct method during player control; END can recreate
+the stale entry. Neither test establishes same-value writes, natural tick/stop/abort lifecycle,
+network player, all aircraft, or exclusive forced-chunk ownership. Both fixture cleanups
+reported identical pre/post 25-chunk sets and zero sessions/controls/heartbeats. Separate
+disposable worlds, full raw logs and fixed MOD hashes remain under
+`/workspace/issue7-evidence-20261103/`; do not publish generated world data or MOD JARs
+without checking applicable conditions.
+
+Two failed test-launch attempts are preserved separately: the first could not resolve Minecraft
+metadata without proxy settings; the second rejected the proxy certificate. The successful
+run used the configured proxy and `/etc/ssl/certs/java/cacerts`, retaining certificate
+verification, in a fresh disposable world. No GitHub Actions or runner settings changed.
+Next: design and verify per-aircraft END takeover and a dismount latch without using cleanup
+that discards player aircraft; separately solve stop/abort and forced-chunk ownership.
+Review the existing continuity fixture before testing, retain each red result, and keep all
+these PRs draft until the applicable safety invariants are independently verified.
+
 ### Player-controlled benchmark reset: reproduced, not fixed
 
 Draft [#141](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/141), head `e6bd4a6b`,
