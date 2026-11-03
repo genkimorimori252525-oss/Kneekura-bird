@@ -621,6 +621,20 @@ def find_summaries(root: Path, errors: list[str]) -> list[Path]:
     return summaries
 
 
+def verify_tick_order(rows: list[dict[str, Any]], role: str, errors: list[str]) -> None:
+    """Validate every selected log row before using ticks to choose a scene window."""
+    previous = -1
+    for index, row in enumerate(rows, 1):
+        current = tick(row)
+        if current < 0:
+            errors.append(f"{role} telemetry tick must be a nonnegative integer at row {index}")
+            return
+        if current < previous:
+            errors.append(f"{role} telemetry tick decreased at row {index}: {previous} -> {current}")
+            return
+        previous = current
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, required=True)
@@ -645,6 +659,8 @@ def main() -> int:
     opponent_entry = opponent_candidates[0] if opponent_candidates else None
     primary_rows = primary_entry[1] if primary_entry else []
     opponent_rows = opponent_entry[1] if opponent_entry else []
+    verify_tick_order(primary_rows, "primary", errors)
+    verify_tick_order(opponent_rows, "opponent", errors)
 
     # The same UUID under a different name can otherwise hide a second log of the
     # selected aircraft. Unrelated aircraft names/UUIDs do not affect selection.
