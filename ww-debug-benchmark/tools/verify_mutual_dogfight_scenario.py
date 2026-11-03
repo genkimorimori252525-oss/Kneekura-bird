@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify two explicitly hostile autonomous fighters acquire, manoeuvre, fire and separate safely."""
+"""Verify one A6M mutual-combat scene; multi-aircraft validation is not supported."""
 
 from __future__ import annotations
 
@@ -402,6 +402,10 @@ def verify_primary_summary(summary: Any, primary_rows: list[dict[str, Any]],
     if not isinstance(results, list) or not results or not all(isinstance(row, dict) for row in results):
         errors.append("primary post-combat summary must contain aircraft results")
         return
+    # The verifier selects one A6M scene only; it cannot establish evidence
+    # for other sequential candidates in an aircraft=all run.
+    require(len(results) == 1, errors,
+            "mutual verification supports exactly one A6M summary result; aircraft=all is unsupported")
     for field in ("total", "completed"):
         value = summary.get(field)
         require(type(value) is int and value == len(results), errors,

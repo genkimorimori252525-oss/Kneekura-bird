@@ -110,23 +110,16 @@ class MutualSummaryTests(unittest.TestCase):
                 self.assertNotEqual(code, 0, result)
                 self.assertFalse(result["passed"])
 
-    def test_multiple_aircraft_summary_can_include_the_same_primary(self):
+    def test_multiple_aircraft_summary_cannot_claim_unverified_secondary(self):
         secondary = dict(self.summary["results"][0], entity_id="warfare_wings:p51d",
                          aircraft_uuid=OTHER)
         self.summary["total"] = self.summary["completed"] = 2
         self.summary["results"].append(secondary)
         code, result = self.verify()
-        self.assertEqual(code, 0, result)
-        self.assertTrue(result["passed"])
-
-    def test_valid_resource_location_syntax_does_not_assume_a_fixed_fighter_list(self):
-        # Registry and measured fighter membership cannot be established from a summary alone.
-        secondary = dict(self.summary["results"][0], entity_id="other.mod-1:nested/path.2-test_3",
-                         aircraft_uuid=OTHER)
-        self.summary["total"] = self.summary["completed"] = 2
-        self.summary["results"].append(secondary)
-        code, result = self.verify()
-        self.assertEqual(code, 0, result)
+        self.assertNotEqual(code, 0, result)
+        self.assertFalse(result["passed"])
+        self.assertIn("mutual verification supports exactly one A6M summary result; "
+                      "aircraft=all is unsupported", result["errors"])
 
     def test_multiple_aircraft_summary_rejects_bad_or_ambiguous_results(self):
         secondary = dict(self.summary["results"][0], entity_id="warfare_wings:p51d",
