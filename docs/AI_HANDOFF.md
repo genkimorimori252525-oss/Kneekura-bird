@@ -4,6 +4,35 @@ Last updated: 2026-11-03 (Asia/Tokyo)
 
 ## 2026-11-03 continuation checkpoint
 
+### Native observer: isolated launch blocked before staging
+
+Experimental observer source [branch](https://github.com/genkimorimori252525-oss/Kneekura-bird/tree/agent/issue7-native-input-observer-evidence),
+head `9e9e859812d1bde0c38da30eb6b30a2a1fd044d9`, is separate from ordinary MOD source and
+config. Its standalone Java buffer tests and jar build passed; target and explicit negative
+entity are separate and unknown/truncated caller evidence fails closed. The observer is **not
+runtime validated**: load, transform, hook, actual positive/negative controls and complete
+windows still require proof. Normal MOD build with the observer source present contained no
+observer class/config/manifest entry; a separate ordinary launch had none in stdout or runtime
+logs (stdout SHA-256 `402d62db8c8eafd69de1b2bec5f4b398fe46d0d0dfb9e6962a137c77c572f28b`).
+
+The launcher is split into [core](https://github.com/genkimorimori252525-oss/Kneekura-bird/tree/agent/issue7-observer-safe-launch-core)
+`18b51041` (6 files/+790) and [tests](https://github.com/genkimorimori252525-oss/Kneekura-bird/tree/agent/issue7-observer-safe-launch-tests)
+`478dd4a7` (2 files/+413). Python 32 and miniature Gradle graph 5 passed; this is not an
+actual observer GameTest. A fresh read-only-bound, separate network/PID namespace attempt
+with a dedicated copied cache reached pre-prepare guard and prepare completion, then failed
+`:downloadMCMeta` on `piston-meta.mojang.com` despite `--offline`. No observer was staged and
+no GameTest world was created. Launcher marked the result inconclusive; preserve scratch/cache.
+stdout SHA-256 `89b4243490eb9f1d61d3ecbb47ca07c4c8571846994887b013c69f1d54a7549e`, stderr
+`6fdadd4ef7d152bc2cbdc84961f143125a4bbbccba41d16fbbfac006839803ed`. Do not weaken isolation,
+TLS or skip the task to call this a pass. Fixed ForgeGradle uses direct URLs and can fetch both
+during configuration and task execution; its offline-safe replay remains unimplemented.
+
+Two saved 1.20.1 metadata JSONs differ in asset index SHA-1 (`62b36534…` versus `ada52cc6…`);
+the present cached index matches the latter. Freeze and validate the whole metadata/index/assets
+set with provenance before a new hermetic approach. Previous versions by name alone are not
+proof of identical inputs. Observer fixture wiring, correct class transform, normal client
+behavior and the natural tick input change's cause remain open.
+
 ### Natural END observation: pass does not establish no player-input writes
 
 An [evidence-only branch](https://github.com/genkimorimori252525-oss/Kneekura-bird/tree/agent/issue7-natural-end-exploration),
