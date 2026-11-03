@@ -15,8 +15,39 @@ at or above 8 are not established either. Keep #128 draft and do not treat the e
 verifier's pass as complete safety evidence. The prior #127 run had 10.83 / adapter 10.1; a
 justified repeat at the same #127 code had 8.69 / adapter 8.1. UUID order changes the assigned
 evasion and other combat choices, and is not fixed. Code impact versus run variation is unresolved.
-The mutual verifier does not currently gate on adapter separation, Gradle status or crash reports;
-independent focused fixes are under investigation. Do not relax any safety threshold.
+The mutual verifier on main does not gate on adapter separation, Gradle status or crash reports.
+Independent focused fixes are drafts; they are not combined or merged. Do not relax any safety threshold.
+
+### Mutual verifier checkpoint and next steps
+
+- Draft [#129](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/129), head
+  `631a6503`, requires the supplied successful Gradle exit status and no crash report; 13 tests
+  passed. It does not validate other evidence. Symlink and Windows junction behavior has limits.
+- Draft [#130](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/130), head
+  `cf3b639a`, checks the ordered combat window, both participants' frames, finite nonnegative
+  speed and explicit ground flags; 13 tests passed. Frame gaps remain possible.
+- Draft [#131](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/131), head
+  `e1e27be0`, checks both participants' sampled adapter distances with conservative rounding;
+  19 tests passed. Reanalysis of #127 first / #128 / #127 repeat gives 10.1 pass / 7.4 fail /
+  8.1 pass. Samples do not prove continuous separation or absence of contact.
+- These three independently start from main and edit the same verifier. Do not merge them as if
+  they were already composed: reconcile and rerun their combined regression tests and saved-log
+  analysis. Further work is needed for strict candidate-log and summary parsing, scene/participant
+  identity, action/doctrine matching and event ordering. Independent audits reproduced false
+  passes in those areas; no saved GameTest was rerun merely for these verifier changes.
+- To isolate the 7.4 sample, design opt-in, logged and versioned fixture UUID ordering before
+  entity insertion, then compare both orders on fresh JVM/worlds. UUID ordering changes escape
+  and combat choices; it does not make all flight deterministic. Preserve original thresholds,
+  scenario inputs, status, crash reports and raw telemetry. Investigate actual contact separately.
+- Local evidence archives are ephemeral. SHA-256: `kneekura-issue7-evidence-20261103.zip`
+  `973cba1b0ef7e68808179616bf55762c7f3780c38a90992efe2f2f341c6cf6f8`;
+  `kneekura-issue7-terrain-authority-final-20261103.zip`
+  `448b1dacc6f219b847a28f890e994ffe56bc8648aed03308a9cc400e615074ce`;
+  `kneekura-issue7-separation-investigation-20261103.zip`
+  `79f7fde9240e196367709668a2f02b4a7257abdd4bcf3e03b39350348d9134d0`.
+  The focused turn archive `a99dfc035ff14130eb40f926782af088d0f6caff03a2ece08bb6e22eaf89554e`
+  contains a maneuver verifier pass but an overall mission timeout and Gradle failure, not a
+  successful GameTest. Copy needed archives before this environment is discarded.
 
 - Draft [#122](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/122) records this
   handoff. Draft [#123](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/123)
