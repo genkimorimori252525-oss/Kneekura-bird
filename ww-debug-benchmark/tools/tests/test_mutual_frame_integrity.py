@@ -1,5 +1,6 @@
 """The mutual verifier must not infer safe flight from missing or invalid frames."""
 import json
+import math
 from pathlib import Path
 import subprocess
 import sys
@@ -30,24 +31,24 @@ class MutualFrameIntegrityTests(unittest.TestCase):
         self.primary = [
             row(PRIMARY, 'mutual_dogfight_validation_started', 100,
                 f'primary_uuid={PRIMARY_ID}:opponent_uuid={OPPONENT_ID}'),
-            row(PRIMARY, 'control_adapter', 104, f'other_uuid={OPPONENT_ID}:current=9.0',
-                applied_safety_override='collision_avoidance'),
             row(PRIMARY, 'combat_target_acquired', 101, 'target_faction=blue:explicit_faction_hostile=true'),
             row(PRIMARY, 'air_combat_action_transition', 102, 'to=INTERCEPT:doctrine=turn_fighter'),
             row(PRIMARY, 'weapon_fire', 103),
             row(PRIMARY, 'frame', 104, speed_bps=25, on_ground=False),
+            row(PRIMARY, 'control_adapter', 104, f'other_uuid={OPPONENT_ID}:current=9.0',
+                applied_safety_override='collision_avoidance'),
             row(PRIMARY, 'mutual_dogfight_validation_completed', 300,
                 'minimum_separation=10.0:maximum_separation=100.0:'
                 'primary_track_ticks=150:opponent_track_ticks=150:'
                 'primary_combat_ticks=150:opponent_combat_ticks=150'),
         ]
         self.opponent = [
-            row(OPPONENT, 'control_adapter', 104, f'other_uuid={PRIMARY_ID}:current=9.0',
-                applied_safety_override='collision_avoidance'),
             row(OPPONENT, 'combat_target_acquired', 101, 'target_faction=red:explicit_faction_hostile=true'),
             row(OPPONENT, 'air_combat_action_transition', 102, 'to=INTERCEPT:doctrine=energy_fighter'),
             row(OPPONENT, 'weapon_fire', 103),
             row(OPPONENT, 'frame', 104, speed_bps=25, on_ground=False),
+            row(OPPONENT, 'control_adapter', 104, f'other_uuid={PRIMARY_ID}:current=9.0',
+                applied_safety_override='collision_avoidance'),
         ]
         (self.root / 'validation-summary-1.json').write_text(
             json.dumps(complete_summary(PRIMARY_ID)), encoding='utf-8')
@@ -66,6 +67,13 @@ class MutualFrameIntegrityTests(unittest.TestCase):
         self.assertTrue(output.is_file(), proc.stderr)
         return proc.returncode, json.loads(output.read_text(encoding='utf-8'))
 
+    @staticmethod
+    def add_combat_frame(rows, frame):
+        # Insert before the primary completion event, preserving the logged order.
+        index = next((i for i, item in enumerate(rows)
+                      if item['event'] == 'mutual_dogfight_validation_completed'), len(rows))
+        rows.insert(index, frame)
+
     def test_valid_frames_in_window_pass(self):
         code, result = self.verify()
         self.assertEqual(code, 0, result)
@@ -74,7 +82,7 @@ class MutualFrameIntegrityTests(unittest.TestCase):
         self.assertEqual(result['metrics']['opponent_ground_frames'], 0)
 
     def test_invalid_values_outside_combat_window_do_not_change_window_result(self):
-        self.primary.append(row(PRIMARY, 'frame', 99, speed_bps=None, on_ground=None))
+        self.primary.insert(0, row(PRIMARY, 'frame', 99, speed_bps=None, on_ground=None))
         self.opponent.append(row(OPPONENT, 'frame', 301, speed_bps=None, on_ground=None))
         code, result = self.verify()
         self.assertEqual(code, 0, result)
@@ -85,45 +93,61 @@ class MutualFrameIntegrityTests(unittest.TestCase):
             with self.subTest(target=target):
                 rows = getattr(self, target)
                 frame = next(item for item in rows if item['event'] == 'frame')
+                original_index = rows.index(frame)
+                rows.pop(original_index)
                 frame['server_tick'] = 301
+                rows.append(frame)
                 try:
                     code, result = self.verify()
                     self.assertNotEqual(code, 0, result)
                     self.assertFalse(result['passed'])
                     self.assertIsNone(result['metrics'][target + '_ground_frames'])
                     self.assertIsNone(result['metrics'][target + '_min_speed_bps'])
+                    name = 'A6M' if target == 'primary' else 'P-47N'
+                    self.assertIn(f'{name} has no combat-window frame telemetry', result['errors'], result)
                 finally:
+                    rows.remove(frame)
                     frame['server_tick'] = 104
+                    rows.insert(original_index, frame)
 
     def test_every_frame_needs_valid_nonnegative_finite_numeric_speed(self):
         for target in ('primary', 'opponent'):
             for value in (None, '25', True, -1, float('nan'), float('inf'), float('-inf')):
                 with self.subTest(target=target, value=repr(value)):
                     rows = getattr(self, target)
-                    rows.append(row(PRIMARY if target == 'primary' else OPPONENT, 'frame', 105,
-                                    speed_bps=value, on_ground=False))
+                    frame = row(PRIMARY if target == 'primary' else OPPONENT, 'frame', 105,
+                                speed_bps=value, on_ground=False)
+                    self.add_combat_frame(rows, frame)
                     try:
                         code, result = self.verify()
                         self.assertNotEqual(code, 0, result)
                         self.assertFalse(result['passed'])
                         self.assertIsNone(result['metrics'][target + '_min_speed_bps'])
+                        name = 'A6M' if target == 'primary' else 'P-47N'
+                        if isinstance(value, float) and not math.isfinite(value):
+                            self.assertTrue(any('InvalidConstantError' in e for e in result['errors']), result)
+                        else:
+                            self.assertIn(f'{name} has 1 frames with missing or invalid speed', result['errors'], result)
                     finally:
-                        rows.pop()
+                        rows.remove(frame)
 
     def test_every_frame_needs_explicit_boolean_ground(self):
         for target in ('primary', 'opponent'):
             for value in (None, 'false', 0, 1):
                 with self.subTest(target=target, value=repr(value)):
                     rows = getattr(self, target)
-                    rows.append(row(PRIMARY if target == 'primary' else OPPONENT, 'frame', 105,
-                                    speed_bps=25, on_ground=value))
+                    frame = row(PRIMARY if target == 'primary' else OPPONENT, 'frame', 105,
+                                speed_bps=25, on_ground=value)
+                    self.add_combat_frame(rows, frame)
                     try:
                         code, result = self.verify()
                         self.assertNotEqual(code, 0, result)
                         self.assertFalse(result['passed'])
                         self.assertIsNone(result['metrics'][target + '_ground_frames'])
+                        name = 'A6M' if target == 'primary' else 'P-47N'
+                        self.assertIn(f'{name} has 1 frames with missing or invalid ground state', result['errors'], result)
                     finally:
-                        rows.pop()
+                        rows.remove(frame)
 
     def test_missing_speed_or_ground_field_rejected(self):
         for key in ('speed_bps', 'on_ground'):
@@ -136,6 +160,8 @@ class MutualFrameIntegrityTests(unittest.TestCase):
                     self.assertFalse(result['passed'])
                     self.assertIsNone(result['metrics']['primary_min_speed_bps' if key == 'speed_bps'
                                                         else 'primary_ground_frames'])
+                    category = 'speed' if key == 'speed_bps' else 'ground state'
+                    self.assertIn(f'A6M has 1 frames with missing or invalid {category}', result['errors'], result)
                 finally:
                     frame[key] = value
 
@@ -144,16 +170,19 @@ class MutualFrameIntegrityTests(unittest.TestCase):
             for value in (None, '105', True, -1):
                 with self.subTest(target=target, value=repr(value)):
                     rows = getattr(self, target)
-                    rows.append(row(PRIMARY if target == 'primary' else OPPONENT, 'frame', value,
-                                    speed_bps=25, on_ground=False))
+                    frame = row(PRIMARY if target == 'primary' else OPPONENT, 'frame', value,
+                                speed_bps=25, on_ground=False)
+                    self.add_combat_frame(rows, frame)
                     try:
                         code, result = self.verify()
                         self.assertNotEqual(code, 0, result)
                         self.assertFalse(result['passed'])
                         self.assertIsNone(result['metrics'][target + '_ground_frames'])
                         self.assertIsNone(result['metrics'][target + '_min_speed_bps'])
+                        name = 'A6M' if target == 'primary' else 'P-47N'
+                        self.assertIn(f'{name} has 1 frames with missing or invalid ticks', result['errors'], result)
                     finally:
-                        rows.pop()
+                        rows.remove(frame)
 
     def test_boundary_ticks_must_be_nonnegative_integers(self):
         for event in ('mutual_dogfight_validation_started', 'mutual_dogfight_validation_completed'):
@@ -169,6 +198,12 @@ class MutualFrameIntegrityTests(unittest.TestCase):
                         for target in ('primary', 'opponent'):
                             self.assertIsNone(result['metrics'][target + '_ground_frames'])
                             self.assertIsNone(result['metrics'][target + '_min_speed_bps'])
+                        label = 'start' if event.endswith('started') else 'completion'
+                        if value == float('inf'):
+                            self.assertTrue(any('InvalidConstantError' in e for e in result['errors']), result)
+                        else:
+                            self.assertIn(f'mutual dogfight {label} event has missing or invalid tick',
+                                          result['errors'], result)
                     finally:
                         boundary['server_tick'] = old
 
@@ -181,6 +216,8 @@ class MutualFrameIntegrityTests(unittest.TestCase):
                     code, result = self.verify()
                     self.assertNotEqual(code, 0, result)
                     self.assertFalse(result['passed'])
+                    label = 'start' if event.endswith('started') else 'completion'
+                    self.assertIn(f'mutual dogfight {label} event has missing or invalid tick', result['errors'], result)
                 finally:
                     boundary['server_tick'] = old
 
@@ -191,7 +228,7 @@ class MutualFrameIntegrityTests(unittest.TestCase):
                    if item['event'] == 'mutual_dogfight_validation_completed')
         start['server_tick'] = True
         end['server_tick'] = 104.9
-        self.primary.append(row(PRIMARY, 'frame', 105, speed_bps=25, on_ground=True))
+        self.add_combat_frame(self.primary, row(PRIMARY, 'frame', 105, speed_bps=25, on_ground=True))
         code, result = self.verify()
         self.assertNotEqual(code, 0, result)
         self.assertFalse(result['passed'])
@@ -207,6 +244,7 @@ class MutualFrameIntegrityTests(unittest.TestCase):
                     code, result = self.verify()
                     self.assertNotEqual(code, 0, result)
                     self.assertFalse(result['passed'])
+                    self.assertIn('mutual dogfight completion must follow start', result['errors'], result)
                 finally:
                     boundary['server_tick'] = 300
 
@@ -214,13 +252,16 @@ class MutualFrameIntegrityTests(unittest.TestCase):
         for event in ('mutual_dogfight_validation_started', 'mutual_dogfight_validation_completed'):
             with self.subTest(event=event):
                 boundary = next(item for item in self.primary if item['event'] == event)
-                self.primary.append(dict(boundary))
+                index = self.primary.index(boundary) + 1
+                self.primary.insert(index, dict(boundary))
                 try:
                     code, result = self.verify()
                     self.assertNotEqual(code, 0, result)
                     self.assertFalse(result['passed'])
+                    label = 'start' if event.endswith('started') else 'completion'
+                    self.assertIn(f'expected exactly one mutual dogfight {label} event; found 2', result['errors'], result)
                 finally:
-                    self.primary.pop()
+                    self.primary.pop(index)
 
     def test_reported_ground_contact_and_unsafe_speed_still_fail(self):
         for key, value in (('on_ground', True), ('speed_bps', 8.4)):
@@ -231,6 +272,9 @@ class MutualFrameIntegrityTests(unittest.TestCase):
                 try:
                     code, result = self.verify()
                     self.assertNotEqual(code, 0, result)
+                    expected = ('A6M touched the ground during mutual combat: 1 frames' if key == 'on_ground'
+                                else 'A6M speed became unsafe: 8.40 bps')
+                    self.assertIn(expected, result['errors'], result)
                 finally:
                     frame[key] = old
 

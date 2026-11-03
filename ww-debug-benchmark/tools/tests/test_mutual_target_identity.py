@@ -332,6 +332,9 @@ class MutualTargetIdentityTests(unittest.TestCase):
                 self.assertIn(f"{role} fired without prior in-window acquisition of the opposing pilot",
                               result["errors"], result)
             acquisition["server_tick"] = fire["server_tick"]
+            transition = next(row for row in rows if row["event"] == "air_combat_action_transition")
+            transition_tick = transition["server_tick"]
+            transition["server_tick"] = fire["server_tick"]
             acquisition_index, fire_index = rows.index(acquisition), rows.index(fire)
             rows[acquisition_index], rows[fire_index] = rows[fire_index], rows[acquisition_index]
             with self.subTest(name=rows[0]["aircraft_name"], case="same tick reversed"):
@@ -345,6 +348,7 @@ class MutualTargetIdentityTests(unittest.TestCase):
                 code, result = self.verify()
                 self.assertEqual(code, 0, result)
             acquisition["server_tick"] = original_tick
+            transition["server_tick"] = transition_tick
 
     def test_later_acquisition_does_not_justify_earlier_fire(self):
         for rows in (self.primary, self.opponent):

@@ -31,23 +31,23 @@ class MutualLogIntegrityTests(unittest.TestCase):
         self.write_rows(self.primary, PRIMARY, [
             {"event": "mutual_dogfight_validation_started", "server_tick": 10,
              "reason": f"primary_uuid={PRIMARY_ID}:opponent_uuid={OPPONENT_ID}"},
-            {"event": "control_adapter", "server_tick": 15, "applied_safety_override": "collision_avoidance",
-             "reason": f"other_uuid={OPPONENT_ID}:current=9.0"},
-            {"event": "mutual_dogfight_validation_status", "server_tick": 15, "reason": "separation=9.5"},
             {"event": "combat_target_acquired", "reason": "target_faction=blue:explicit_faction_hostile=true"},
             {"event": "air_combat_action_transition", "reason": "doctrine=turn_fighter:to=INTERCEPT"},
             {"event": "weapon_fire"},
+            {"event": "control_adapter", "server_tick": 15, "applied_safety_override": "collision_avoidance",
+             "reason": f"other_uuid={OPPONENT_ID}:current=9.0"},
+            {"event": "mutual_dogfight_validation_status", "server_tick": 15, "reason": "separation=9.5"},
             {"event": "frame", "server_tick": 15, "speed_bps": 30, "on_ground": False},
             {"event": "mutual_dogfight_validation_completed", "server_tick": 20,
              "reason": "minimum_separation=9.5:maximum_separation=40:primary_track_ticks=90:"
                        "opponent_track_ticks=90:primary_combat_ticks=110:opponent_combat_ticks=110"},
         ])
         self.write_rows(self.opponent, OPPONENT, [
-            {"event": "control_adapter", "server_tick": 15, "applied_safety_override": "collision_avoidance",
-             "reason": f"other_uuid={PRIMARY_ID}:current=9.0"},
             {"event": "combat_target_acquired", "reason": "target_faction=red:explicit_faction_hostile=true"},
             {"event": "air_combat_action_transition", "reason": "doctrine=energy_fighter:to=INTERCEPT"},
             {"event": "weapon_fire"},
+            {"event": "control_adapter", "server_tick": 15, "applied_safety_override": "collision_avoidance",
+             "reason": f"other_uuid={PRIMARY_ID}:current=9.0"},
             {"event": "frame", "server_tick": 15, "speed_bps": 30, "on_ground": False},
         ])
         self.write_rows(self.other, "unrelated aircraft", [{"event": "frame", "server_tick": 15}])

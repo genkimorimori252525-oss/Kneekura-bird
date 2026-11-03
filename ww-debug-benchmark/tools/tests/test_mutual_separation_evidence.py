@@ -23,19 +23,31 @@ class MutualSeparationEvidenceTests(unittest.TestCase):
         self.logs.mkdir(parents=True)
         self.primary = self.base_rows(PRIMARY, "AUTOPILOT TEST warfare_wings:a6m", "blue", "turn_fighter")
         self.opponent = self.base_rows(OPPONENT, "AUTOPILOT TEST MUTUAL BLUE P47N", "red", "energy_fighter")
-        self.primary.extend([
-            self.row(PRIMARY, "AUTOPILOT TEST warfare_wings:a6m", "mutual_dogfight_validation_started", 100,
-                     f"primary_uuid={PRIMARY}:opponent_uuid={OPPONENT}"),
-            self.row(PRIMARY, "AUTOPILOT TEST warfare_wings:a6m", "mutual_dogfight_validation_completed", 200,
-                     "minimum_separation=9.0:maximum_separation=100.0:primary_track_ticks=100:"
-                     "opponent_track_ticks=100:primary_combat_ticks=120:opponent_combat_ticks=120"),
-        ])
+        self.primary.insert(0, self.row(PRIMARY, "AUTOPILOT TEST warfare_wings:a6m",
+                                        "mutual_dogfight_validation_started", 100,
+                                        f"primary_uuid={PRIMARY}:opponent_uuid={OPPONENT}"))
+        self.primary.append(self.row(PRIMARY, "AUTOPILOT TEST warfare_wings:a6m",
+                                     "mutual_dogfight_validation_completed", 200,
+                                     "minimum_separation=9.0:maximum_separation=100.0:primary_track_ticks=100:"
+                                     "opponent_track_ticks=100:primary_combat_ticks=120:opponent_combat_ticks=120"))
         summary = complete_summary(PRIMARY)
         (self.root / "validation-summary-1.json").write_text(json.dumps(summary), encoding="utf-8")
         self.primary_sample = self.collision(value="9.0")
         self.opponent_sample = self.collision(primary=False, value="9.0")
-        self.primary.append(self.primary_sample)
-        self.opponent.append(self.opponent_sample)
+        self.add_row(self.primary, self.primary_sample)
+        self.add_row(self.opponent, self.opponent_sample)
+
+    @staticmethod
+    def add_row(rows, row):
+        """Insert a newly produced valid sample chronologically; retain invalid ticks as-is."""
+        when = row.get("server_tick")
+        if type(when) is int and when >= 0:
+            for index, existing in enumerate(rows):
+                old = existing.get("server_tick")
+                if type(old) is int and old > when:
+                    rows.insert(index, row)
+                    return
+        rows.append(row)
 
     @staticmethod
     def row(uid, name, event, when, reason="", **extra):
@@ -77,7 +89,7 @@ class MutualSeparationEvidenceTests(unittest.TestCase):
             with self.subTest(primary=primary):
                 rows = self.primary if primary else self.opponent
                 row = self.collision(primary=primary, value="7.4")
-                rows.append(row)
+                self.add_row(rows, row)
                 proc, result = self.verify()
                 self.assertNotEqual(proc.returncode, 0, result)
                 self.assertFalse(result["passed"])
@@ -94,11 +106,11 @@ class MutualSeparationEvidenceTests(unittest.TestCase):
                 self.assertNotEqual(proc.returncode, 0, result)
                 missing_role = "opponent" if primary else "primary"
                 self.assertIn(f"{missing_role} has no interpretable mutual collision-separation observation", result["errors"])
-                rows.append(row)
+                self.add_row(rows, row)
 
     def test_rounded_boundary_is_unprovable_and_eight_point_one_passes(self):
         row = self.collision(value="8.0")
-        self.primary.append(row)
+        self.add_row(self.primary, row)
         proc, result = self.verify()
         self.assertNotEqual(proc.returncode, 0, result)
         self.assertIn("rounded mutual collision observation does not establish 8-block separation: 8.0", result["errors"])
@@ -108,7 +120,7 @@ class MutualSeparationEvidenceTests(unittest.TestCase):
         self.assertEqual(result["metrics"].get("collision_observed_minimum"), 8.1)
 
     def test_start_event_can_expose_unsafe_distance_if_adapter_missing(self):
-        self.primary.append(self.collision(value="7.4", event="collision_avoidance_start"))
+        self.add_row(self.primary, self.collision(value="7.4", event="collision_avoidance_start"))
         proc, result = self.verify()
         self.assertNotEqual(proc.returncode, 0, result)
         self.assertIn("rounded mutual collision observation does not establish 8-block separation: 7.4", result["errors"])
@@ -118,8 +130,10 @@ class MutualSeparationEvidenceTests(unittest.TestCase):
         self.opponent.remove(self.opponent_sample)
         proc, result = self.verify()
         self.assertNotEqual(proc.returncode, 0, result)
-        self.primary.append(self.primary_sample)
-        self.opponent.append(self.opponent_sample)
+        self.assertIn("primary has no interpretable mutual collision-separation observation", result["errors"])
+        self.assertIn("opponent has no interpretable mutual collision-separation observation", result["errors"])
+        self.add_row(self.primary, self.primary_sample)
+        self.add_row(self.opponent, self.opponent_sample)
         for reason in (f"other_uuid={OPPONENT}:current=nan", f"other_uuid={OPPONENT}:current=8.01",
                        f"other_uuid={OPPONENT}:current=1e309", "current=7.4",
                        f"other_uuid={OPPONENT}:current={'9' * 400}.0",
@@ -127,32 +141,33 @@ class MutualSeparationEvidenceTests(unittest.TestCase):
             with self.subTest(reason=reason):
                 row = self.collision()
                 row["reason"] = reason
-                self.primary.append(row)
+                self.add_row(self.primary, row)
                 proc, result = self.verify()
                 self.assertNotEqual(proc.returncode, 0, result)
                 self.assertIn("primary collision evidence has an invalid target or current distance", result["errors"])
                 self.primary.remove(row)
 
     def test_outside_window_and_unrelated_target_do_not_become_pair_samples(self):
-        self.primary.extend([self.collision(value="7.4", when=99),
-                             self.collision(value="9.5", other=OTHER),
-                             self.collision(value="8.1")])
+        for sample in (self.collision(value="7.4", when=99),
+                       self.collision(value="9.5", other=OTHER), self.collision(value="8.1")):
+            self.add_row(self.primary, sample)
         proc, result = self.verify()
         self.assertEqual(proc.returncode, 0, result)
         self.assertEqual(result["metrics"].get("collision_observed_minimum"), 8.1)
 
     def test_near_other_aircraft_is_not_silently_ignored(self):
-        self.primary.extend([self.collision(value="7.4", other=OTHER), self.collision(value="9.0")])
+        for sample in (self.collision(value="7.4", other=OTHER), self.collision(value="9.0")):
+            self.add_row(self.primary, sample)
         proc, result = self.verify()
         self.assertNotEqual(proc.returncode, 0, result)
         self.assertIn("rounded collision observation with another aircraft does not establish 8-block separation: 7.4", result["errors"])
 
     def test_adapter_with_missing_override_and_spaced_fields_is_not_ignored(self):
-        self.primary.append(self.collision(value="9.0"))
+        self.add_row(self.primary, self.collision(value="9.0"))
         bad = self.collision(value="7.4")
         del bad["applied_safety_override"]
         bad["reason"] = f"other_uuid ={OPPONENT}:current =7.4"
-        self.primary.append(bad)
+        self.add_row(self.primary, bad)
         proc, result = self.verify()
         self.assertNotEqual(proc.returncode, 0, result)
         self.assertIn("rounded mutual collision observation does not establish 8-block separation: 7.4", result["errors"])
@@ -162,18 +177,23 @@ class MutualSeparationEvidenceTests(unittest.TestCase):
             with self.subTest(tick=invalid):
                 row = self.collision()
                 row["server_tick"] = invalid
-                self.primary.append(row)
+                self.add_row(self.primary, row)
                 proc, result = self.verify()
                 self.assertNotEqual(proc.returncode, 0, result)
+                if invalid == float("inf"):
+                    self.assertTrue(any("InvalidConstantError Infinity" in error for error in result["errors"]), result)
+                else:
+                    self.assertIn("primary collision evidence has no valid tick", result["errors"])
                 self.primary.remove(row)
-        self.primary.append(self.row(OTHER, "AUTOPILOT TEST warfare_wings:a6m", "frame", 150,
-                                     speed_bps=25.0, on_ground=False))
-        self.primary.append(self.collision())
+        self.add_row(self.primary, self.row(OTHER, "AUTOPILOT TEST warfare_wings:a6m", "frame", 150,
+                                            speed_bps=25.0, on_ground=False))
+        self.add_row(self.primary, self.collision())
         proc, result = self.verify()
         self.assertNotEqual(proc.returncode, 0, result)
+        self.assertIn("primary telemetry must identify exactly one aircraft", result["errors"])
 
     def test_rounded_scene_boundary_is_not_treated_as_proof(self):
-        self.primary.append(self.collision(value="9.0"))
+        self.add_row(self.primary, self.collision(value="9.0"))
         completion = next(row for row in self.primary
                           if row["event"] == "mutual_dogfight_validation_completed")
         original = completion["reason"]
@@ -186,7 +206,7 @@ class MutualSeparationEvidenceTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, result)
 
     def test_rounded_scene_maximum_boundary_is_not_treated_as_proof(self):
-        self.primary.append(self.collision(value="9.0"))
+        self.add_row(self.primary, self.collision(value="9.0"))
         completion = next(row for row in self.primary
                           if row["event"] == "mutual_dogfight_validation_completed")
         original = completion["reason"]
@@ -202,9 +222,10 @@ class MutualSeparationEvidenceTests(unittest.TestCase):
                 completion["reason"] = original.replace("maximum_separation=100.0", replacement)
                 proc, result = self.verify()
                 self.assertNotEqual(proc.returncode, 0, result)
+                self.assertIn("scene completion has a missing, ambiguous or invalid rounded maximum_separation", result["errors"])
 
     def test_start_event_must_identify_the_same_unique_pair(self):
-        self.primary.append(self.collision(value="9.0"))
+        self.add_row(self.primary, self.collision(value="9.0"))
         started = next(row for row in self.primary if row["event"] == "mutual_dogfight_validation_started")
         for reason in ("", f"primary_uuid={PRIMARY}:opponent_uuid={OTHER}",
                        f"primary_uuid={PRIMARY}:opponent_uuid={OPPONENT}:opponent_uuid={OTHER}"):
@@ -212,9 +233,10 @@ class MutualSeparationEvidenceTests(unittest.TestCase):
                 started["reason"] = reason
                 proc, result = self.verify()
                 self.assertNotEqual(proc.returncode, 0, result)
+                self.assertIn("scene start does not uniquely identify the selected aircraft pair", result["errors"])
 
     def test_scene_minimum_requires_unambiguous_reported_precision(self):
-        self.primary.append(self.collision(value="9.0"))
+        self.add_row(self.primary, self.collision(value="9.0"))
         completion = next(row for row in self.primary
                           if row["event"] == "mutual_dogfight_validation_completed")
         original = completion["reason"]
@@ -223,9 +245,10 @@ class MutualSeparationEvidenceTests(unittest.TestCase):
                 completion["reason"] = original.replace("minimum_separation=9.0", replacement)
                 proc, result = self.verify()
                 self.assertNotEqual(proc.returncode, 0, result)
+                self.assertIn("scene completion has a missing, ambiguous or invalid rounded minimum_separation", result["errors"])
 
     def test_scene_window_requires_ordered_integer_ticks(self):
-        self.primary.append(self.collision(value="9.0"))
+        self.add_row(self.primary, self.collision(value="9.0"))
         completion = next(row for row in self.primary
                           if row["event"] == "mutual_dogfight_validation_completed")
         for invalid in (None, True, 200.5, float("inf"), -1, 99):
@@ -233,24 +256,31 @@ class MutualSeparationEvidenceTests(unittest.TestCase):
                 completion["server_tick"] = invalid
                 proc, result = self.verify()
                 self.assertNotEqual(proc.returncode, 0, result)
+                if invalid == float("inf"):
+                    self.assertTrue(any("InvalidConstantError Infinity" in error for error in result["errors"]), result)
+                elif invalid == 99 and type(invalid) is int:
+                    self.assertIn("mutual dogfight completion must follow start", result["errors"])
+                else:
+                    self.assertIn("mutual dogfight completion event has missing or invalid tick", result["errors"])
 
     def test_scene_window_rejects_equal_ticks_even_with_same_tick_samples(self):
         for row in self.primary + self.opponent:
-            if row["event"] in ("frame", "mutual_dogfight_validation_started",
-                                "mutual_dogfight_validation_completed"):
-                row["server_tick"] = 150
+            row["server_tick"] = 150
         proc, result = self.verify()
         self.assertNotEqual(proc.returncode, 0, result)
+        self.assertIn("mutual dogfight completion must follow start", result["errors"])
 
     def test_scene_window_rejects_duplicate_start_or_completion(self):
         for event in ("mutual_dogfight_validation_started", "mutual_dogfight_validation_completed"):
             with self.subTest(event=event):
                 row = next(row for row in self.primary if row["event"] == event)
                 duplicate = row.copy()
-                self.primary.append(duplicate)
+                self.add_row(self.primary, duplicate)
                 proc, result = self.verify()
                 self.assertNotEqual(proc.returncode, 0, result)
-                self.primary.pop()
+                label = "start" if event.endswith("started") else "completion"
+                self.assertIn(f"expected exactly one mutual dogfight {label} event; found 2", result["errors"])
+                self.primary.pop(next(i for i, item in enumerate(self.primary) if item is duplicate))
 
     def test_scene_start_requires_nonnegative_integer_tick(self):
         start = next(row for row in self.primary if row["event"] == "mutual_dogfight_validation_started")
@@ -259,6 +289,10 @@ class MutualSeparationEvidenceTests(unittest.TestCase):
                 start["server_tick"] = invalid
                 proc, result = self.verify()
                 self.assertNotEqual(proc.returncode, 0, result)
+                if invalid == float("inf"):
+                    self.assertTrue(any("InvalidConstantError Infinity" in error for error in result["errors"]), result)
+                else:
+                    self.assertIn("mutual dogfight start event has missing or invalid tick", result["errors"])
 
     def test_duplicate_selected_aircraft_logs_are_not_silently_overwritten(self):
         path = self.logs / "shadow.jsonl"
@@ -272,6 +306,9 @@ class MutualSeparationEvidenceTests(unittest.TestCase):
                     path.write_text(json.dumps(shadow) + "\n", encoding="utf-8")
                     proc, result = self.verify()
                     self.assertNotEqual(proc.returncode, 0, result)
+                    self.assertTrue(any("aircraft log is missing or ambiguous" in error
+                                        or "aircraft UUID occurs in more than one telemetry file" in error
+                                        for error in result["errors"]), result)
 
     def test_unrelated_aircraft_log_does_not_make_the_pair_ambiguous(self):
         row = self.row(OTHER, "other plane", "frame", 150, speed_bps=25.0, on_ground=False)

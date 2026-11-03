@@ -37,28 +37,28 @@ class MutualRunStatusTests(unittest.TestCase):
         primary_rows = [
             row(primary, "mutual_dogfight_validation_started", 100,
                 f"primary_uuid={primary_id}:opponent_uuid={opponent_id}"),
-            row(primary, "control_adapter", 104, f"other_uuid={opponent_id}:current=9.0",
-                applied_safety_override="collision_avoidance"),
             row(primary, "combat_target_acquired", 101,
                 "target_faction=blue:explicit_faction_hostile=true"),
             row(primary, "air_combat_action_transition", 102,
                 "to=INTERCEPT:doctrine=turn_fighter"),
             row(primary, "weapon_fire", 103),
             row(primary, "frame", 104, speed_bps=25, on_ground=False),
+            row(primary, "control_adapter", 104, f"other_uuid={opponent_id}:current=9.0",
+                applied_safety_override="collision_avoidance"),
             row(primary, "mutual_dogfight_validation_completed", 300,
                 "minimum_separation=10.0:maximum_separation=100.0:"
                 "primary_track_ticks=150:opponent_track_ticks=150:"
                 "primary_combat_ticks=150:opponent_combat_ticks=150"),
         ]
         opponent_rows = [
-            row(opponent, "control_adapter", 104, f"other_uuid={primary_id}:current=9.0",
-                applied_safety_override="collision_avoidance"),
             row(opponent, "combat_target_acquired", 101,
                 "target_faction=red:explicit_faction_hostile=true"),
             row(opponent, "air_combat_action_transition", 102,
                 "to=INTERCEPT:doctrine=energy_fighter"),
             row(opponent, "weapon_fire", 103),
             row(opponent, "frame", 104, speed_bps=25, on_ground=False),
+            row(opponent, "control_adapter", 104, f"other_uuid={primary_id}:current=9.0",
+                applied_safety_override="collision_avoidance"),
         ]
         primary_rows = parked_cleanup(primary_rows, primary_id)
         for name, rows in (("a6m.jsonl", primary_rows), ("p47n.jsonl", opponent_rows)):
