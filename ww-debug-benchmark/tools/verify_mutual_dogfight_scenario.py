@@ -32,10 +32,8 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
 
 
 def tick(row: dict[str, Any]) -> int:
-    try:
-        return int(row.get("server_tick", -1))
-    except (TypeError, ValueError):
-        return -1
+    value = row.get("server_tick")
+    return value if type(value) is int and value >= 0 else -1
 
 
 def numbers(reason: str) -> dict[str, float]:
@@ -49,6 +47,21 @@ def texts(reason: str) -> dict[str, str]:
 def require(condition: bool, errors: list[str], message: str) -> None:
     if not condition:
         errors.append(message)
+
+
+def verify_tick_order(rows: list[dict[str, Any]], role: str, errors: list[str]) -> bool:
+    """Validate every selected log row before using ticks to choose a scene window."""
+    previous = -1
+    for index, row in enumerate(rows, 1):
+        current = tick(row)
+        if current < 0:
+            errors.append(f"{role} telemetry tick must be a nonnegative integer at row {index}")
+            return False
+        if current < previous:
+            errors.append(f"{role} telemetry tick decreased at row {index}: {previous} -> {current}")
+            return False
+        previous = current
+    return True
 
 
 def main() -> int:
@@ -76,6 +89,9 @@ def main() -> int:
     )
     primary_rows = primary_entry[1] if primary_entry else []
     opponent_rows = opponent_entry[1] if opponent_entry else []
+    errors: list[str] = []
+    primary_tick_order_valid = verify_tick_order(primary_rows, "primary", errors)
+    opponent_tick_order_valid = verify_tick_order(opponent_rows, "opponent", errors)
 
     started = [row for row in primary_rows if row.get("event") == "mutual_dogfight_validation_started"]
     completed = [row for row in primary_rows if row.get("event") == "mutual_dogfight_validation_completed"]
@@ -139,7 +155,6 @@ def main() -> int:
     primary_acquisition_reasons = [str(row.get("reason", "")) for row in primary_acquisitions]
     opponent_acquisition_reasons = [str(row.get("reason", "")) for row in opponent_acquisitions]
 
-    errors: list[str] = []
     require(bool(primary_rows), errors, "primary A6M telemetry was not produced")
     require(bool(opponent_rows), errors, "opposing P-47N telemetry was not produced")
     require(bool(started), errors, "mutual dogfight scene never started")
@@ -224,6 +239,19 @@ def main() -> int:
             "validation_summary": str(summary_path) if summary_path else None,
         },
     }
+    if not (primary_tick_order_valid and opponent_tick_order_valid):
+        # A row can have been hidden outside the selected combat window. Neither
+        # side's scene metrics are reliable even if the input scan completed.
+        for key in ("start_tick", "completion_tick", "minimum_separation", "maximum_separation",
+                    "collision_observed_minimum", "collision_observation_rows",
+                    "collision_observation_rows_by_aircraft", "other_aircraft_collision_observed_minimum",
+                    "primary_track_ticks", "opponent_track_ticks", "primary_combat_ticks",
+                    "opponent_combat_ticks", "primary_actions", "opponent_actions",
+                    "primary_fire_count", "opponent_fire_count", "primary_combat_frame_count",
+                    "opponent_combat_frame_count", "primary_min_speed_bps", "opponent_min_speed_bps",
+                    "primary_ground_frames", "opponent_ground_frames", "primary_doctrines", "opponent_doctrines"):
+            if key in result["metrics"]:
+                result["metrics"][key] = None
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(result, ensure_ascii=False, indent=2))
