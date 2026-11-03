@@ -1,6 +1,49 @@
 # AI development handoff
 
-Last updated: 2026-08-30 (Asia/Tokyo)
+Last updated: 2026-11-03 (Asia/Tokyo)
+
+## 2026-11-03 continuation checkpoint
+
+The owner explicitly activated **Jolly Endurance Mode** for this session. Starting checkpoint:
+main `2585f44fa02b84ed7f593bf9a65798a2b4f056ea`. Live GitHub showed two open draft PRs,
+[#101](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/101) and
+[#121](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/121); the older
+"Open pull requests: None" and conversion order below describe an earlier checkpoint, not
+current state. No main check success can be inferred from the empty combined status.
+
+Issue #7 remains open. The historical 24-aircraft route records and the limited mutual-dogfight
+successes do not establish every aircraft's mission, role, and combat completion. First reproduce
+basic air combat; afterward, aim for WWII-style techniques selected at appropriate times and
+natural frequencies according to pilot proficiency. This sequencing was recorded on Issue #7.
+
+PR #101 is retained as evidence, not a baseline to merge blindly. On its head `9c21ca34`, static
+inspection shows that collision risk with no formation avoidance write and no terrain proposal
+can discard the pending base-autonomy proposal. This has not been reproduced in the actual mod.
+On current main, base autonomy still writes before that branch, so the same loss has not been
+established there. The arbiter can nevertheless report collision avoidance when that layer did
+not write. Combat suppression must remain in force; do not equate a risk predicate with an
+avoidance write. Before converting base autonomy, test the real arbiter path for a risk with no
+avoidance write, a risk with an avoidance write, terrain priority, and player exclusion.
+
+PR #121 is an unmerged hosted-validation preparation; it was not run. Its separation of fast
+deterministic checks, a future calibrated exploration model, and fixed-mod Forge GameTests remains
+the rule. Its description records build, 12/12 preflight, and A6M `full` success at the starting
+main, but the original raw GameTest artifacts were not present in this environment for independent
+inspection. They are not evidence for a subsequent code change. Historical route evidence also
+has the build-time source-rewrite attribution caveat described below.
+
+The managed Cloud instance has Java 17 at `/workspace/.cloud-setup/jdk-17.0.17+10` and Gradle 8.8
+at `/workspace/.cloud-setup/gradle-8.8/bin/gradle`; its separate Gradle home is
+`/workspace/.cloud-setup/gradle-home`. Fixed runtime mod jars and the earlier GameTest output were
+absent in this checkout. Record mod versions and hashes and preserve fresh logs and verifier output
+before treating any new run as evidence. The existing Cloud network policy is restricted and
+enforced. GitHub Actions is stopped; do not enable it or change runner registration.
+
+Next: construct a deterministic regression exercising the production control decision and write
+path for the #101 collision cases, then make one focused change on current main only if the evidence
+requires it. Use the existing safety gates unchanged. Follow with build, targeted fixed-mod
+GameTest and telemetry/verifier inspection when the fixed runtime is available; do not call the
+test-only or approximate-model results real-mod qualification.
 
 ## Jolly Runner Hub multi-repository operation
 

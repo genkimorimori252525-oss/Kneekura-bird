@@ -9,6 +9,12 @@ between them: what to do next, in what order, and which mistakes are already kno
 
 Live GitHub state overrides everything written here.
 
+**2026-11-03 update:** The conversion table and runner assumptions below are historical, not a
+current inventory. Read the 2026-11-03 checkpoint in `docs/AI_HANDOFF.md` and inspect current
+code and GitHub first. Draft PR #101 exposes a collision-risk input-loss hazard during the base
+autonomy conversion; preserve that PR and cover the actual arbiter write path before retrying it.
+Draft PR #121 records Cloud and future-model validation boundaries. GitHub Actions is stopped.
+
 ---
 
 ## Set expectations honestly
