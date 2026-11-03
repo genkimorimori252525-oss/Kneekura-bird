@@ -60,6 +60,13 @@ class MutualFrameIntegrityTests(unittest.TestCase):
         self.assertEqual(result['metrics']['primary_min_speed_bps'], 25)
         self.assertEqual(result['metrics']['opponent_ground_frames'], 0)
 
+    def test_invalid_values_outside_combat_window_do_not_change_window_result(self):
+        self.primary.append(row(PRIMARY, 'frame', 99, speed_bps=None, on_ground=None))
+        self.opponent.append(row(OPPONENT, 'frame', 301, speed_bps=None, on_ground=None))
+        code, result = self.verify()
+        self.assertEqual(code, 0, result)
+        self.assertTrue(result['passed'])
+
     def test_each_aircraft_needs_a_frame_inside_the_combat_window(self):
         for target in ('primary', 'opponent'):
             with self.subTest(target=target):
