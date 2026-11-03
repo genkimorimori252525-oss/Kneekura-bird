@@ -8,10 +8,12 @@ Last updated: 2026-11-03 (Asia/Tokyo)
 
 - Draft [#122](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/122) records this
   handoff. Draft [#123](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/123)
-  contains fixed-mod collision-risk regression tests; its remote head is `7269efb3`.
+  contains fixed-mod safety regression tests; its remote head is `0364be1b`.
   Draft [#124](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/124) fixes a
-  full/landing telemetry identity error and must be reconciled before integrating #123. Its head
-  `d25adc03` preserves `aircraft=all` in synthetic tests; real multi-aircraft verification remains.
+  full/landing telemetry identity error. It is necessary but not sufficient before integrating
+  #123: focused/dedicated verifiers and diagnostics may also select the added fixture logs by
+  modification time. Audit or isolate those consumers. #124 head
+  `23892040` preserves `aircraft=all` in synthetic tests; real multi-aircraft verification remains.
 - With the same test and fixed mods, current main plus the test passed all 61 GameTests, while
   #101 head `9c21ca34e3f91485f71cf845063bc78fb4c66be2` failed the expected startup engine-input
   assertion. This demonstrates the specific no-avoidance-write case on the real mod, not all
@@ -20,19 +22,23 @@ Last updated: 2026-11-03 (Asia/Tokyo)
   `22e31bf600b2cfddb7f2f936a9b333b80a35f5b6d589b9cb6fdc1de94c4a42d4`.
 - On the passing main run, the original full verifier incorrectly selected a later unrelated
   test aircraft's two-frame log and returned pass. The summary aircraft UUID was different. The
-  #124 fix reprocessed the saved run and selected the matching 4,838-frame log. The later main run
-  passed 62/62 tests, including a real avoidance write; a deliberately unsafe overwrite mutation
-  failed its corresponding assertion. See `docs/validation/2026-11-03/collision-and-verifier.md`.
+  #124 fix reprocessed the saved run and selected the matching 4,838-frame log. Its streaming
+  implementation reduced a synthetic 24-file load from about 1.25 GiB peak RSS to 10 MiB on
+  Linux; this is not a 24-aircraft GameTest. The final #123 tree `3e661ea8` passed build,
+  deterministic simulation 12/12 and real-mod GameTest 64/64. Terrain and player takeover tests
+  also failed their intended assertions under separate unsafe local mutations. See
+  `docs/validation/2026-11-03/collision-and-verifier.md`.
   Other scenario verifiers and
   malformed-JSONL handling remain separate audit items.
 - Cloud evidence is under `/workspace/issue7-evidence-20261103/` in this instance, including
   mod hashes, logs, verifier results and the preserved first two run directories. This path is
   ephemeral: do not assume it exists in a later session. No mod jars were committed or published.
   The main test worktree is `/workspace/kneekura-collision-test`; local commit `9d7180a` has the
-  first passing fixture; local `ee4e970` includes both passing tests and has the same source tree as
-  #123 head but a different commit ID. Additional test changes may follow; inspect live GitHub.
-- Before converting autonomy, separately verify terrain priority, combat suppression and player
-  exclusion. A risk-only ownership label can disagree with the
+  first passing fixture; local `e230d75` has the same final tree as #123 head but a different commit
+  ID. Additional test changes may follow; inspect live GitHub.
+- Before converting autonomy, separately verify combat suppression and the claimed-without-output
+  case. The present tests cover player takeover input values and terrain input in controlled cases,
+  not every axis and write count. A risk-only ownership label can disagree with the
   actual writer; do not silently treat that diagnostic label as evidence of an avoidance write.
 - Static review found another #101 difference: if combat claims a tick without a proposal, its
   formation-proposal fallback differs from current main, where that proposal was never written.
@@ -78,11 +84,12 @@ absent in this checkout. Record mod versions and hashes and preserve fresh logs 
 before treating any new run as evidence. The existing Cloud network policy is restricted and
 enforced. GitHub Actions is stopped; do not enable it or change runner registration.
 
-Next: construct a deterministic regression exercising the production control decision and write
-path for the #101 collision cases, then make one focused change on current main only if the evidence
-requires it. Use the existing safety gates unchanged. Follow with build, targeted fixed-mod
-GameTest and telemetry/verifier inspection when the fixed runtime is available; do not call the
-test-only or approximate-model results real-mod qualification.
+Next: resolve #123's log interference in all affected scenario verifiers/diagnostics, then cover
+the combat claim-without-output branch and the test-only opponent's direct autonomy call before
+retrying the proposal conversion on current main. Keep the
+existing safety gates unchanged. Follow any behavior change with build, targeted fixed-mod GameTest
+and telemetry/verifier inspection; do not call the test-only or approximate-model results real-mod
+qualification. The raw Cloud artifacts are ephemeral, as documented in the validation record.
 
 ## Jolly Runner Hub multi-repository operation
 

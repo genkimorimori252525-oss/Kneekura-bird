@@ -12,7 +12,7 @@ These are controlled tests, not qualification of all aircraft, roles, or combat 
   `3b6b245e703862517fe7aae6acd95ccafc865e1e81ba7a26e2b9abcfe1120187`.
   Downloaded files matched Modrinth's SHA-512 metadata. The jars are not included here.
 - The measured profile fixture was the one tracked in the relevant checkout. The target was
-  `warfare_wings:a6m`, scenario `full`. Test source at #123 head `7269efb3` SHA-256
+  `warfare_wings:a6m`, scenario `full`. Collision test source at #123 head `0364be1b` SHA-256
   `580032efbe469a61574a6a8a0cd2f6d22cf7e74a0c93b68462d08640b783576a`.
 
 ## Results and scope
@@ -24,16 +24,21 @@ These are controlled tests, not qualification of all aircraft, roles, or combat 
 | Main plus first test, fuel attempt | GameTest 60/61, Gradle 1 | Fuel was not loaded because refuelling requires an occupant. |
 | Main plus corrected first test, local `9d7180a` | GameTest 61/61, Gradle 0 | In STARTUP with collision risk but no avoidance write, base engine input was applied. |
 | #101 head `9c21ca34` plus same corrected first test | GameTest 60/61, Gradle 1 | The startup engine-input assertion failed under the same conditions. |
-| Main plus both tests, local `ee4e970` / #123 head `7269efb3` | GameTest 62/62, Gradle 0; A6M summary 1/1 `PARKED`, no crash report | Actual collision-avoidance engine input survived; its event recorded risk, planned 0.35 and applied/actual 0.28. |
+| Main plus both collision tests, local `ee4e970` | GameTest 62/62, Gradle 0; A6M summary 1/1 `PARKED`, no crash report | Actual collision-avoidance engine input survived; its event recorded risk, planned 0.35 and applied/actual 0.28. |
 | Deliberately unsafe local mutation `e6fc949` on #101 plus both tests | GameTest 61/62, Gradle 1 | Always applying autonomy at collision risk made the avoidance-input assertion fail. This mutation is not proposed for integration. |
+| Main plus collision, terrain, and player tests, local `e230d75` / #123 head `0364be1b` (tree `3e661ea8`) | Build 0, simulator 12/12, GameTest 64/64, Gradle 0; A6M summary 1/1 `PARKED`, no crash report | In controlled cases, terrain input survived concurrent collision risk and a player takeover retained all four input values. |
+| Local unsafe terrain mutation `928537e` | GameTest fails, Gradle 1 | Suppressing terrain output fails the terrain-input assertion. |
+| Local unsafe player mutation `76182d4` | GameTest fails, Gradle 1 | Bypassing the player gate fails the player-input assertion. |
 
 The first corrected main run exposed a verifier defect: `verify_flight_scenario.py` selected the
 newer test aircraft's two-frame log while reading a different aircraft's successful summary and
 returned pass. Draft #124 matches summary UUIDs to logs; its revised verifier reprocessed the
 last main run, selected the summary aircraft's 4,838 frames, and passed with Gradle status 0. Its
 multi-aircraft logic has synthetic tests, not a new multi-aircraft GameTest. The #101 run remained
-failed when reprocessed with its actual Gradle status 1. Terrain precedence, player exclusion,
-all control axes, combat suppression, flight safety and other aircraft still need separate tests.
+failed when reprocessed with its actual Gradle status 1. The tests do not prove all control axes
+and write counts, combat suppression, flight safety or other aircraft. The #124 fix covers only
+full/landing; other verifiers and diagnostics can still select unrelated fixture logs and must be
+addressed before integrating #123.
 
 ## Integrity and availability
 
@@ -48,6 +53,8 @@ SHA-256 of selected raw evidence:
 | #101 reproduction console log | `47b6cbfc2869cd8801a738fbe38bbe8b0863f6dfd47983920bbcedf563e443d3` |
 | Unsafe mutation console log | `636db2587909323a81823993e6526f6abfeac01119103ce8d306304c4e09b34f` |
 | Initial failed fixture console logs | `914d234d6682cae25f05326d851d3d08018afcaa369d7d1a31cdd67afc65147f`; `7506de9cbc581fde5baa41cff58a7f8540aec238ef039f8de3ba523961844284` |
+| Final 64-test console log / verifier result | `c31c7fad431e68e3a3a5af28fd2bfae0a83bb2c1a90aca950b5c84d855d86215`; `4173d3fc14173a1901393348307e47eb1bc52cd43f3cd6b0535bddca531e3417` |
+| Terrain / player unsafe mutation logs | `1a667f2c4a3c8fa72910646202ed6b482d999d7709cf1c5a10cc9871b39dbe80`; `a785cf00c409c65db065cddf164799044a31f1780cb28b3022378ab19e90cc45` |
 
 Raw logs, full telemetry, and verifier JSON are retained in the Cloud workspace under
 `/workspace/issue7-evidence-20261103/` and the relevant worktrees. The workspace is ephemeral;
