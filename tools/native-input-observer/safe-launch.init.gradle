@@ -1,0 +1,107 @@
+// Dedicated launcher only. Filesystem checks reduce mistakes; they do not prevent same-UID races.
+import java.nio.file.Files
+import java.nio.file.LinkOption
+import java.nio.file.Paths
+import java.nio.file.StandardCopyOption
+import java.security.MessageDigest
+
+def required = { String key ->
+    def value = System.getenv(key)
+    if (value == null || value.isBlank()) throw new GradleException('Missing launcher setting: ' + key)
+    value
+}
+def expectedProject = Paths.get(required('WW_OBSERVER_PROJECT')).toAbsolutePath().normalize()
+def observer = Paths.get(required('WW_OBSERVER_SOURCE')).toAbsolutePath().normalize()
+def observerHash = required('WW_OBSERVER_SHA256')
+def token = required('WW_OBSERVER_ATTEMPT')
+def fixedHashes = [
+    'immersive_aircraft-1.3.3+1.20.1-forge.jar': 'd1f7cfeed3ac2cf69472ae756eb9189dad04ab21b8afbd443c82f40e51bbf065',
+    'warfare_wings-1.1.4-1.20.1-forge.jar': '3b6b245e703862517fe7aae6acd95ccafc865e1e81ba7a26e2b9abcfe1120187'
+]
+def noSymlinks = { path ->
+    def absolute = path.toAbsolutePath().normalize()
+    def current = absolute.root
+    for (def part : absolute) {
+        current = current.resolve(part)
+        if (Files.isSymbolicLink(current)) throw new GradleException('Symlink rejected: ' + current)
+    }
+}
+def hash = { path ->
+    noSymlinks(path)
+    if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS) || Files.getAttribute(path, 'unix:nlink', LinkOption.NOFOLLOW_LINKS) != 1)
+        throw new GradleException('Input is not a single-link regular file: ' + path)
+    def md = MessageDigest.getInstance('SHA-256')
+    path.toFile().withInputStream { stream ->
+        byte[] buffer = new byte[65536]
+        int n
+        while ((n = stream.read(buffer)) != -1) md.update(buffer, 0, n)
+    }
+    md.digest().encodeHex().toString()
+}
+def guardInputs = { p ->
+    def root = p.projectDir.toPath().toAbsolutePath().normalize()
+    noSymlinks(root)
+    if (root != expectedProject || root.toRealPath() != expectedProject)
+        throw new GradleException('Unexpected project directory')
+    fixedHashes.each { name, digest ->
+        if (hash(root.resolve('flight-test-mods').resolve(name)) != digest) throw new GradleException('Fixed MOD hash mismatch: ' + name)
+    }
+    if (hash(observer) != observerHash) throw new GradleException('Observer hash mismatch')
+}
+def prepared = false
+gradle.taskGraph.whenReady {
+    def start = gradle.startParameter
+    if (start.dryRun || !start.excludedTaskNames.empty || start.taskNames != ['runGameTestServer'])
+        throw new GradleException('Only the fixed launcher task is accepted')
+}
+// afterTask runs after the complete prepare action list, regardless of when project doLast
+// actions were registered. A skipped or failed prepare never authorizes observer staging.
+gradle.taskGraph.afterTask { task, state ->
+    if (task.name == 'prepareFlightGameTestRuntime') {
+        if (state.failure != null || state.skipped || !state.executed)
+            throw new GradleException('Prepare did not execute successfully')
+        guardInputs(task.project)
+        def run = expectedProject.resolve('run-gametest')
+        noSymlinks(run)
+        if (!Files.isDirectory(run, LinkOption.NOFOLLOW_LINKS) || Files.exists(run.resolve('mods'), LinkOption.NOFOLLOW_LINKS))
+            throw new GradleException('Unexpected prepare output')
+        prepared = true
+        println 'OBSERVER_PREPARE_DONE attempt=' + token
+    }
+}
+gradle.beforeProject { p ->
+    if (p != p.rootProject) throw new GradleException('Unexpected subproject')
+    p.tasks.configureEach { t ->
+        if (t.name == 'prepareFlightGameTestRuntime') {
+            t.doFirst {
+                guardInputs(p)
+                def run = expectedProject.resolve('run-gametest')
+                noSymlinks(run)
+                if (Files.exists(run, LinkOption.NOFOLLOW_LINKS)) throw new GradleException('Run directory already exists')
+                println 'OBSERVER_PREPARE_GUARD attempt=' + token
+            }
+        }
+        if (t.name == 'runGameTestServer') {
+            t.doFirst {
+                if (!prepared) throw new GradleException('Prepare did not complete in this invocation')
+                guardInputs(p)
+                def cfg = t.getRunConfig().get()
+                def run = expectedProject.resolve('run-gametest')
+                noSymlinks(run)
+                if (Paths.get(cfg.getWorkingDirectory()).toAbsolutePath().normalize() != run || run.toRealPath() != run)
+                    throw new GradleException('Unexpected GameTest working directory')
+                if (!t.jvmArgumentProviders.empty) throw new GradleException('Uninspected JVM argument providers')
+                def mods = run.resolve('mods')
+                Files.createDirectory(mods)
+                def staged = mods.resolve('wwdebug-input-probe.jar')
+                Files.copy(observer, staged, LinkOption.NOFOLLOW_LINKS)
+                if (hash(staged) != observerHash || Files.list(mods).withCloseable { s -> s.count() } != 1)
+                    throw new GradleException('Observer staging integrity failed')
+                cfg.property('forge.enabledGameTestNamespaces', 'wwdebug_benchmark_stop_natural_probe')
+                cfg.property('wwdebug.benchmarkStopNaturalProbe', 'fresh-disposable-world-single-jvm')
+                cfg.property('wwdebug.nativeInputObserver', 'enabled')
+                println 'OBSERVER_STAGED attempt=' + token + ' sha256=' + observerHash
+            }
+        }
+    }
+}
