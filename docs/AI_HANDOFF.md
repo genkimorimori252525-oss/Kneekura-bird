@@ -19,8 +19,16 @@ entity tickCount advanced. stdout SHA-256
 `(0.31,-0.42,0.53)` at END tick 2 pre/post, but `(0,0,0)` by END tick 3 pre; engine target
 remained approximately 0.24. The fixture did not seed aircraft input/position/velocity after
 the player mounted. The change occurred outside the observed END pair; its writer and cause
-are unknown. FakePlayer or native vehicle input handling and AI writers require separate
-read-only investigation and targeted observation. A passing END-pair comparison does **not**
+are unknown. Two independent fixed-IA bytecode reviews identified a strong hypothesis:
+`VehicleEntity.tickPilot` calls `setInputs(0,0,0)` for a non-local passenger; server FakePlayer
+`isLocalPlayer()` is false, the setter changes only the three axes, and the arbiter mixin runs
+at TAIL. The observed values match this mechanism, but neither branch nor setter was recorded
+in this run. The mapped IA jar's current SHA-256 is
+`6b00887b97de551d25caacd7c888db3df4dbd80007e9a98a064cfe4b1f2ad665`; its hash at run time was
+not saved and cannot be retroactively asserted. A separate opt-in, non-mutating call-site probe
+would need a dedicated JVM/config, positive hook control, call ordering and proof it cannot
+enter production; FakePlayer evidence would still not represent real client packets. A passing
+END-pair comparison does **not**
 prove that player-controlled inputs were never written. Same-value writes, intermediate
 changes and other END listeners are also not excluded. Entity tickCount is only a scheduler
 visit, not proof of a particular physics path. The candidate remains unsafe to deploy because
