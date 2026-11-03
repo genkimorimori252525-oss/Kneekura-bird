@@ -102,6 +102,16 @@ outside that tree rather than deleting them. A single summary alone does not
 prove run identity: the current summary format has no telemetry `run_id`, so
 keep the captured logs and summary together from the same isolated run.
 
+
+The mutual-dogfight verifier targets the fixed GameTest fixture, which creates
+both pilots as villagers. Every parsed row in the combat window must identify
+the matching scene pilot UUID and `minecraft:villager` pilot entity ID. A missing
+or different ID is unverified, including other mob types; this does not qualify
+arbitrary mob pilots. The separate strict JSONL integrity gate is required to
+reject malformed or ambiguous records; this check alone cannot detect rows
+skipped by the older parser. It does not establish the pilot or exclude AI inputs
+during missing ticks, nor does it replace a player takeover safety test.
+
 GitHub Actions runs the A6M headless smoke test on pull requests. The `WW Headless Flight GameTest` workflow can be started manually with `aircraft=all` for the complete fighter suite. Runtime mods are downloaded transiently from their exact official Modrinth versions and are not uploaded as workflow artifacts.
 
 ## Fixed-input benchmark commands

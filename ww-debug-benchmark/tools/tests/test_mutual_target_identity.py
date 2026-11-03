@@ -33,6 +33,7 @@ class MutualTargetIdentityTests(unittest.TestCase):
 
         def row(name, aircraft, pilot, event, tick, reason="", **extra):
             return {"aircraft_name": name, "aircraft_uuid": aircraft, "pilot_uuid": pilot,
+                    "pilot_entity_id": "minecraft:villager",
                     "event": event, "server_tick": tick, "reason": reason, **extra}
 
         a = lambda event, tick, reason="", **extra: row(
@@ -190,6 +191,43 @@ class MutualTargetIdentityTests(unittest.TestCase):
                         self.assertEqual(result["metrics"]["scene_age_ticks"], 200)
                     finally:
                         row["reason"] = original
+
+
+    def test_fixed_fixture_requires_villager_on_each_combat_window_row(self):
+        for role, rows in (("primary", self.primary), ("opponent", self.opponent)):
+            for index, row in enumerate(rows):
+                for value in (None, "minecraft:player", "none", "minecraft:armor_stand",
+                              "mod:unknown", "minecraft:villager ", True, 42, ["minecraft:villager"]):
+                    with self.subTest(role=role, index=index, event=row["event"], value=value):
+                        if value is None:
+                            del row["pilot_entity_id"]
+                        else:
+                            row["pilot_entity_id"] = value
+                        try:
+                            code, result = self.verify()
+                            self.assertNotEqual(code, 0, result)
+                            self.assertIn(f"{role} combat-window log must identify the fixed villager pilot",
+                                          result["errors"], result)
+                        finally:
+                            row["pilot_entity_id"] = "minecraft:villager"
+
+    def test_fixed_fixture_rejects_player_takeover_row_even_if_uuid_is_unchanged(self):
+        for rows in (self.primary, self.opponent):
+            row = dict(rows[1], event="frame", pilot_entity_id="minecraft:player",
+                       speed_bps=25, on_ground=False)
+            rows.insert(2, row)
+            try:
+                code, result = self.verify()
+                self.assertNotEqual(code, 0, result)
+            finally:
+                rows.remove(row)
+
+    def test_fixed_fixture_scope_excludes_rows_outside_combat_window(self):
+        self.primary.insert(0, dict(self.primary[0], event="frame", server_tick=99,
+                                    pilot_entity_id="minecraft:player", speed_bps=25, on_ground=False))
+        self.opponent.append(dict(self.opponent[-1], server_tick=301, pilot_entity_id="none"))
+        code, result = self.verify()
+        self.assertEqual(code, 0, result)
 
     def test_both_participants_acquire_and_fire_at_the_other_pilot(self):
         code, result = self.verify()
