@@ -286,7 +286,7 @@ class CompletionMetricsTests(unittest.TestCase):
         self.assertEqual(result["metrics"]["primary_ground_frames"], 1)
         self.assertEqual(result["metrics"]["collision_observed_minimum"], 7.4)
         self.assertEqual(result["metrics"]["minimum_separation"], 7.4)
-        self.assertIn("A6M touched the ground during mutual combat: 1 frames", result["errors"], result)
+        self.assertIn("A6M touched the ground during mutual combat: 1 observed frames", result["errors"], result)
         self.assertIn("rounded mutual collision observation does not establish 8-block separation: 7.4",
                       result["errors"], result)
 

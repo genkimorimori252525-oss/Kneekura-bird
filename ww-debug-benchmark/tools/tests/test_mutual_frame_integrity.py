@@ -272,8 +272,8 @@ class MutualFrameIntegrityTests(unittest.TestCase):
                 try:
                     code, result = self.verify()
                     self.assertNotEqual(code, 0, result)
-                    expected = ('A6M touched the ground during mutual combat: 1 frames' if key == 'on_ground'
-                                else 'A6M speed became unsafe: 8.40 bps')
+                    expected = ('A6M touched the ground during mutual combat: 1 observed frames' if key == 'on_ground'
+                                else 'A6M speed became unsafe: 8.4 bps')
                     self.assertIn(expected, result['errors'], result)
                 finally:
                     frame[key] = old
@@ -282,40 +282,43 @@ class MutualFrameIntegrityTests(unittest.TestCase):
         for target, name, label in (('primary', PRIMARY, 'A6M'), ('opponent', OPPONENT, 'P-47N')):
             with self.subTest(target=target):
                 rows = getattr(self, target)
-                rows.extend((row(name, 'frame', 105, speed_bps=25, on_ground=True),
-                             row(name, 'frame', 106, speed_bps=25, on_ground=None)))
+                known = row(name, 'frame', 105, speed_bps=25, on_ground=True)
+                invalid = row(name, 'frame', 106, speed_bps=25, on_ground=None)
+                self.add_combat_frame(rows, known)
+                self.add_combat_frame(rows, invalid)
                 try:
                     code, result = self.verify()
                     self.assertNotEqual(code, 0, result)
                     self.assertIsNone(result['metrics'][target + '_ground_frames'])
                     self.assertEqual(result['metrics'][target + '_min_speed_bps'], 25)
-                    self.assertTrue(any(label in error and 'missing or invalid ground' in error
-                                        for error in result['errors']), result)
-                    self.assertTrue(any(label in error and 'touched the ground' in error
-                                        for error in result['errors']), result)
+                    self.assertIn(f'{label} has 1 frames with missing or invalid ground state', result['errors'], result)
+                    self.assertIn(f'{label} touched the ground during mutual combat: 1 observed frames',
+                                  result['errors'], result)
                 finally:
-                    del rows[-2:]
+                    rows.remove(known)
+                    rows.remove(invalid)
 
     def test_known_unsafe_speed_survives_other_invalid_speed_samples(self):
         for target, name, label in (('primary', PRIMARY, 'A6M'), ('opponent', OPPONENT, 'P-47N')):
             with self.subTest(target=target):
                 rows = getattr(self, target)
-                rows.extend((row(name, 'frame', 105, speed_bps=8.4, on_ground=False),
-                             row(name, 'frame', 106, speed_bps=None, on_ground=False)))
+                known = row(name, 'frame', 105, speed_bps=8.4, on_ground=False)
+                invalid = row(name, 'frame', 106, speed_bps=None, on_ground=False)
+                self.add_combat_frame(rows, known)
+                self.add_combat_frame(rows, invalid)
                 try:
                     code, result = self.verify()
                     self.assertNotEqual(code, 0, result)
                     self.assertIsNone(result['metrics'][target + '_min_speed_bps'])
                     self.assertEqual(result['metrics'][target + '_ground_frames'], 0)
-                    self.assertTrue(any(label in error and 'missing or invalid speed' in error
-                                        for error in result['errors']), result)
-                    self.assertTrue(any(label in error and 'speed became unsafe' in error
-                                        for error in result['errors']), result)
+                    self.assertIn(f'{label} has 1 frames with missing or invalid speed', result['errors'], result)
+                    self.assertIn(f'{label} speed became unsafe: 8.4 bps', result['errors'], result)
                 finally:
-                    del rows[-2:]
+                    rows.remove(known)
+                    rows.remove(invalid)
 
     def test_unknown_frame_tick_does_not_claim_window_ground_contact(self):
-        self.primary.append(row(PRIMARY, 'frame', None, speed_bps=8.4, on_ground=True))
+        self.add_combat_frame(self.primary, row(PRIMARY, 'frame', None, speed_bps=8.4, on_ground=True))
         code, result = self.verify()
         self.assertNotEqual(code, 0, result)
         self.assertIsNone(result['metrics']['primary_min_speed_bps'])
@@ -324,22 +327,22 @@ class MutualFrameIntegrityTests(unittest.TestCase):
                              for error in result['errors']), result)
 
     def test_observed_unsafe_speed_is_not_rounded_above_threshold_in_diagnostic(self):
-        self.primary.extend((row(PRIMARY, 'frame', 105, speed_bps=8.499, on_ground=False),
-                             row(PRIMARY, 'frame', 106, speed_bps=None, on_ground=False)))
+        self.add_combat_frame(self.primary, row(PRIMARY, 'frame', 105, speed_bps=8.499, on_ground=False))
+        self.add_combat_frame(self.primary, row(PRIMARY, 'frame', 106, speed_bps=None, on_ground=False))
         code, result = self.verify()
         self.assertNotEqual(code, 0, result)
         self.assertIsNone(result['metrics']['primary_min_speed_bps'])
-        self.assertTrue(any('A6M speed became unsafe: 8.499' in error for error in result['errors']), result)
+        self.assertIn('A6M speed became unsafe: 8.499 bps', result['errors'], result)
 
     def test_valid_window_violation_survives_other_unplaceable_frame(self):
-        self.primary.extend((row(PRIMARY, 'frame', 105, speed_bps=8.4, on_ground=True),
-                             row(PRIMARY, 'frame', None, speed_bps=25, on_ground=False)))
+        self.add_combat_frame(self.primary, row(PRIMARY, 'frame', 105, speed_bps=8.4, on_ground=True))
+        self.add_combat_frame(self.primary, row(PRIMARY, 'frame', None, speed_bps=25, on_ground=False))
         code, result = self.verify()
         self.assertNotEqual(code, 0, result)
         self.assertIsNone(result['metrics']['primary_min_speed_bps'])
         self.assertIsNone(result['metrics']['primary_ground_frames'])
-        self.assertTrue(any('A6M touched the ground' in error for error in result['errors']), result)
-        self.assertTrue(any('A6M speed became unsafe' in error for error in result['errors']), result)
+        self.assertIn('A6M touched the ground during mutual combat: 1 observed frames', result['errors'], result)
+        self.assertIn('A6M speed became unsafe: 8.4 bps', result['errors'], result)
 
 
 if __name__ == '__main__':
