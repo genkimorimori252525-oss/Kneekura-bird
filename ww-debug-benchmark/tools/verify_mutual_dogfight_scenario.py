@@ -596,6 +596,31 @@ def verify_participants(started: list[dict[str, Any]], completed: list[dict[str,
                         f"{label} fired without prior in-window acquisition of the opposing pilot")
 
 
+def find_summaries(root: Path, errors: list[str]) -> list[Path]:
+    """Inspect the entire supplied artifact tree without silently skipping entries."""
+    summaries: list[Path] = []
+    pending = [root]
+    while pending:
+        path = pending.pop()
+        try:
+            info = path.stat(follow_symlinks=False)
+            # Windows junctions and other reparse points may not be POSIX symlinks.
+            reparse = bool(getattr(info, "st_file_attributes", 0) & 0x400)
+            if stat.S_ISLNK(info.st_mode) or reparse:
+                errors.append(f"cannot inspect summary tree link: {path}")
+            elif fnmatch.fnmatch(path.name, "validation-summary-*.json"):
+                if stat.S_ISREG(info.st_mode):
+                    summaries.append(path)
+                else:
+                    errors.append(f"summary candidate is not a regular file: {path}")
+            elif stat.S_ISDIR(info.st_mode):
+                with os.scandir(path) as entries:
+                    pending.extend(Path(entry.path) for entry in entries)
+        except OSError as exception:
+            errors.append(f"cannot inspect summary tree {path}: {type(exception).__name__}")
+    return summaries
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, required=True)
@@ -796,8 +821,10 @@ def main() -> int:
         require(opponent_min_speed >= 8.5, errors,
                 f"P-47N speed became unsafe: {opponent_min_speed:.2f} bps")
 
-    summary_paths = list(args.root.rglob("validation-summary-*.json"))
-    summary_path = max(summary_paths, key=lambda path: path.stat().st_mtime) if summary_paths else None
+    summary_paths = find_summaries(args.root, errors)
+    require(len(summary_paths) == 1, errors,
+            f"expected exactly one validation summary in the artifact tree, found {len(summary_paths)}")
+    summary_path = summary_paths[0] if len(summary_paths) == 1 else None
     summary: dict[str, Any] = {}
     if summary_path:
         try:

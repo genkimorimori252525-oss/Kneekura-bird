@@ -94,6 +94,14 @@ A headless CI run is considered successful only when all of the following exist 
 - a measured or staged `flight_profiles.json`;
 - per-aircraft autonomous-flight JSONL telemetry.
 
+For `tools/verify_mutual_dogfight_scenario.py`, set `--root` to the artifact tree
+for one isolated run. The verifier rejects missing or multiple validation
+summaries and incomplete tree inspection, including links and Windows reparse
+points; it does not choose a summary by modification time. Preserve older runs
+outside that tree rather than deleting them. A single summary alone does not
+prove run identity: the current summary format has no telemetry `run_id`, so
+keep the captured logs and summary together from the same isolated run.
+
 GitHub Actions runs the A6M headless smoke test on pull requests. The `WW Headless Flight GameTest` workflow can be started manually with `aircraft=all` for the complete fighter suite. Runtime mods are downloaded transiently from their exact official Modrinth versions and are not uploaded as workflow artifacts.
 
 ## Fixed-input benchmark commands
