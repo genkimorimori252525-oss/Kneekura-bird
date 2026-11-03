@@ -105,40 +105,67 @@ def require(condition: bool, errors: list[str], message: str) -> None:
         errors.append(message)
 
 
-def summary_aircraft_log(paths: Iterable[Path], summary: dict[str, Any],
-                         errors: list[str]) -> tuple[Path | None, list[dict[str, Any]]]:
-    """Select the single completed validation aircraft, never a newer unrelated log."""
+def summary_aircraft_logs(paths: Iterable[Path], summary: dict[str, Any],
+                          errors: list[str]) -> dict[str, tuple[Path, list[dict[str, Any]]]]:
+    """Match every summary aircraft to exactly one consistently identified telemetry log."""
     results = summary.get("results")
-    if not isinstance(results, list) or len(results) != 1 or not isinstance(results[0], dict):
-        errors.append("full/landing verification requires exactly one summary aircraft")
-        return None, []
-    aircraft_uuid = results[0].get("aircraft_uuid")
-    try:
-        if not isinstance(aircraft_uuid, str):
-            raise ValueError("not a string")
-        uuid.UUID(aircraft_uuid)
-    except ValueError:
-        errors.append("summary aircraft UUID is missing or invalid")
-        return None, []
+    if not isinstance(results, list) or not results or not all(isinstance(row, dict) for row in results):
+        errors.append("full/landing verification requires summary aircraft results")
+        return {}
+    aircraft_ids: list[str] = []
+    for result in results:
+        aircraft_uuid = result.get("aircraft_uuid")
+        try:
+            if not isinstance(aircraft_uuid, str):
+                raise ValueError("not a string")
+            normalized = str(uuid.UUID(aircraft_uuid))
+        except ValueError:
+            errors.append("summary aircraft UUID is missing or invalid")
+            return {}
+        if normalized in aircraft_ids:
+            errors.append(f"summary aircraft UUID occurs more than once: {normalized}")
+            return {}
+        aircraft_ids.append(normalized)
 
-    matches: list[tuple[Path, list[dict[str, Any]]]] = []
+    matches: dict[str, list[tuple[Path, list[dict[str, Any]]]]] = {
+        aircraft_uuid: [] for aircraft_uuid in aircraft_ids
+    }
     for path in paths:
         rows = read_jsonl(path)
-        if any(row.get("aircraft_uuid") == aircraft_uuid for row in rows):
-            matches.append((path, rows))
-    if len(matches) != 1:
-        errors.append(f"expected one telemetry log for summary aircraft {aircraft_uuid}, found {len(matches)}")
-        return None, []
-    path, rows = matches[0]
-    if any(row.get("aircraft_uuid") != aircraft_uuid for row in rows):
-        errors.append(f"telemetry log contains missing or mixed aircraft UUIDs: {path}")
-        return None, []
-    return path, rows
+        row_ids: set[str | None] = set()
+        for row in rows:
+            try:
+                value = row.get("aircraft_uuid")
+                row_ids.add(str(uuid.UUID(value)) if isinstance(value, str) else None)
+            except ValueError:
+                row_ids.add(None)
+        for aircraft_uuid in row_ids.intersection(matches):
+            matches[aircraft_uuid].append((path, rows))
+            if row_ids != {aircraft_uuid}:
+                errors.append(f"telemetry log contains missing or mixed aircraft UUIDs: {path}")
+
+    selected: dict[str, tuple[Path, list[dict[str, Any]]]] = {}
+    for aircraft_uuid, candidates in matches.items():
+        if len(candidates) != 1:
+            errors.append(f"expected one telemetry log for summary aircraft {aircraft_uuid}, found {len(candidates)}")
+            continue
+        path, rows = candidates[0]
+        if not any(row.get("event") == "frame" for row in rows):
+            errors.append(f"no flight frames for summary aircraft {aircraft_uuid}")
+        selected[aircraft_uuid] = (path, rows)
+    return selected
 
 
 def verify_summary(summary: dict[str, Any], errors: list[str], metrics: dict[str, Any]) -> None:
     results = summary.get("results") or []
-    total = int(summary.get("total") or 0)
+    if not isinstance(results, list) or any(not isinstance(row, dict) for row in results):
+        errors.append("validation summary results are malformed")
+        return
+    try:
+        total = int(summary.get("total") or 0)
+    except (TypeError, ValueError):
+        errors.append("validation summary total is malformed")
+        return
     failures = [row for row in results if not row.get("passed")]
     metrics["summary_total"] = total
     metrics["summary_passed"] = total - len(failures)
@@ -302,7 +329,12 @@ def main() -> int:
     metrics["summary_path"] = str(summary_path) if summary_path else None
 
     if args.scenario in {"full", "landing"}:
-        log_path, rows = summary_aircraft_log(args.root.rglob("aircraft/*.jsonl"), summary, errors)
+        logs = summary_aircraft_logs(args.root.rglob("aircraft/*.jsonl"), summary, errors)
+        metrics["telemetry_logs"] = {key: str(value[0]) for key, value in logs.items()}
+        metrics["frame_counts"] = {key: sum(row.get("event") == "frame" for row in value[1])
+                                   for key, value in logs.items()}
+        log_path = next(iter(logs.values()))[0] if len(logs) == 1 else None
+        rows = [row for _, aircraft_rows in logs.values() for row in aircraft_rows]
     else:
         log_path = latest(args.root.rglob("aircraft/*.jsonl"))
         rows = read_jsonl(log_path)
