@@ -89,6 +89,9 @@ Independent focused fixes are drafts; they are not combined or merged. Do not re
   invalid-window metric handling and participant/pilot identity checks, with 139 tests and the same
   five verdicts. Its `scene_window_valid` requires scanning, tick order, valid scene boundaries and
   participant identity; it is not a combat verdict or continuous safety proof.
+  The same tree and 40-step history are preserved on the **evidence-only, do not merge** branch
+  `agent/issue7-verifier-integration-evidence-only`, GitHub head
+  `721e5307c05c16499053d70b9eca10a94ca4d651`. Reconcile the individual draft PRs separately.
   Independent review of `15ab796` also found that completion reason fields accept numeric prefixes
   with trailing text or duplicate keys and can accept minimum separation greater than maximum.
   A dangerous collision or ground frame in file order inside combat can also be hidden by a
@@ -151,6 +154,9 @@ Independent focused fixes are drafts; they are not combined or merged. Do not re
   The newer `mutual-verifier-d26648d-from-2585f44.bundle` has SHA-256
   `e6b4cf716f7fc220d3b92f1eb069d689cfbc7efd4f80c16cefb51ee6966c4352`; it contains the 129-test
   checkpoint. Its failed result can still display partial metrics for an invalid window or age.
+  The 139-test `mutual-verifier-8bd26d6-from-2585f44.bundle` has SHA-256
+  `e1051c50e667b0f101bc57f41b4bcd68ad7a79fb6395f1fab446f93bb0b449f0` and was restored from
+  `2585f44`; its integration-only changes also exceed the single PR size limit.
   The independent analysis ZIP `kneekura-issue7-frame-pair-analysis-20261103.zip` has SHA-256
   `c2b8ff545cf16888cd13d4b058e9cdf7c2f3ba8d636738a2eb42678302ab7d2d`.
   The missing-frame analysis ZIP `kneekura-issue7-mutual-frame-gap-66e29f5-20261103.zip` has
@@ -180,6 +186,35 @@ Independent focused fixes are drafts; they are not combined or merged. Do not re
   the test environment and load, and cannot establish ordinary server behavior. Before proposing it,
   investigate read-only logging of requested ownership, actual ticket state and timing. Do not
   remove unrelated forced chunks, change opening placement or relax safety constraints.
+- A subsequent opt-in END-loop probe is on exploration-only branch
+  `agent/issue7-mutual-ticket-observer-exploration`, GitHub commit
+  `34e5c89c403ab8ba5e9b8d543e315df45a0cd34c`, tree `1d9ba048`, same tree as local `2b93260`.
+  It makes no new forced-chunk calls or ticket requests. Build and preflight 12/12 passed; fixed-mod
+  fresh-world low/high runs each passed GameTest 64/64, Gradle 0. Low verifier passed with fire 6/1,
+  scene minimum 11.75 and adapter minimum 10.9; high failed with fire 7/0, scene minimum 13.96 and
+  adapter minimum 19.3. Opponent frames were missing for 237 and 678 ticks respectively. At some
+  same-tick/same-chunk pairs, earlier entity observation was not ticking while later END range was
+  true. Their timing differs, so visibility cannot be isolated. In two cases a final set read was
+  false before the 49th setter returned true; after-loop forced membership remains unknown. The
+  validation's owner set records attempted additions, not exclusive ownership. Observations are
+  intermittent and logging can alter runtime; no causal or continuous-safety conclusion follows.
+  See `mutual-ticket-observer-2b93260-analysis-20261103/` in ephemeral evidence and this branch's
+  `MUTUAL_TICKET_OBSERVER.md` for reproduction and limitations. Fresh worlds remain mandatory.
+  The archive `kneekura-issue7-mutual-ticket-observer-2b93260-20261103.zip` has SHA-256
+  `13d338a98bd39edc3eb172fb421e3ea4e0942fb956305c16b18de64cf892529c`.
+- An additional same-fixed-position range/composite observer is on the exploration-only branch
+  `agent/issue7-mutual-visibility-observer-exploration`, GitHub commit
+  `49b75ae09abfba197139dc05b79688969548cd77`, tree `5ac265f1`, matching local `f5e2389`.
+  Build and preflight 12/12 passed; fresh-world low/high runs each passed 64/64 GameTests and
+  Gradle 0. Low verifier passed (fire 1/1, scene 10.85, adapter 10.1); high failed for no opponent
+  fire (2/0, scene 13.21, adapter 12.5). In missing-frame intervals, END observations had range
+  true / composite false at 9 low and 10 high points with forced-set reads true. Queries are not
+  atomic, so visibility non-ticking is only inferred if state was stable between reads. Samples are
+  intermittent; entity tick, collision and causality remain unproven. The high headline values
+  matched an older no-probe run, but frame counts and combat counters differed. Source, input hashes
+  and analysis are under ephemeral `mutual-visibility-f5e2389-analysis-20261103/`.
+  The archive `kneekura-issue7-mutual-visibility-observer-f5e2389-20261103.zip` has SHA-256
+  `ee1ee5774a54fce10100f558ca4fcba69fa4edf1f818e2fced515dc2b7423c8c`.
 - Local evidence archives are ephemeral. SHA-256: `kneekura-issue7-evidence-20261103.zip`
   `973cba1b0ef7e68808179616bf55762c7f3780c38a90992efe2f2f341c6cf6f8`;
   `kneekura-issue7-terrain-authority-final-20261103.zip`
