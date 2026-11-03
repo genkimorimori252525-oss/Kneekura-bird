@@ -13,6 +13,12 @@ COMPLETION = ("reciprocal_fire_confirmed:age_ticks=200:"
               "primary_track_ticks=150:opponent_track_ticks=150:"
               "primary_combat_ticks=150:opponent_combat_ticks=150:"
               "minimum_separation=9.5:maximum_separation=40.0")
+WINDOW_METRICS = ("start_tick", "completion_tick", "scene_age_ticks", "minimum_separation",
+                  "maximum_separation", "primary_track_ticks", "opponent_track_ticks",
+                  "primary_combat_ticks", "opponent_combat_ticks", "primary_actions",
+                  "opponent_actions", "primary_fire_count", "opponent_fire_count",
+                  "primary_min_speed_bps", "opponent_min_speed_bps", "primary_ground_frames",
+                  "opponent_ground_frames", "primary_doctrines", "opponent_doctrines")
 
 
 class CompletionMetricsTests(unittest.TestCase):
@@ -68,6 +74,7 @@ class CompletionMetricsTests(unittest.TestCase):
     def test_standard_completion_succeeds(self):
         proc, result = self.verify()
         self.assertEqual(proc.returncode, 0, result)
+        self.assertIs(result["metrics"]["scene_window_valid"], True)
         self.assertEqual(result["metrics"]["primary_track_ticks"], 150)
         self.assertEqual(result["metrics"]["scene_age_ticks"], 200)
         self.assertEqual(result["metrics"]["minimum_separation"], 9.5)
@@ -209,6 +216,43 @@ class CompletionMetricsTests(unittest.TestCase):
         proc, result = self.verify()
         self.assertNotEqual(proc.returncode, 0, result)
         self.assertTrue(any("completion" in error and "start" in error for error in result["errors"]), result)
+
+    def test_invalid_window_hides_partial_scene_measurements(self):
+        original = self.primary.read_text(encoding="utf-8")
+        corruptions = (
+            ("age exceeds elapsed", lambda: self.set_completion(COMPLETION.replace("age_ticks=200", "age_ticks=201"))),
+            ("missing age", lambda: self.set_completion(COMPLETION.replace("age_ticks=200:", ""))),
+            ("zero age", lambda: self.set_completion(COMPLETION.replace("age_ticks=200", "age_ticks=0"))),
+            ("age exceeds combat limit", lambda: self.set_completion(COMPLETION.replace("age_ticks=200", "age_ticks=2001"), server_tick=2011)),
+            ("reversed window", lambda: self.set_completion(COMPLETION, server_tick=9)),
+            ("duplicate start", lambda: self.primary.write_text(original + json.dumps({"aircraft_name": PRIMARY,
+                "event": "mutual_dogfight_validation_started", "server_tick": 10}) + "\n", encoding="utf-8")),
+            ("duplicate completion", lambda: self.primary.write_text(original + json.dumps({"aircraft_name": PRIMARY,
+                "event": "mutual_dogfight_validation_completed", "server_tick": 210, "reason": COMPLETION}) + "\n", encoding="utf-8")),
+        )
+        for label, mutate in corruptions:
+            with self.subTest(label=label):
+                self.primary.write_text(original, encoding="utf-8")
+                mutate()
+                proc, result = self.verify()
+                self.assertNotEqual(proc.returncode, 0, result)
+                for key in WINDOW_METRICS:
+                    self.assertIsNone(result["metrics"][key], (key, result))
+                self.assertIs(result["metrics"]["scene_window_valid"], False)
+                self.assertEqual(result["metrics"]["primary_log"], str(self.primary))
+                self.assertEqual(result["metrics"]["opponent_log"], str(self.opponent))
+                self.assertEqual(result["metrics"]["gradle_status"], 0)
+
+    def test_valid_window_preserves_unsafe_measurements(self):
+        self.set_completion(COMPLETION.replace("minimum_separation=9.5", "minimum_separation=7.4"))
+        with self.opponent.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps({"aircraft_name": OPPONENT, "event": "frame", "server_tick": 15,
+                                     "speed_bps": 30, "on_ground": True}) + "\n")
+        proc, result = self.verify()
+        self.assertNotEqual(proc.returncode, 0, result)
+        self.assertIs(result["metrics"]["scene_window_valid"], True)
+        self.assertEqual(result["metrics"]["minimum_separation"], 7.4)
+        self.assertEqual(result["metrics"]["opponent_ground_frames"], 1)
 
 
 if __name__ == "__main__":

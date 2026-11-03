@@ -200,6 +200,9 @@ def main() -> int:
 
     start_tick = boundary_tick(started, "start", errors)
     completion_tick = boundary_tick(completed, "completion", errors)
+    age = completion_values["age_ticks"]
+    scene_window_valid = (start_tick >= 0 and completion_tick >= start_tick and age is not None
+                          and age <= completion_tick - start_tick)
     if start_tick >= 0 and completion_tick >= 0:
         if completion_tick < start_tick:
             errors.append("mutual dogfight completion tick precedes start tick")
@@ -288,6 +291,7 @@ def main() -> int:
         "errors": errors,
         "metrics": {
             "gradle_status": args.gradle_status,
+            "scene_window_valid": scene_window_valid,
             "primary_log": str(primary_entry[0]) if primary_entry else None,
             "opponent_log": str(opponent_entry[0]) if opponent_entry else None,
             "start_tick": start_tick,
@@ -312,6 +316,15 @@ def main() -> int:
             "validation_summary": str(summary_path) if summary_path else None,
         },
     }
+    if not scene_window_valid:
+        # Neither participant's partial data can characterize an unplaceable combat window.
+        for key in ("start_tick", "completion_tick", "scene_age_ticks", "minimum_separation",
+                    "maximum_separation", "primary_track_ticks", "opponent_track_ticks",
+                    "primary_combat_ticks", "opponent_combat_ticks", "primary_actions",
+                    "opponent_actions", "primary_fire_count", "opponent_fire_count",
+                    "primary_min_speed_bps", "opponent_min_speed_bps", "primary_ground_frames",
+                    "opponent_ground_frames", "primary_doctrines", "opponent_doctrines"):
+            result["metrics"][key] = None
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(result, ensure_ascii=False, indent=2))
