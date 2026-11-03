@@ -66,6 +66,9 @@ minecraft {
             if (project.hasProperty('mutualObserveVisibility')) {
                 property 'wwdebug.mutualObserveVisibility', project.property('mutualObserveVisibility').toString()
             }
+            if (project.hasProperty('mutualObserveDirectVisibility')) {
+                property 'wwdebug.mutualObserveDirectVisibility', project.property('mutualObserveDirectVisibility').toString()
+            }
         }
     }
 }

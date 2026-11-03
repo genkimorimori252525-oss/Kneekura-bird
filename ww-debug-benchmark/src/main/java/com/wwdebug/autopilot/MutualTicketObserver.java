@@ -2,12 +2,14 @@ package com.wwdebug.autopilot;
 
 import com.wwdebug.benchmark.WWDebugBenchmarkMod;
 import it.unimi.dsi.fastutil.longs.LongSet;
+import net.minecraft.SharedConstants;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.gametest.framework.GameTestServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraftforge.versions.forge.ForgeVersion;
 
 import java.util.Set;
 import java.util.UUID;
@@ -42,7 +44,15 @@ final class MutualTicketObserver {
                 } catch (RuntimeException ignored) {
                     // Without a confirmed opt-in, retain the existing ticket observation.
                 }
-                return new Sample(this, level, primary, owned, center, target, visibilityEnabled);
+                boolean directRequested = false;
+                if (visibilityEnabled) {
+                    try {
+                        directRequested = "true".equals(System.getProperty("wwdebug.mutualObserveDirectVisibility"));
+                    } catch (RuntimeException ignored) {
+                        // Without confirmed opt-in, retain the prior visibility observation.
+                    }
+                }
+                return new Sample(this, level, primary, owned, center, target, visibilityEnabled, directRequested);
             } catch (RuntimeException ignored) {
                 // Failure to establish scope or capture a target is unobserved, not false.
                 return null;
@@ -69,6 +79,15 @@ final class MutualTicketObserver {
         private final Boolean compositeBefore;
         private final Long beforeQueryTick;
         private final Long beforeQueryEndTick;
+        private final boolean directRequested;
+        private final String directScope;
+        private final String minecraftVersion;
+        private final String forgeVersion;
+        private final boolean exactLevel;
+        private final Boolean directBeforeRaw;
+        private final Long directBeforeTick;
+        private final Long directBeforeEndTick;
+        private boolean directProbeError;
         private boolean visibilityProbeError;
         private Boolean firstRead;
         private Boolean lastRead;
@@ -78,7 +97,8 @@ final class MutualTicketObserver {
         private boolean probeError;
 
         private Sample(Recorder recorder, ServerLevel level, Entity primary, Set<Long> owned, ChunkPos center,
-                       MutualDogfightValidationManager.ObservationTarget target, boolean visibilityEnabled) {
+                       MutualDogfightValidationManager.ObservationTarget target, boolean visibilityEnabled,
+                       boolean directRequested) {
             this.recorder = recorder;
             this.level = level;
             this.primary = primary;
@@ -103,11 +123,34 @@ final class MutualTicketObserver {
             }
             this.targetBlock = block;
             this.blockChunkMatches = matches;
+            this.directRequested = directRequested;
+            this.exactLevel = directRequested && level.getClass() == ServerLevel.class;
+            String minecraft = null;
+            String forge = null;
+            String scope = "unknown";
+            if (directRequested) {
+                try {
+                    minecraft = SharedConstants.getCurrentVersion().getName();
+                    forge = ForgeVersion.getVersion();
+                    if (minecraft != null && forge != null) {
+                        scope = MutualTicketObservationPolicy.directVisibilityEnabled(visibilityEnabled, "true",
+                                exactLevel, minecraft, forge) ? "supported" : "unsupported";
+                    }
+                } catch (RuntimeException | LinkageError ignored) {
+                    directProbeError = true;
+                }
+            }
+            this.minecraftVersion = minecraft;
+            this.forgeVersion = forge;
+            this.directScope = scope;
             this.beforeQueryTick = visibilityEnabled ? queryTick() : null;
             this.rangeBefore = visibilityEnabled ? safeRange() : targetKey == null ? null : level.getChunkSource().chunkMap
                     .getDistanceManager().inEntityTickingRange(targetKey);
             this.compositeBefore = visibilityEnabled ? safeComposite() : null;
             this.beforeQueryEndTick = visibilityEnabled ? queryTick() : null;
+            this.directBeforeTick = directRequested ? directTick() : null;
+            this.directBeforeRaw = directRequested ? safeDirectVisibility() : null;
+            this.directBeforeEndTick = directRequested ? directTick() : null;
         }
 
         private Boolean safeRange() {
@@ -139,6 +182,27 @@ final class MutualTicketObserver {
             }
         }
 
+        private Boolean safeDirectVisibility() {
+            if (!"supported".equals(directScope) || targetBlock == null
+                    || !Boolean.TRUE.equals(blockChunkMatches)) return null;
+            try {
+                // In fixed 1.20.1 / Forge 47.4.20 this is the visibility.isTicking map read.
+                return level.isNaturalSpawningAllowed(targetBlock);
+            } catch (RuntimeException | LinkageError ignored) {
+                directProbeError = true;
+                return null;
+            }
+        }
+
+        private Long directTick() {
+            try {
+                return level.getServer().overworld().getGameTime();
+            } catch (RuntimeException ignored) {
+                directProbeError = true;
+                return null;
+            }
+        }
+
         void read(LongSet existingView, long loopKey, boolean loopForced, int index) {
             try {
                 if (targetKey == null) return;
@@ -165,6 +229,9 @@ final class MutualTicketObserver {
                         .getDistanceManager().inEntityTickingRange(targetKey);
                 Boolean compositeAfter = visibilityEnabled ? safeComposite() : null;
                 Long afterQueryEndTick = visibilityEnabled ? queryTick() : null;
+                Long directAfterTick = directRequested ? directTick() : null;
+                Boolean directAfterRaw = directRequested ? safeDirectVisibility() : null;
+                Long directAfterEndTick = directRequested ? directTick() : null;
                 var current = MutualDogfightValidationManager.observationTarget(primary.getUUID());
                 Entity endReference = current == null ? null : current.reference();
                 String refAtEnd = current == null || reference == null || endReference == null ? "unknown"
@@ -220,6 +287,27 @@ final class MutualTicketObserver {
                             + ":visibility_after=" + visibilityAfter
                             + ":visibility_probe_error=" + visibilityProbeError;
                 }
+                if (directRequested) {
+                    Boolean directBefore = MutualTicketObservationPolicy.directVisibilityAtTicks(
+                            directBeforeRaw, directBeforeTick, directBeforeEndTick);
+                    Boolean directAfter = MutualTicketObservationPolicy.directVisibilityAtTicks(
+                            directAfterRaw, directAfterTick, directAfterEndTick);
+                    fingerprint = MutualTicketObservationPolicy.directVisibilityFingerprint(
+                            fingerprint, directScope, directBefore, directAfter, directProbeError);
+                    details += ":direct_scope=" + directScope
+                            + ":direct_level_exact=" + exactLevel
+                            + ":direct_minecraft_version=" + string(minecraftVersion)
+                            + ":direct_forge_version=" + string(forgeVersion)
+                            + ":direct_before_tick=" + number(directBeforeTick)
+                            + ":direct_before_end_tick=" + number(directBeforeEndTick)
+                            + ":direct_before_raw=" + MutualTicketObservationPolicy.state(directBeforeRaw)
+                            + ":direct_before=" + MutualTicketObservationPolicy.state(directBefore)
+                            + ":direct_after_tick=" + number(directAfterTick)
+                            + ":direct_after_end_tick=" + number(directAfterEndTick)
+                            + ":direct_after_raw=" + MutualTicketObservationPolicy.state(directAfterRaw)
+                            + ":direct_after=" + MutualTicketObservationPolicy.state(directAfter)
+                            + ":direct_probe_error=" + directProbeError;
+                }
                 long tick = level.getServer().overworld().getGameTime();
                 if (MutualTicketObservationPolicy.emit(recorder.previous, fingerprint, tick)) {
                     WWDebugBenchmarkMod.LOGGER.info("Mutual GameTest force observation server_tick={} primary_uuid={} {}",
@@ -237,6 +325,10 @@ final class MutualTicketObserver {
 
         private static String number(Long number) {
             return number == null ? "unknown" : number.toString();
+        }
+
+        private static String string(String value) {
+            return value == null ? "unknown" : value;
         }
     }
 }

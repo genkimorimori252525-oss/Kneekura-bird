@@ -20,6 +20,23 @@ final class MutualTicketObservationPolicy {
         return "true".equals(option);
     }
 
+    static boolean directVisibilityEnabled(boolean visibilityEnabled, String option, boolean exactLevel,
+                                           String minecraftVersion, String forgeVersion) {
+        return visibilityEnabled && "true".equals(option) && exactLevel
+                && "1.20.1".equals(minecraftVersion) && "47.4.20".equals(forgeVersion);
+    }
+
+    static String directVisibilityFingerprint(String base, String scope, Boolean before,
+                                              Boolean after, boolean error) {
+        return base + ":direct_scope=" + scope + ":direct_before=" + state(before)
+                + ":direct_after=" + state(after) + ":direct_probe_error=" + error;
+    }
+
+    static Boolean directVisibilityAtTicks(Boolean value, Long startTick, Long endTick) {
+        return startTick == null || endTick == null || startTick < 0 || !startTick.equals(endTick)
+                ? null : value;
+    }
+
     /** Conditional inference only: the two reads are not an atomic snapshot. */
     static String visibility(Boolean range, Boolean combined) {
         if (range == null || combined == null) return "unknown";
