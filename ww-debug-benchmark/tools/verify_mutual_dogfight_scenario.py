@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import statistics
 import sys
@@ -14,6 +15,8 @@ from typing import Any
 TEXT = re.compile(r"([a-z_]+)=([^:]+)")
 NUMBER = re.compile(r"([a-z_]+)=(-?\d+(?:\.\d+)?)")
 ACTION = re.compile(r"(?:^|:)to=([A-Z_]+)")
+# Must track MutualDogfightValidationManager.COMBAT_WINDOW_TICKS; update both together.
+COMBAT_WINDOW_TICKS = 2_000
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -49,6 +52,83 @@ def texts(reason: str) -> dict[str, str]:
 def require(condition: bool, errors: list[str], message: str) -> None:
     if not condition:
         errors.append(message)
+
+
+def boundary_tick(events: list[dict[str, Any]], label: str, errors: list[str]) -> int:
+    if len(events) != 1:
+        errors.append(f"expected exactly one mutual dogfight {label} event; found {len(events)}")
+        return -1
+    value = events[0].get("server_tick")
+    if type(value) is not int or value < 0:
+        errors.append(f"mutual dogfight {label} event has missing or invalid server tick")
+        return -1
+    return value
+
+
+def completion_metrics(completed: list[dict[str, Any]], errors: list[str]) -> dict[str, float | None]:
+    """Decode the completion's exact fields; an ambiguous record is not evidence."""
+    counters = ("primary_track_ticks", "opponent_track_ticks",
+                "primary_combat_ticks", "opponent_combat_ticks")
+    integer_fields = ("age_ticks",) + counters
+    distances = ("minimum_separation", "maximum_separation")
+    values: dict[str, float | None] = {key: None for key in integer_fields + distances}
+    if len(completed) != 1:
+        errors.append(f"expected exactly one mutual dogfight completion event; found {len(completed)}")
+        return values
+    reason = completed[0].get("reason")
+    if not isinstance(reason, str):
+        errors.append("scene completion reason is missing or invalid")
+        return values
+
+    fields: dict[str, list[tuple[str, str]]] = {key: [] for key in values}
+    for part in reason.split(":"):
+        if "=" not in part:
+            continue
+        key, value = part.split("=", 1)
+        canonical = key.strip()
+        if canonical in fields:
+            fields[canonical].append((key, value))
+    for key in integer_fields:
+        matches = fields[key]
+        if (len(matches) != 1 or matches[0][0] != key
+                or not re.fullmatch(r"(?:0|[1-9][0-9]{0,9})", matches[0][1])):
+            errors.append(f"scene completion has missing, ambiguous or invalid integer {key}")
+            continue
+        value = int(matches[0][1])
+        if value > 2_147_483_647:
+            errors.append(f"scene completion integer {key} exceeds Java int range")
+            continue
+        if key == "age_ticks" and value == 0:
+            errors.append("scene completion age_ticks must be positive")
+            continue
+        if key == "age_ticks" and value > COMBAT_WINDOW_TICKS:
+            errors.append(f"scene completion age_ticks exceeds combat window {COMBAT_WINDOW_TICKS}")
+            continue
+        # Keep the existing JSON metrics' float representation after exact integer validation.
+        values[key] = float(value)
+    age = values["age_ticks"]
+    for key in counters:
+        if age is None:
+            values[key] = None
+        elif values[key] is not None and values[key] > age:
+            errors.append(f"scene completion {key} exceeds age_ticks")
+            values[key] = None
+    for key in distances:
+        matches = fields[key]
+        if (len(matches) != 1 or matches[0][0] != key
+                or not re.fullmatch(r"(?:0|[1-9][0-9]*)(?:\.[0-9]{1,2})?", matches[0][1])):
+            errors.append(f"scene completion has missing, ambiguous or invalid rounded {key}")
+            continue
+        value = float(matches[0][1])
+        if not math.isfinite(value):
+            errors.append(f"scene completion {key} is not finite")
+            continue
+        values[key] = value
+    minimum, maximum = values["minimum_separation"], values["maximum_separation"]
+    if minimum is not None and maximum is not None and minimum > maximum:
+        errors.append("scene completion minimum_separation exceeds maximum_separation")
+        values["minimum_separation"] = values["maximum_separation"] = None
+    return values
 
 
 def main() -> int:
@@ -88,15 +168,14 @@ def main() -> int:
     primary_fires = [row for row in primary_rows if row.get("event") == "weapon_fire"]
     opponent_fires = [row for row in opponent_rows if row.get("event") == "weapon_fire"]
 
-    status_values = [numbers(str(row.get("reason", ""))) for row in mutual_status]
-    completion_values = numbers(str(completed[-1].get("reason", ""))) if completed else {}
-    separations = [value["separation"] for value in status_values if "separation" in value]
-    min_separation = completion_values.get("minimum_separation", min(separations) if separations else None)
-    max_separation = completion_values.get("maximum_separation", max(separations) if separations else None)
-    primary_track_ticks = completion_values.get("primary_track_ticks", 0.0)
-    opponent_track_ticks = completion_values.get("opponent_track_ticks", 0.0)
-    primary_combat_ticks = completion_values.get("primary_combat_ticks", 0.0)
-    opponent_combat_ticks = completion_values.get("opponent_combat_ticks", 0.0)
+    errors: list[str] = []
+    completion_values = completion_metrics(completed, errors)
+    min_separation = completion_values["minimum_separation"]
+    max_separation = completion_values["maximum_separation"]
+    primary_track_ticks = completion_values["primary_track_ticks"]
+    opponent_track_ticks = completion_values["opponent_track_ticks"]
+    primary_combat_ticks = completion_values["primary_combat_ticks"]
+    opponent_combat_ticks = completion_values["opponent_combat_ticks"]
 
     primary_doctrines = {
         value["doctrine"]
@@ -119,8 +198,20 @@ def main() -> int:
         if (match := ACTION.search(str(row.get("reason", ""))))
     ]
 
-    start_tick = min((tick(row) for row in started), default=-1)
-    completion_tick = max((tick(row) for row in completed), default=-1)
+    start_tick = boundary_tick(started, "start", errors)
+    completion_tick = boundary_tick(completed, "completion", errors)
+    age = completion_values["age_ticks"]
+    scene_window_valid = (start_tick >= 0 and completion_tick >= start_tick and age is not None
+                          and age <= completion_tick - start_tick)
+    if start_tick >= 0 and completion_tick >= 0:
+        if completion_tick < start_tick:
+            errors.append("mutual dogfight completion tick precedes start tick")
+        elif (completion_values["age_ticks"] is not None
+              and completion_values["age_ticks"] > completion_tick - start_tick):
+            # Under the fixed-mod normal tick path, age increases at most once per gameTime.
+            # Missing aircraft ticks may make age smaller; external repeated calls at the same
+            # gameTime are not prevented by the producer and are outside this validation contract.
+            errors.append("scene completion age_ticks exceeds elapsed server ticks")
 
     def combat_frames(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return [
@@ -139,7 +230,6 @@ def main() -> int:
     primary_acquisition_reasons = [str(row.get("reason", "")) for row in primary_acquisitions]
     opponent_acquisition_reasons = [str(row.get("reason", "")) for row in opponent_acquisitions]
 
-    errors: list[str] = []
     require(bool(primary_rows), errors, "primary A6M telemetry was not produced")
     require(bool(opponent_rows), errors, "opposing P-47N telemetry was not produced")
     require(bool(started), errors, "mutual dogfight scene never started")
@@ -150,13 +240,13 @@ def main() -> int:
     require(any("target_faction=red" in reason and "explicit_faction_hostile=true" in reason
                 for reason in opponent_acquisition_reasons), errors,
             "P-47N never explicitly acquired the red-faction opponent")
-    require(primary_track_ticks >= 80, errors,
+    require(primary_track_ticks is not None and primary_track_ticks >= 80, errors,
             f"A6M did not track the P-47N long enough: {primary_track_ticks}")
-    require(opponent_track_ticks >= 80, errors,
+    require(opponent_track_ticks is not None and opponent_track_ticks >= 80, errors,
             f"P-47N did not track the A6M long enough: {opponent_track_ticks}")
-    require(primary_combat_ticks >= 100, errors,
+    require(primary_combat_ticks is not None and primary_combat_ticks >= 100, errors,
             f"A6M air-combat control was not sustained: {primary_combat_ticks}")
-    require(opponent_combat_ticks >= 100, errors,
+    require(opponent_combat_ticks is not None and opponent_combat_ticks >= 100, errors,
             f"P-47N air-combat control was not sustained: {opponent_combat_ticks}")
     require(bool(primary_transitions), errors, "A6M selected no air-combat actions")
     require(bool(opponent_transitions), errors, "P-47N selected no air-combat actions")
@@ -201,10 +291,12 @@ def main() -> int:
         "errors": errors,
         "metrics": {
             "gradle_status": args.gradle_status,
+            "scene_window_valid": scene_window_valid,
             "primary_log": str(primary_entry[0]) if primary_entry else None,
             "opponent_log": str(opponent_entry[0]) if opponent_entry else None,
             "start_tick": start_tick,
             "completion_tick": completion_tick,
+            "scene_age_ticks": completion_values["age_ticks"],
             "minimum_separation": min_separation,
             "maximum_separation": max_separation,
             "primary_track_ticks": primary_track_ticks,
@@ -224,6 +316,15 @@ def main() -> int:
             "validation_summary": str(summary_path) if summary_path else None,
         },
     }
+    if not scene_window_valid:
+        # Neither participant's partial data can characterize an unplaceable combat window.
+        for key in ("start_tick", "completion_tick", "scene_age_ticks", "minimum_separation",
+                    "maximum_separation", "primary_track_ticks", "opponent_track_ticks",
+                    "primary_combat_ticks", "opponent_combat_ticks", "primary_actions",
+                    "opponent_actions", "primary_fire_count", "opponent_fire_count",
+                    "primary_min_speed_bps", "opponent_min_speed_bps", "primary_ground_frames",
+                    "opponent_ground_frames", "primary_doctrines", "opponent_doctrines"):
+            result["metrics"][key] = None
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(result, ensure_ascii=False, indent=2))
