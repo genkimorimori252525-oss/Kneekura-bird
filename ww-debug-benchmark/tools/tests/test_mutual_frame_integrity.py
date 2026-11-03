@@ -9,10 +9,13 @@ import unittest
 VERIFIER = Path(__file__).resolve().parents[1] / 'verify_mutual_dogfight_scenario.py'
 PRIMARY = 'AUTOPILOT TEST warfare_wings:a6m'
 OPPONENT = 'MUTUAL BLUE P47N'
+PRIMARY_ID = '11111111-1111-4111-8111-111111111111'
+OPPONENT_ID = '22222222-2222-4222-8222-222222222222'
 
 
 def row(name, event, tick, reason='', **extra):
-    return {'aircraft_name': name, 'event': event, 'server_tick': tick,
+    return {'aircraft_name': name, 'aircraft_uuid': PRIMARY_ID if name == PRIMARY else OPPONENT_ID,
+            'event': event, 'server_tick': tick,
             'reason': reason, **extra}
 
 
@@ -24,7 +27,10 @@ class MutualFrameIntegrityTests(unittest.TestCase):
         self.logs = self.root / 'world/wwdebug/autopilot/run/aircraft'
         self.logs.mkdir(parents=True)
         self.primary = [
-            row(PRIMARY, 'mutual_dogfight_validation_started', 100),
+            row(PRIMARY, 'mutual_dogfight_validation_started', 100,
+                f'primary_uuid={PRIMARY_ID}:opponent_uuid={OPPONENT_ID}'),
+            row(PRIMARY, 'control_adapter', 104, f'other_uuid={OPPONENT_ID}:current=9.0',
+                applied_safety_override='collision_avoidance'),
             row(PRIMARY, 'combat_target_acquired', 101, 'target_faction=blue:explicit_faction_hostile=true'),
             row(PRIMARY, 'air_combat_action_transition', 102, 'to=INTERCEPT:doctrine=turn_fighter'),
             row(PRIMARY, 'weapon_fire', 103),
@@ -35,6 +41,8 @@ class MutualFrameIntegrityTests(unittest.TestCase):
                 'primary_combat_ticks=150:opponent_combat_ticks=150'),
         ]
         self.opponent = [
+            row(OPPONENT, 'control_adapter', 104, f'other_uuid={PRIMARY_ID}:current=9.0',
+                applied_safety_override='collision_avoidance'),
             row(OPPONENT, 'combat_target_acquired', 101, 'target_faction=red:explicit_faction_hostile=true'),
             row(OPPONENT, 'air_combat_action_transition', 102, 'to=INTERCEPT:doctrine=energy_fighter'),
             row(OPPONENT, 'weapon_fire', 103),

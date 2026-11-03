@@ -10,6 +10,9 @@ import unittest
 VERIFIER = Path(__file__).resolve().parents[1] / "verify_mutual_dogfight_scenario.py"
 PRIMARY = "AUTOPILOT TEST warfare_wings:a6m"
 OPPONENT = "MUTUAL BLUE P47N"
+PRIMARY_ID = "11111111-1111-4111-8111-111111111111"
+OPPONENT_ID = "22222222-2222-4222-8222-222222222222"
+OTHER_ID = "33333333-3333-4333-8333-333333333333"
 
 
 class MutualLogIntegrityTests(unittest.TestCase):
@@ -25,7 +28,10 @@ class MutualLogIntegrityTests(unittest.TestCase):
         self.opponent = self.logs / "opponent.jsonl"
         self.other = self.logs / "other.jsonl"
         self.write_rows(self.primary, PRIMARY, [
-            {"event": "mutual_dogfight_validation_started", "server_tick": 10},
+            {"event": "mutual_dogfight_validation_started", "server_tick": 10,
+             "reason": f"primary_uuid={PRIMARY_ID}:opponent_uuid={OPPONENT_ID}"},
+            {"event": "control_adapter", "server_tick": 15, "applied_safety_override": "collision_avoidance",
+             "reason": f"other_uuid={OPPONENT_ID}:current=9.0"},
             {"event": "mutual_dogfight_validation_status", "server_tick": 15, "reason": "separation=9.5"},
             {"event": "combat_target_acquired", "reason": "target_faction=blue:explicit_faction_hostile=true"},
             {"event": "air_combat_action_transition", "reason": "doctrine=turn_fighter:to=TURN"},
@@ -36,6 +42,8 @@ class MutualLogIntegrityTests(unittest.TestCase):
                        "opponent_track_ticks=90:primary_combat_ticks=110:opponent_combat_ticks=110"},
         ])
         self.write_rows(self.opponent, OPPONENT, [
+            {"event": "control_adapter", "server_tick": 15, "applied_safety_override": "collision_avoidance",
+             "reason": f"other_uuid={PRIMARY_ID}:current=9.0"},
             {"event": "combat_target_acquired", "reason": "target_faction=red:explicit_faction_hostile=true"},
             {"event": "air_combat_action_transition", "reason": "doctrine=energy_fighter:to=TURN"},
             {"event": "weapon_fire"},
@@ -45,7 +53,8 @@ class MutualLogIntegrityTests(unittest.TestCase):
 
     @staticmethod
     def write_rows(path, name, rows):
-        path.write_text("".join(json.dumps(dict(row, aircraft_name=name)) + "\n" for row in rows),
+        uid = PRIMARY_ID if name == PRIMARY else OPPONENT_ID if name == OPPONENT else OTHER_ID
+        path.write_text("".join(json.dumps(dict(row, aircraft_name=name, aircraft_uuid=uid)) + "\n" for row in rows),
                         encoding="utf-8")
 
     def verify(self):
@@ -83,6 +92,22 @@ class MutualLogIntegrityTests(unittest.TestCase):
         self.assertNotEqual(proc.returncode, 0, result)
         self.assertFalse(result["passed"])
         self.assertTrue(any("primary.jsonl" in error and "invalid JSON" in error for error in result["errors"]), result)
+        for key in ("primary_min_speed_bps", "opponent_min_speed_bps", "primary_ground_frames",
+                    "opponent_ground_frames", "collision_observed_minimum", "collision_observation_rows"):
+            self.assertIsNone(result["metrics"][key], (key, result))
+
+    def test_unreadable_aircraft_symlink_cannot_be_skipped(self):
+        directory = self.root / "other-run"
+        directory.mkdir()
+        try:
+            (directory / "aircraft").symlink_to(directory / "missing", target_is_directory=True)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest(f"symlink unavailable: {exc}")
+        proc, result = self.verify()
+        self.assertNotEqual(proc.returncode, 0, result)
+        self.assertTrue(any("cannot scan telemetry directory" in error for error in result["errors"]), result)
+        self.assertIsNone(result["metrics"]["primary_ground_frames"], result)
+        self.assertIsNone(result["metrics"]["collision_observation_rows"], result)
 
     def test_corrupt_selected_and_unselected_candidates_fail(self):
         corruptions = {
@@ -109,6 +134,8 @@ class MutualLogIntegrityTests(unittest.TestCase):
                         expected = "invalid JSON" if reason == "invalid JSON blank" else reason
                         self.assertTrue(any(path.name in error and expected in error
                                             for error in result["errors"]), result)
+                        self.assertIsNone(result["metrics"]["opponent_min_speed_bps"], result)
+                        self.assertIsNone(result["metrics"]["collision_observed_minimum"], result)
                     finally:
                         path.write_bytes(original)
 

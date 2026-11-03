@@ -77,7 +77,7 @@ def telemetry_paths(root: Path, errors: list[str]):
                 is_real_directory = entry.is_dir(follow_symlinks=False)
                 # rglob('aircraft/*.jsonl') follows a symlink for its literal aircraft
                 # component, but does not recursively follow unrelated symlink directories.
-                if entry.name == "aircraft" and (is_real_directory or entry.is_dir()):
+                if entry.name == "aircraft" and (is_real_directory or entry.is_symlink()):
                     try:
                         with os.scandir(entry.path) as aircraft_entries:
                             candidates = [Path(child.path) for child in aircraft_entries
@@ -365,6 +365,7 @@ def main() -> int:
         rows = read_jsonl(path, errors)
         name = next((str(row.get("aircraft_name")) for row in rows if row.get("aircraft_name")), path.name)
         logs.append((name, path, rows))
+    telemetry_complete = not errors
 
     primary_candidates = [(path, rows) for name, path, rows in logs
                           if name.startswith("AUTOPILOT TEST warfare_wings:a6m")]
@@ -600,6 +601,19 @@ def main() -> int:
             "validation_summary": str(summary_path) if summary_path else None,
         },
     }
+    if not telemetry_complete:
+        # A failed scan or unreadable row can hide evidence for either aircraft.
+        # Do not present partial observations as complete safety measurements.
+        for key in ("start_tick", "completion_tick", "minimum_separation", "maximum_separation",
+                    "collision_observed_minimum", "collision_observation_rows",
+                    "collision_observation_rows_by_aircraft", "other_aircraft_collision_observed_minimum",
+                    "primary_track_ticks", "opponent_track_ticks", "primary_combat_ticks",
+                    "opponent_combat_ticks", "primary_actions", "opponent_actions",
+                    "primary_fire_count", "opponent_fire_count", "primary_combat_frame_count",
+                    "opponent_combat_frame_count", "primary_min_speed_bps", "opponent_min_speed_bps",
+                    "primary_ground_frames", "opponent_ground_frames", "primary_doctrines", "opponent_doctrines"):
+            if key in result["metrics"]:
+                result["metrics"][key] = None
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(result, ensure_ascii=False, indent=2))

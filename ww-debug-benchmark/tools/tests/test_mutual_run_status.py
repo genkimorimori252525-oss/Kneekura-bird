@@ -25,13 +25,19 @@ class MutualRunStatusTests(unittest.TestCase):
         aircraft.mkdir(parents=True)
         primary = "AUTOPILOT TEST warfare_wings:a6m"
         opponent = "MUTUAL BLUE P47N"
+        primary_id = "11111111-1111-4111-8111-111111111111"
+        opponent_id = "22222222-2222-4222-8222-222222222222"
 
         def row(name, event, tick, reason="", **extra):
-            return {"aircraft_name": name, "event": event, "server_tick": tick,
+            return {"aircraft_name": name, "aircraft_uuid": primary_id if name == primary else opponent_id,
+                    "event": event, "server_tick": tick,
                     "reason": reason, **extra}
 
         primary_rows = [
-            row(primary, "mutual_dogfight_validation_started", 100),
+            row(primary, "mutual_dogfight_validation_started", 100,
+                f"primary_uuid={primary_id}:opponent_uuid={opponent_id}"),
+            row(primary, "control_adapter", 104, f"other_uuid={opponent_id}:current=9.0",
+                applied_safety_override="collision_avoidance"),
             row(primary, "combat_target_acquired", 101,
                 "target_faction=blue:explicit_faction_hostile=true"),
             row(primary, "air_combat_action_transition", 102,
@@ -44,6 +50,8 @@ class MutualRunStatusTests(unittest.TestCase):
                 "primary_combat_ticks=150:opponent_combat_ticks=150"),
         ]
         opponent_rows = [
+            row(opponent, "control_adapter", 104, f"other_uuid={primary_id}:current=9.0",
+                applied_safety_override="collision_avoidance"),
             row(opponent, "combat_target_acquired", 101,
                 "target_faction=red:explicit_faction_hostile=true"),
             row(opponent, "air_combat_action_transition", 102,
