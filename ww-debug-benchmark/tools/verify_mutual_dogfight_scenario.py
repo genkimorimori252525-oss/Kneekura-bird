@@ -599,18 +599,19 @@ def find_summaries(root: Path, errors: list[str]) -> list[Path]:
     return summaries
 
 
-def verify_tick_order(rows: list[dict[str, Any]], role: str, errors: list[str]) -> None:
+def verify_tick_order(rows: list[dict[str, Any]], role: str, errors: list[str]) -> bool:
     """Validate every selected log row before using ticks to choose a scene window."""
     previous = -1
     for index, row in enumerate(rows, 1):
         current = tick(row)
         if current < 0:
             errors.append(f"{role} telemetry tick must be a nonnegative integer at row {index}")
-            return
+            return False
         if current < previous:
             errors.append(f"{role} telemetry tick decreased at row {index}: {previous} -> {current}")
-            return
+            return False
         previous = current
+    return True
 
 
 def completion_metrics(completed: list[dict[str, Any]], errors: list[str]) -> dict[str, float | None]:
@@ -703,8 +704,8 @@ def main() -> int:
     opponent_entry = opponent_candidates[0] if opponent_candidates else None
     primary_rows = primary_entry[1] if primary_entry else []
     opponent_rows = opponent_entry[1] if opponent_entry else []
-    verify_tick_order(primary_rows, "primary", errors)
-    verify_tick_order(opponent_rows, "opponent", errors)
+    primary_tick_order_valid = verify_tick_order(primary_rows, "primary", errors)
+    opponent_tick_order_valid = verify_tick_order(opponent_rows, "opponent", errors)
 
     # The same UUID under a different name can otherwise hide a second log of the
     # selected aircraft. Unrelated aircraft names/UUIDs do not affect selection.
@@ -935,8 +936,8 @@ def main() -> int:
             "validation_summary": str(summary_path) if summary_path else None,
         },
     }
-    if not telemetry_complete:
-        # A failed scan or unreadable row can hide evidence for either aircraft.
+    if not telemetry_complete or not (primary_tick_order_valid and opponent_tick_order_valid):
+        # A failed scan, unreadable row or invalid order can hide evidence for either aircraft.
         # Do not present partial observations as complete safety measurements.
         for key in ("start_tick", "completion_tick", "scene_age_ticks", "minimum_separation", "maximum_separation",
                     "collision_observed_minimum", "collision_observation_rows",
