@@ -32,10 +32,8 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
 
 
 def tick(row: dict[str, Any]) -> int:
-    try:
-        return int(row.get("server_tick", -1))
-    except (TypeError, ValueError):
-        return -1
+    value = row.get("server_tick")
+    return value if type(value) is int and value >= 0 else -1
 
 
 def numbers(reason: str) -> dict[str, float]:
@@ -49,6 +47,20 @@ def texts(reason: str) -> dict[str, str]:
 def require(condition: bool, errors: list[str], message: str) -> None:
     if not condition:
         errors.append(message)
+
+
+def verify_tick_order(rows: list[dict[str, Any]], role: str, errors: list[str]) -> None:
+    """Validate every selected log row before using ticks to choose a scene window."""
+    previous = -1
+    for index, row in enumerate(rows, 1):
+        current = tick(row)
+        if current < 0:
+            errors.append(f"{role} telemetry tick must be a nonnegative integer at row {index}")
+            return
+        if current < previous:
+            errors.append(f"{role} telemetry tick decreased at row {index}: {previous} -> {current}")
+            return
+        previous = current
 
 
 def main() -> int:
@@ -76,6 +88,9 @@ def main() -> int:
     )
     primary_rows = primary_entry[1] if primary_entry else []
     opponent_rows = opponent_entry[1] if opponent_entry else []
+    errors: list[str] = []
+    verify_tick_order(primary_rows, "primary", errors)
+    verify_tick_order(opponent_rows, "opponent", errors)
 
     started = [row for row in primary_rows if row.get("event") == "mutual_dogfight_validation_started"]
     completed = [row for row in primary_rows if row.get("event") == "mutual_dogfight_validation_completed"]
@@ -139,7 +154,6 @@ def main() -> int:
     primary_acquisition_reasons = [str(row.get("reason", "")) for row in primary_acquisitions]
     opponent_acquisition_reasons = [str(row.get("reason", "")) for row in opponent_acquisitions]
 
-    errors: list[str] = []
     require(bool(primary_rows), errors, "primary A6M telemetry was not produced")
     require(bool(opponent_rows), errors, "opposing P-47N telemetry was not produced")
     require(bool(started), errors, "mutual dogfight scene never started")
