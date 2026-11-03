@@ -6,6 +6,18 @@ Last updated: 2026-11-03 (Asia/Tokyo)
 
 ### Later checkpoint: collision regression and verifier identity
 
+**Safety checkpoint:** Draft [#128](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/128)
+(`9a7d6289`, tree `08bb32d5`) fixes the stale terrain-only report on top of #127; the A6M full
+GameTest passed 64/64. In its mutual-dogfight run, however, the scene completion metric reported
+minimum separation 8.22 while a same-combat collision adapter recorded `current=7.4` at a
+different intra-tick sample (rounded to one decimal). Contact is not established; all samples
+at or above 8 are not established either. Keep #128 draft and do not treat the existing mutual
+verifier's pass as complete safety evidence. The prior #127 run had 10.83 / adapter 10.1; a
+justified repeat at the same #127 code had 8.69 / adapter 8.1. UUID order changes the assigned
+evasion and other combat choices, and is not fixed. Code impact versus run variation is unresolved.
+The mutual verifier does not currently gate on adapter separation, Gradle status or crash reports;
+independent focused fixes are under investigation. Do not relax any safety threshold.
+
 - Draft [#122](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/122) records this
   handoff. Draft [#123](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/123)
   contains fixed-mod safety regression tests; its current remote head is `42fb0813`, stacked on
@@ -47,7 +59,8 @@ Last updated: 2026-11-03 (Asia/Tokyo)
   combat ground frames. An earlier implementation `1ece7bf` crashed at required Mixin injection;
   that failure was retained and the injection target corrected without lowering `require=1`.
   #127 leaves the pre-existing stale terrain-only reporting case without collision risk unresolved;
-  a separate red test for that case is being prepared. Dispatch does not prove reflection success.
+  #128 proposes a separate fix, subject to the safety hold above. Dispatch does not prove
+  reflection success.
 - Before converting autonomy, separately verify combat suppression and the claimed-without-output
   case. The present tests cover player takeover input values and terrain input in controlled cases,
   not every axis and write count. A risk-only ownership label can disagree with the
@@ -96,8 +109,9 @@ absent in this checkout. Record mod versions and hashes and preserve fresh logs 
 before treating any new run as evidence. The existing Cloud network policy is restricted and
 enforced. GitHub Actions is stopped; do not enable it or change runner registration.
 
-Next: finish the separate stale terrain-only reporting hypothesis, review #126 → #123 → #127 and
-#124 → #125 as draft stacks, then cover the combat claim-without-output branch and the test-only
+Next: finish the mutual verifier safety checks and fixed-input comparison design before treating
+#128 as qualified. Review #126 → #123 → #127 → #128 and #124 → #125 as draft stacks, then cover
+the combat claim-without-output branch and the test-only
 opponent's direct autonomy call before retrying the proposal conversion on current main. Keep the
 existing safety gates unchanged. Follow any behavior change with build, targeted fixed-mod GameTest
 and telemetry/verifier inspection; do not call the test-only or approximate-model results real-mod
