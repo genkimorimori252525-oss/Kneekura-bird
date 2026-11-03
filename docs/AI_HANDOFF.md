@@ -4,6 +4,34 @@ Last updated: 2026-11-03 (Asia/Tokyo)
 
 ## 2026-11-03 continuation checkpoint
 
+### First takeover END: stronger test remains red
+
+Draft [#144](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/144), head
+`ec9e25d2fdae0ece171b671f466361ad88263d11`, extends #141's fixture to take phase/tick
+and stale-state snapshots **before** the first takeover call. Local source `d223769`, tree
+`9e1292d818095cf74782d9436203650c7d3f32dc`, built successfully. In a fresh fixed-mod world,
+phase was `STRAIGHT_ACCELERATION` tick 599 with control and heartbeat present; one synchronous
+player-controlled benchmark call reset engine/position/velocity and advanced phase to
+`TURN_WARMUP`. One required GameTest failed at the existing first assertion, so the new
+continuity assertions were **not reached**. stdout SHA-256
+`45735555e20278c19f7b7e422094881d9cf86895ddfe95463fe7bad9db2b5356`. Initial and final
+fixture forced sets matched (25); session/control/heartbeat counts were zero. This does not
+prove exclusive force ownership. Preserve world and logs, do not count this as a pass.
+
+An END-only latch could miss player mounting and dismounting between END calls; merely retaining
+the session can retain forced chunks indefinitely, while current stop/abort cleanup may discard
+the occupied aircraft. These are design risks, not a proven safe lifecycle. A separate isolated
+stop probe is being prepared. Do not release shared forced chunks or invoke destructive cleanup
+to make the test pass.
+
+Local logs-only archives (review contents before sharing; they include generated UUIDs and
+environment details, no MOD JARs or generated worlds):
+
+* `kneekura-issue7-benchmark-direct-guard-70814fc-evidence-20261103.zip`, SHA-256
+  `ccd12582cef7848ae540e352c00cbed3ab23b48212c7abb486d366ece05cb4e0`.
+* `kneekura-issue7-benchmark-pre-end-d223769-evidence-20261103.zip`, SHA-256
+  `9316ca65f00dcc5bb8e38501822569298a93b568bb86d0e1c358be8f7d7fef31`.
+
 ### Direct benchmark entry: narrowly guarded; END reset remains red
 
 Draft [#142](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/142), head
