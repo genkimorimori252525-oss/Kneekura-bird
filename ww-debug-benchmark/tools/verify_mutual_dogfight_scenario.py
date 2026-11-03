@@ -237,6 +237,12 @@ def combat_frame_metrics(frames: list[dict[str, Any]], label: str,
         errors.append(f"{label} has {invalid_speeds} frames with missing or invalid speed")
     if invalid_ground:
         errors.append(f"{label} has {invalid_ground} frames with missing or invalid ground state")
+    # Preserve violations observed in valid, placeable samples even when another sample makes
+    # the aggregate unknown. An unknown sample cannot make an observed violation disappear.
+    if ground_frames:
+        errors.append(f"{label} touched the ground during mutual combat: {ground_frames} observed frames")
+    if speeds and min(speeds) < 8.5:
+        errors.append(f"{label} speed became unsafe: {min(speeds)!r} bps")
     return (min(speeds) if not invalid_speeds else None,
             ground_frames if not invalid_ground else None)
 
@@ -912,19 +918,6 @@ def main() -> int:
             f"rounded scene minimum does not establish 8-block separation: {min_separation}")
     require(max_separation is not None and max_separation < 480.0, errors,
             f"rounded scene maximum does not establish the 480-block limit: {max_separation}")
-    if primary_ground is not None:
-        require(primary_ground == 0, errors,
-                f"A6M touched the ground during mutual combat: {primary_ground} frames")
-    if opponent_ground is not None:
-        require(opponent_ground == 0, errors,
-                f"P-47N touched the ground during mutual combat: {opponent_ground} frames")
-    if primary_min_speed is not None:
-        require(primary_min_speed >= 8.5, errors,
-                f"A6M speed became unsafe: {primary_min_speed:.2f} bps")
-    if opponent_min_speed is not None:
-        require(opponent_min_speed >= 8.5, errors,
-                f"P-47N speed became unsafe: {opponent_min_speed:.2f} bps")
-
     summary_paths = find_summaries(args.root, errors)
     require(len(summary_paths) == 1, errors,
             f"expected exactly one validation summary in the artifact tree, found {len(summary_paths)}")
