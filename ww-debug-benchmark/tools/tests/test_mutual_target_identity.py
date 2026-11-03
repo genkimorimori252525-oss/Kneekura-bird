@@ -13,6 +13,13 @@ PILOT_A = "2a8ad002-ac1b-4f83-8903-60fb4366ddee"
 AIRCRAFT_B = "f93acc19-18a9-44de-9f33-f0ddc38f7095"
 PILOT_B = "696d5d49-c397-4b53-a30d-f7eeaa531887"
 OTHER = "7bd32675-6cff-4a29-a777-0e76c2348004"
+WINDOW_METRICS = ("start_tick", "completion_tick", "scene_age_ticks", "minimum_separation", "maximum_separation",
+                  "collision_observed_minimum", "collision_observation_rows", "collision_observation_rows_by_aircraft",
+                  "other_aircraft_collision_observed_minimum", "primary_track_ticks", "opponent_track_ticks",
+                  "primary_combat_ticks", "opponent_combat_ticks", "primary_actions", "opponent_actions",
+                  "primary_fire_count", "opponent_fire_count", "primary_combat_frame_count",
+                  "opponent_combat_frame_count", "primary_min_speed_bps", "opponent_min_speed_bps",
+                  "primary_ground_frames", "opponent_ground_frames", "primary_doctrines", "opponent_doctrines")
 
 
 class MutualTargetIdentityTests(unittest.TestCase):
@@ -75,6 +82,107 @@ class MutualTargetIdentityTests(unittest.TestCase):
                                 capture_output=True, text=True, check=False)
         self.assertTrue(output.exists(), result.stderr)
         return result.returncode, json.loads(output.read_text(encoding="utf-8"))
+
+    def make_crash(self):
+        crash = self.root / "crash-reports/crash-test.txt"
+        crash.parent.mkdir()
+        crash.write_text("crash diagnostic", encoding="utf-8")
+        return str(crash)
+
+    def assert_diagnostics(self, result, crash):
+        metrics = result["metrics"]
+        self.assertIs(metrics["telemetry_scan_complete"], True, result)
+        self.assertEqual(metrics["gradle_status"], 0)
+        self.assertEqual(metrics["crash_reports"], [crash])
+        self.assertEqual(metrics["primary_log"], str(self.logs / "primary.jsonl"))
+        self.assertEqual(metrics["opponent_log"], str(self.logs / "opponent.jsonl"))
+        self.assertEqual(metrics["validation_summary"], str(self.root / "validation-summary-1.json"))
+
+    def assert_unknown_window(self, result, crash):
+        self.assert_diagnostics(result, crash)
+        self.assertIs(result["metrics"]["scene_window_valid"], False, result)
+        for key in WINDOW_METRICS:
+            self.assertIsNone(result["metrics"][key], (key, result))
+
+    def test_invalid_start_pilots_make_window_evidence_unknown(self):
+        crash = self.make_crash()
+        start = self.primary[0]
+        original = start["reason"]
+        for field, pilot, other in (("primary_pilot_uuid", PILOT_A, PILOT_B),
+                                    ("opponent_pilot_uuid", PILOT_B, PILOT_A)):
+            for variant in ("missing", "invalid", "duplicate field", "duplicate participant"):
+                with self.subTest(field=field, variant=variant):
+                    if variant == "missing":
+                        start["reason"] = ":".join(part for part in original.split(":")
+                                                   if not part.startswith(field + "="))
+                    elif variant == "invalid":
+                        start["reason"] = original.replace(f"{field}={pilot}", f"{field}=bad-uuid")
+                    elif variant == "duplicate field":
+                        start["reason"] = original + f":{field}={pilot}"
+                    else:
+                        start["reason"] = original.replace(f"{field}={pilot}", f"{field}={other}")
+                    code, result = self.verify()
+                    self.assertNotEqual(code, 0, result)
+                    self.assertIn("mutual dogfight start must identify four distinct participant UUIDs",
+                                  result["errors"], result)
+                    self.assert_unknown_window(result, crash)
+        start["reason"] = original
+
+    def test_invalid_in_window_pilot_makes_window_evidence_unknown(self):
+        crash = self.make_crash()
+        for role, rows in (("primary", self.primary), ("opponent", self.opponent)):
+            for row in rows:
+                if not 100 <= row["server_tick"] <= 300:
+                    continue
+                for invalid in (None, OTHER):
+                    with self.subTest(role=role, event=row["event"], tick=row["server_tick"], invalid=invalid):
+                        original = row["pilot_uuid"]
+                        if invalid is None:
+                            del row["pilot_uuid"]
+                        else:
+                            row["pilot_uuid"] = invalid
+                        try:
+                            code, result = self.verify()
+                            self.assertNotEqual(code, 0, result)
+                            self.assertIn(f"{role} combat-window log does not match the scene aircraft and pilot",
+                                          result["errors"], result)
+                            self.assert_unknown_window(result, crash)
+                        finally:
+                            row["pilot_uuid"] = original
+
+    def test_invalid_pilot_does_not_erase_unsafe_distance_diagnostic(self):
+        self.make_crash()
+        frame = next(row for row in self.primary if row["event"] == "frame")
+        frame["pilot_uuid"] = OTHER
+        adapter = next(row for row in self.primary if row["event"] == "control_adapter")
+        adapter["reason"] = f"other_uuid={AIRCRAFT_B}:current=7.4"
+        code, result = self.verify()
+        self.assertNotEqual(code, 0, result)
+        self.assertIn("primary combat-window log does not match the scene aircraft and pilot", result["errors"])
+        self.assertIn("rounded mutual collision observation does not establish 8-block separation: 7.4", result["errors"])
+        self.assert_unknown_window(result, str(self.root / "crash-reports/crash-test.txt"))
+
+    def test_only_wrong_target_preserves_valid_window_and_observations(self):
+        crash = self.make_crash()
+        for role, rows, target in (("primary", self.primary, PILOT_B), ("opponent", self.opponent, PILOT_A)):
+            for event in ("combat_target_acquired", "weapon_fire"):
+                with self.subTest(role=role, event=event):
+                    row = next(item for item in rows if item["event"] == event)
+                    original = row["reason"]
+                    row["reason"] = original.replace(target, OTHER)
+                    try:
+                        code, result = self.verify()
+                        self.assertNotEqual(code, 0, result)
+                        kind = "acquisition" if event == "combat_target_acquired" else "fire"
+                        self.assertIn(f"{role} {kind} must target the opposing pilot in the combat window",
+                                      result["errors"], result)
+                        self.assert_diagnostics(result, crash)
+                        self.assertIs(result["metrics"]["scene_window_valid"], True, result)
+                        self.assertEqual(result["metrics"]["collision_observed_minimum"], 9.0)
+                        self.assertEqual(result["metrics"]["primary_ground_frames"], 0)
+                        self.assertEqual(result["metrics"]["scene_age_ticks"], 200)
+                    finally:
+                        row["reason"] = original
 
     def test_both_participants_acquire_and_fire_at_the_other_pilot(self):
         code, result = self.verify()

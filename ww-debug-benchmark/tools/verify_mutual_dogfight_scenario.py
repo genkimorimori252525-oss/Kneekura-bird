@@ -777,10 +777,22 @@ def main() -> int:
     scene_pair_matches = (len(started) == 1 and len(participant_ids) == 2
                           and reason_uuid(started[0], "primary_uuid") == participant_ids["primary"]
                           and reason_uuid(started[0], "opponent_uuid") == participant_ids["opponent"])
+    pilot_identity_matches = False
+    if window_valid and scene_pair_matches:
+        primary_pilot = reason_uuid(started[0], "primary_pilot_uuid")
+        opponent_pilot = reason_uuid(started[0], "opponent_pilot_uuid")
+        ids = (participant_ids["primary"], primary_pilot, participant_ids["opponent"], opponent_pilot)
+        if None not in ids and len(set(ids)) == 4:
+            pilot_identity_matches = True
+            for rows, pilot in ((primary_rows, primary_pilot), (opponent_rows, opponent_pilot)):
+                in_window = [row for row in rows if start_tick <= tick(row) <= completion_tick]
+                if not in_window or any(normalized_uuid(row.get("pilot_uuid")) != pilot for row in in_window):
+                    pilot_identity_matches = False
+                    break
     # This only establishes that the window can be interpreted from the logs;
     # it is not a verdict on combat, safety, or complete mission evidence.
     scene_window_valid = bool(age_window_valid and telemetry_complete and participant_logs_unambiguous
-                              and scene_pair_matches
+                              and scene_pair_matches and pilot_identity_matches
                               and primary_tick_order_valid and opponent_tick_order_valid)
 
     def within_window(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
