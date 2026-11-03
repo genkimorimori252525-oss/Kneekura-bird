@@ -431,6 +431,17 @@ def verify_primary_summary(summary: Any, primary_rows: list[dict[str, Any]],
                    for row in started}
     primary_ids = row_uuids & start_uuids
     primary_id = next(iter(primary_ids)) if len(primary_ids) == 1 else None
+    # The scene opponent is a temporary aircraft, discarded before the
+    # primary validation run continues; it is not a result candidate.
+    opponents: list[str | None] = []
+    for row in started:
+        reason = row.get("reason")
+        fields = [part[len("opponent_uuid="):] for part in reason.split(":")
+                  if part.startswith("opponent_uuid=")] if isinstance(reason, str) else []
+        opponents.append(normalized_uuid(fields[0]) if len(fields) == 1 else None)
+    opponent_id = opponents[0] if len(opponents) == 1 else None
+    require(opponent_id is not None and opponent_id != primary_id and opponent_id not in result_uuids,
+            errors, "scene opponent UUID must be distinct from all summary aircraft")
     primary_results = [row for row in results
                        if row.get("entity_id") == "warfare_wings:a6m"
                        and normalized_uuid(row.get("aircraft_uuid")) == primary_id]

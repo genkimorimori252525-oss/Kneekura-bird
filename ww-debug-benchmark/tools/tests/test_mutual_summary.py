@@ -42,6 +42,10 @@ class MutualSummaryTests(unittest.TestCase):
                 "minimum_separation=10.0:maximum_separation=100.0:"
                 "primary_track_ticks=150:opponent_track_ticks=150:"
                 "primary_combat_ticks=150:opponent_combat_ticks=150"),
+            row(primary, PRIMARY, "phase_transition", 400,
+                "BRAKE->PARKED:complete_stop_stable_for_40_ticks", phase="PARKED"),
+            row(primary, PRIMARY, "session_end", 400,
+                "validation_aircraft_cleanup", phase="PARKED"),
         ]
         self.write_primary()
         rows = [
@@ -147,6 +151,14 @@ class MutualSummaryTests(unittest.TestCase):
                 code, result = self.verify()
                 self.assertNotEqual(code, 0, result)
                 self.assertFalse(result["passed"])
+
+    def test_opponent_scene_aircraft_is_not_a_summary_primary_aircraft(self):
+        secondary = dict(self.summary["results"][0], entity_id="warfare_wings:p51d",
+                         aircraft_uuid=OPPONENT)
+        self.summary["total"] = self.summary["completed"] = 2
+        self.summary["results"].append(secondary)
+        code, result = self.verify()
+        self.assertNotEqual(code, 0, result)
 
     def test_multiple_aircraft_summary_requires_primary_a6m(self):
         secondary = dict(self.summary["results"][0], entity_id="warfare_wings:p51d",
