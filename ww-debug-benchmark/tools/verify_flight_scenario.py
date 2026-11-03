@@ -106,8 +106,8 @@ def require(condition: bool, errors: list[str], message: str) -> None:
 
 
 def summary_aircraft_logs(paths: Iterable[Path], summary: dict[str, Any],
-                          errors: list[str]) -> dict[str, tuple[Path, list[dict[str, Any]]]]:
-    """Match every summary aircraft to exactly one consistently identified telemetry log."""
+                          errors: list[str]) -> dict[str, tuple[Path, int, int]]:
+    """Match each aircraft while retaining only per-file counts, not telemetry rows."""
     results = summary.get("results")
     if not isinstance(results, list) or not results or not all(isinstance(row, dict) for row in results):
         errors.append("full/landing verification requires summary aircraft results")
@@ -127,32 +127,53 @@ def summary_aircraft_logs(paths: Iterable[Path], summary: dict[str, Any],
             return {}
         aircraft_ids.append(normalized)
 
-    matches: dict[str, list[tuple[Path, list[dict[str, Any]]]]] = {
+    matches: dict[str, list[tuple[Path, int, int]]] = {
         aircraft_uuid: [] for aircraft_uuid in aircraft_ids
     }
     for path in paths:
-        rows = read_jsonl(path)
-        row_ids: set[str | None] = set()
-        for row in rows:
-            try:
-                value = row.get("aircraft_uuid")
-                row_ids.add(str(uuid.UUID(value)) if isinstance(value, str) else None)
-            except ValueError:
-                row_ids.add(None)
-        for aircraft_uuid in row_ids.intersection(matches):
-            matches[aircraft_uuid].append((path, rows))
-            if row_ids != {aircraft_uuid}:
+        first_id: str | None = None
+        matching_ids: set[str] = set()
+        mixed = False
+        row_count = 0
+        frame_count = 0
+        try:
+            with path.open(encoding="utf-8") as stream:
+                for line in stream:
+                    try:
+                        row = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if not isinstance(row, dict):
+                        continue
+                    row_count += 1
+                    frame_count += row.get("event") == "frame"
+                    try:
+                        value = row.get("aircraft_uuid")
+                        row_id = str(uuid.UUID(value)) if isinstance(value, str) else None
+                    except ValueError:
+                        row_id = None
+                    if row_count == 1:
+                        first_id = row_id
+                    elif row_id != first_id:
+                        mixed = True
+                    if row_id in matches:
+                        matching_ids.add(row_id)
+        except OSError:
+            continue
+        for aircraft_uuid in matching_ids:
+            matches[aircraft_uuid].append((path, row_count, frame_count))
+            if mixed:
                 errors.append(f"telemetry log contains missing or mixed aircraft UUIDs: {path}")
 
-    selected: dict[str, tuple[Path, list[dict[str, Any]]]] = {}
+    selected: dict[str, tuple[Path, int, int]] = {}
     for aircraft_uuid, candidates in matches.items():
         if len(candidates) != 1:
             errors.append(f"expected one telemetry log for summary aircraft {aircraft_uuid}, found {len(candidates)}")
             continue
-        path, rows = candidates[0]
-        if not any(row.get("event") == "frame" for row in rows):
+        path, row_count, frame_count = candidates[0]
+        if frame_count == 0:
             errors.append(f"no flight frames for summary aircraft {aircraft_uuid}")
-        selected[aircraft_uuid] = (path, rows)
+        selected[aircraft_uuid] = (path, row_count, frame_count)
     return selected
 
 
@@ -331,18 +352,20 @@ def main() -> int:
     if args.scenario in {"full", "landing"}:
         logs = summary_aircraft_logs(args.root.rglob("aircraft/*.jsonl"), summary, errors)
         metrics["telemetry_logs"] = {key: str(value[0]) for key, value in logs.items()}
-        metrics["frame_counts"] = {key: sum(row.get("event") == "frame" for row in value[1])
-                                   for key, value in logs.items()}
+        metrics["frame_counts"] = {key: value[2] for key, value in logs.items()}
         log_path = next(iter(logs.values()))[0] if len(logs) == 1 else None
-        rows = [row for _, aircraft_rows in logs.values() for row in aircraft_rows]
+        row_count = sum(value[1] for value in logs.values())
+        frame_count = sum(value[2] for value in logs.values())
     else:
         log_path = latest(args.root.rglob("aircraft/*.jsonl"))
         rows = read_jsonl(log_path)
-    frames = [row for row in rows if row.get("event") == "frame"]
-    require(bool(rows), errors, "no per-aircraft autonomous-flight telemetry was produced")
-    require(bool(frames), errors, "no autonomous-flight frame telemetry was produced")
+        frames = [row for row in rows if row.get("event") == "frame"]
+        row_count = len(rows)
+        frame_count = len(frames)
+    require(bool(row_count), errors, "no per-aircraft autonomous-flight telemetry was produced")
+    require(bool(frame_count), errors, "no autonomous-flight frame telemetry was produced")
     metrics["telemetry_log"] = str(log_path) if log_path else None
-    metrics["frame_count"] = len(frames)
+    metrics["frame_count"] = frame_count
 
     if args.scenario in {"full", "landing"}:
         require(bool(summary), errors, "no autonomous-flight validation summary was produced")

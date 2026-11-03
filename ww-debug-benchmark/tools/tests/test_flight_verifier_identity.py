@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import uuid
 
 VERIFIER = Path(__file__).resolve().parents[1] / "verify_flight_scenario.py"
 TARGET = "a50055ec-8717-4c65-b5c0-1de53ad23da8"
@@ -121,6 +122,39 @@ class FlightVerifierIdentityTests(unittest.TestCase):
         self.summary([None])
         proc, result = self.verify()
         self.assertNotEqual(proc.returncode, 0, result)
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "RSS delta uses Linux ru_maxrss units")
+    def test_multi_aircraft_memory_does_not_scale_with_total_log_size(self):
+        aircraft_ids = [str(uuid.UUID(int=index + 1)) for index in range(4)]
+        self.summary([{"aircraft_uuid": value, "passed": True} for value in aircraft_ids])
+        for index, value in enumerate(aircraft_ids):
+            line = json.dumps({"event": "frame", "aircraft_uuid": value, "payload": "x" * 6000}) + "\n"
+            with (self.logs / f"aircraft-{index}.jsonl").open("w", encoding="utf-8") as stream:
+                for _ in range(2000):
+                    stream.write(line)
+
+        program = '''
+import importlib.util, io, json, resource, sys
+from contextlib import redirect_stdout
+spec = importlib.util.spec_from_file_location("verifier", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+sys.argv = [sys.argv[1], "--root", sys.argv[2], "--scenario", "full", "--gradle-status", "0", "--output", sys.argv[3]]
+before = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+with redirect_stdout(io.StringIO()):
+    code = module.main()
+after = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+print(json.dumps({"exit": code, "peak_growth_kib": after - before}))
+'''
+        proc = subprocess.run([sys.executable, "-c", program, str(VERIFIER), str(self.root),
+                               str(self.root / "memory-result.json")], text=True,
+                              capture_output=True, check=False)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        measured = json.loads(proc.stdout)
+        self.assertEqual(measured["exit"], 0, measured)
+        result = json.loads((self.root / "memory-result.json").read_text(encoding="utf-8"))
+        self.assertEqual(result["metrics"]["frame_counts"], {value: 2000 for value in aircraft_ids})
+        self.assertLess(measured["peak_growth_kib"], 30 * 1024, measured)
 
     def test_focused_turn_still_works_without_a_summary(self):
         self.summary_path.unlink()
