@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
 import math
 import os
@@ -29,6 +30,10 @@ class InvalidConstantError(ValueError):
     pass
 
 
+class NonFiniteNumberError(ValueError):
+    pass
+
+
 def unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in pairs:
@@ -40,6 +45,51 @@ def unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 def reject_json_constant(value: str) -> None:
     raise InvalidConstantError(value)
+
+
+def finite_json_float(value: str) -> float:
+    number = float(value)
+    if not math.isfinite(number):
+        raise NonFiniteNumberError("JSON number exceeds finite float range")
+    return number
+
+
+def telemetry_paths(root: Path, errors: list[str]):
+    """Find candidates without hiding directory scan errors or following recursive symlinks."""
+    pending = [root]
+    reported: set[str] = set()
+
+    def report(path: str, exc: OSError) -> None:
+        if path not in reported:
+            errors.append(f"cannot scan telemetry directory {path}: {type(exc).__name__}")
+            reported.add(path)
+
+    while pending:
+        directory = pending.pop()
+        try:
+            with os.scandir(directory) as stream:
+                entries = list(stream)
+        except OSError as exc:
+            report(str(directory), exc)
+            continue
+        for entry in entries:
+            try:
+                is_real_directory = entry.is_dir(follow_symlinks=False)
+                # rglob('aircraft/*.jsonl') follows a symlink for its literal aircraft
+                # component, but does not recursively follow unrelated symlink directories.
+                if entry.name == "aircraft" and (is_real_directory or entry.is_dir()):
+                    try:
+                        with os.scandir(entry.path) as aircraft_entries:
+                            candidates = [Path(child.path) for child in aircraft_entries
+                                          if fnmatch.fnmatch(child.name, "*.jsonl")]
+                    except OSError as exc:
+                        report(entry.path, exc)
+                    else:
+                        yield from candidates
+                if is_real_directory:
+                    pending.append(Path(entry.path))
+            except OSError as exc:
+                report(entry.path, exc)
 
 
 def read_jsonl(path: Path, errors: list[str]) -> list[dict[str, Any]]:
@@ -63,7 +113,8 @@ def read_jsonl(path: Path, errors: list[str]) -> list[dict[str, Any]]:
                     continue
                 try:
                     value = json.loads(line, object_pairs_hook=unique_json_object,
-                                       parse_constant=reject_json_constant)
+                                       parse_constant=reject_json_constant,
+                                       parse_float=finite_json_float)
                 except json.JSONDecodeError:
                     report_corruption("invalid JSON", line_number)
                     continue
@@ -72,6 +123,9 @@ def read_jsonl(path: Path, errors: list[str]) -> list[dict[str, Any]]:
                     continue
                 except InvalidConstantError as exc:
                     report_corruption(f"InvalidConstantError {exc}", line_number)
+                    continue
+                except NonFiniteNumberError:
+                    report_corruption("NonFiniteNumberError", line_number)
                     continue
                 except ValueError:
                     report_corruption("JSON parser ValueError", line_number)
@@ -306,9 +360,8 @@ def main() -> int:
     args = parser.parse_args()
 
     errors: list[str] = []
-
     logs: list[tuple[str, Path, list[dict[str, Any]]]] = []
-    for path in args.root.rglob("aircraft/*.jsonl"):
+    for path in telemetry_paths(args.root, errors):
         rows = read_jsonl(path, errors)
         name = next((str(row.get("aircraft_name")) for row in rows if row.get("aircraft_name")), path.name)
         logs.append((name, path, rows))

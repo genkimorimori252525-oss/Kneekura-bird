@@ -65,10 +65,14 @@ class MutualLogIntegrityTests(unittest.TestCase):
         self.assertEqual(result["metrics"]["minimum_separation"], 9.5)
 
     def test_carriage_return_record_separator_remains_supported(self):
-        for path in (self.primary, self.opponent, self.other):
-            path.write_bytes(path.read_bytes().replace(b'\n', b'\r'))
-        proc, result = self.verify()
-        self.assertEqual(proc.returncode, 0, result)
+        paths = (self.primary, self.opponent, self.other)
+        originals = {path: path.read_bytes() for path in paths}
+        for separator in (b'\r', b'\r\n'):
+            with self.subTest(separator=separator):
+                for path in paths:
+                    path.write_bytes(originals[path].replace(b'\n', separator))
+                proc, result = self.verify()
+                self.assertEqual(proc.returncode, 0, result)
 
     def test_malformed_unsafe_approach_cannot_disappear(self):
         proc, result = self.verify()
@@ -114,6 +118,73 @@ class MutualLogIntegrityTests(unittest.TestCase):
         self.assertNotEqual(proc.returncode, 0, result)
         self.assertTrue(any("cannot read telemetry log" in error and "unreadable.jsonl" in error
                             for error in result["errors"]), result)
+
+    def test_json_float_overflow_fails_for_all_candidate_logs(self):
+        for path in (self.primary, self.opponent, self.other):
+            original = path.read_bytes()
+            for value in (b"1e9999", b"-1e9999"):
+                with self.subTest(file=path.name, value=value):
+                    try:
+                        path.write_bytes(original + b'{"speed_bps":' + value + b'}\n')
+                        proc, result = self.verify()
+                        self.assertNotEqual(proc.returncode, 0, result)
+                        self.assertTrue(any(path.name in error and "NonFiniteNumberError" in error
+                                            for error in result["errors"]), result)
+                    finally:
+                        path.write_bytes(original)
+
+    def test_large_finite_json_numbers_remain_supported(self):
+        with self.other.open("ab") as stream:
+            stream.write(b'{"values":[1e308,-1e308,1e-200]}\n')
+        proc, result = self.verify()
+        self.assertEqual(proc.returncode, 0, result)
+
+    def test_directory_scan_failure_fails_with_result_file(self):
+        inaccessible = self.root / "unscannable"
+        inaccessible.mkdir()
+        output = self.root / "scan-result.json"
+        program = '''
+import importlib.util, os, sys
+from unittest.mock import patch
+spec=importlib.util.spec_from_file_location("verifier",sys.argv[1]); module=importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+root=sys.argv[2]; denied=sys.argv[3]; output=sys.argv[4]; original=os.scandir
+def scan(path):
+    if os.fspath(path)==denied: raise PermissionError("synthetic scan failure")
+    return original(path)
+sys.argv=[sys.argv[1],"--root",root,"--gradle-status","0","--output",output]
+with patch("os.scandir",scan): result=module.main()
+raise SystemExit(result)
+'''
+        for denied in (inaccessible, self.logs):
+            with self.subTest(denied=denied):
+                output.unlink(missing_ok=True)
+                proc = subprocess.run([sys.executable, "-c", program, str(VERIFIER), str(self.root),
+                                       str(denied), str(output)], text=True, capture_output=True, check=False)
+                self.assertTrue(output.exists(), proc.stderr)
+                result = json.loads(output.read_text(encoding="utf-8"))
+                self.assertNotEqual(proc.returncode, 0, result)
+                self.assertTrue(any(str(denied) in error and "PermissionError" in error
+                                    for error in result["errors"]), result)
+
+    def test_symlink_traversal_matches_existing_scope(self):
+        with tempfile.TemporaryDirectory() as outside:
+            external = Path(outside)
+            aircraft = external / "aircraft"
+            aircraft.mkdir()
+            (aircraft / "broken.jsonl").write_text('{"broken":\n', encoding="utf-8")
+            alias = self.root / "alias"
+            try:
+                alias.symlink_to(external, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                self.skipTest("directory symlinks are unavailable")
+            proc, result = self.verify()
+            self.assertEqual(proc.returncode, 0, result)
+            holder = self.root / "holder"
+            holder.mkdir()
+            (holder / "aircraft").symlink_to(aircraft, target_is_directory=True)
+            proc, result = self.verify()
+            self.assertNotEqual(proc.returncode, 0, result)
+            self.assertTrue(any("broken.jsonl" in error for error in result["errors"]), result)
 
 
 if __name__ == "__main__":
