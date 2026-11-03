@@ -57,6 +57,9 @@ minecraft {
             if (project.hasProperty('mutualUuidOrder')) {
                 property 'wwdebug.mutualUuidOrder', project.property('mutualUuidOrder').toString()
             }
+            if (project.hasProperty('mutualObserveEntity')) {
+                property 'wwdebug.mutualObserveEntity', project.property('mutualObserveEntity').toString()
+            }
         }
     }
 }

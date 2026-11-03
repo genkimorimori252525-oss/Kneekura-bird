@@ -68,6 +68,7 @@ final class MutualDogfightValidationManager {
             return;
         }
 
+        MutualDogfightObserver.observe(level, aircraft, scene.opponent, scene.opponentUuid, phase, false);
         Entity opponent = scene.opponent;
         if (opponent == null || opponent.isRemoved()) {
             Entity reloaded = scene.opponentUuid == null ? null : level.getEntity(scene.opponentUuid);
@@ -290,6 +291,7 @@ final class MutualDogfightValidationManager {
                         + ":primary_initial_shots=" + scene.primaryInitialShots
                         + ":opponent_initial_shots=" + scene.opponentInitialShots,
                 phase);
+        MutualDogfightObserver.observe(level, primary, scene.opponent, scene.opponentUuid, phase, true);
     }
 
     private static void failUuidFixture(ServerLevel level, Entity primary, Scene scene,
