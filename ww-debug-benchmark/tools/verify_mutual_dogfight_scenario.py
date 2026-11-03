@@ -380,6 +380,48 @@ def collision_separation_evidence(primary: list[dict[str, Any]], opponent: list[
     }
 
 
+def normalized_uuid(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return str(uuid.UUID(value))
+    except ValueError:
+        return None
+
+
+def verify_primary_summary(summary: Any, primary_rows: list[dict[str, Any]],
+                           started: list[dict[str, Any]], errors: list[str]) -> None:
+    if not isinstance(summary, dict):
+        errors.append("primary post-combat mission summary is not an object")
+        return
+    require(summary.get("state") == "complete", errors,
+            "primary post-combat mission summary was not complete")
+    for field in ("total", "completed"):
+        value = summary.get(field)
+        require(type(value) is int and value == 1, errors,
+                f"primary post-combat summary {field} must be exactly one")
+    results = summary.get("results")
+    if not isinstance(results, list) or len(results) != 1 or not isinstance(results[0], dict):
+        errors.append("primary post-combat summary must contain exactly one aircraft result")
+        return
+    result = results[0]
+    for field, expected in (("entity_id", "warfare_wings:a6m"),
+                            ("passed", True), ("reason", "completed_full_mission"),
+                            ("final_phase", "PARKED"),
+                            ("last_transition_reason", "complete_stop_stable_for_40_ticks")):
+        actual = result.get(field)
+        valid = actual is True if field == "passed" else actual == expected
+        require(valid, errors, f"primary post-combat summary {field} is invalid")
+
+    result_uuid = normalized_uuid(result.get("aircraft_uuid"))
+    row_uuids = {normalized_uuid(row.get("aircraft_uuid")) for row in primary_rows}
+    start_uuids = {normalized_uuid(texts(str(row.get("reason", ""))).get("primary_uuid"))
+                   for row in started}
+    require(result_uuid is not None and row_uuids == {result_uuid}
+            and start_uuids == {result_uuid}, errors,
+            "primary summary UUID does not uniquely match the primary log and scene")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, required=True)
@@ -596,11 +638,7 @@ def main() -> int:
         except (OSError, UnicodeDecodeError, ValueError, RecursionError) as exc:
             errors.append(f"cannot read validation summary {summary_path}: {type(exc).__name__}")
             summary = {}
-    results = summary.get("results") or []
-    require(summary.get("state") == "complete", errors,
-            "primary post-combat mission summary was not complete")
-    require(bool(results) and all(bool(row.get("passed")) for row in results), errors,
-            "primary A6M did not return to a passed parked mission")
+    verify_primary_summary(summary, primary_rows, started, errors)
 
     result = {
         "scenario": "dogfight_mutual",
