@@ -4,6 +4,38 @@ Last updated: 2026-11-03 (Asia/Tokyo)
 
 ## 2026-11-03 continuation checkpoint
 
+### Public benchmark stop removes a player-controlled aircraft
+
+Draft [#145](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/145), head
+`6aa19260bd9981c1a8505e59acb0728eb628cf47`, adds a test-only stop probe on #141. Local
+`5fdc7e`, tree `f153061f53f95ce2905aca1cfb3d7548bec06193`, has production stop/cleanup
+identical to main `2585f44`. In a dedicated JVM and fresh world with fixed MOD versions,
+one selected GameTest first refused a foreign session identity and passed the player-free
+stop control. For a second D4Y, player-free preparation recorded fuel utilization 0→1 and
+read back nonzero input/engine/motion sentinels; a normal FakePlayer mount controlled the
+aircraft with the ArmorStand still aboard. Public `BenchmarkManager.stop` returned 1, removed
+the aircraft and detached the player; the player entity survived. The safety assertion failed,
+one required test failed and Gradle exited 1. stdout SHA-256
+`f4cfb53915dbb37daf1421ec871f92e637af1b639ae0c47321a44e690517eb83`. This observation was
+made before fixture cleanup and independently reviewed. Cleanup's 25-chunk sets were equal;
+session/control/heartbeat counts were zero. These sets cannot prove exclusive ownership.
+
+Two earlier fresh runs are **inconclusive**, not stop results: `fe78dfa` failed its nonzero
+readback before mounting (stdout `e6e2bd42220c3084f40f978d7bf211886162c958fa6b8e3f9884ccb31e58bfd8`);
+`c734411` logged engine=0 but did not observe fuel then (stdout
+`fda8309a6e099036e70a2b05144d845e97072d5f3a4b85354ee77d3c495f65c8`). The fixed MOD's
+setter refuses nonzero engine targets without fuel; the later 0→1 observation supports the
+preparation fix, but does not directly prove the earlier cause. All three worlds and logs are
+preserved. Local logs-only archive `kneekura-issue7-benchmark-stop-5fdc7e-evidence-20261103.zip`
+SHA-256 `3006bdd4b0f524a267f762d3202929dc13e80fcdae9b72ea9bffba4e023ecb10`; review raw test
+UUIDs and environment details before sharing. It contains no MOD JARs or generated worlds.
+
+Do not invoke current abort/cleanup as a player-takeover fix. A public-stop guard alone leaves
+the END/reset issue, potential persistent forced chunks, exception abort and server-shutdown
+behavior unresolved; investigate the whole lifecycle without assuming boolean chunk ownership.
+Network players, other aircraft, command parsing, concurrency, same-value writes and natural
+shutdown remain unverified. No merge or Actions/runner change was made.
+
 ### First takeover END: stronger test remains red
 
 Draft [#144](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/144), head
