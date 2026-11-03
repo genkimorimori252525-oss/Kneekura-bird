@@ -4,8 +4,11 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
+import os
 import re
+import stat
 import statistics
 import sys
 from pathlib import Path
@@ -51,6 +54,31 @@ def require(condition: bool, errors: list[str], message: str) -> None:
         errors.append(message)
 
 
+def find_summaries(root: Path, errors: list[str]) -> list[Path]:
+    """Inspect the entire supplied artifact tree without silently skipping entries."""
+    summaries: list[Path] = []
+    pending = [root]
+    while pending:
+        path = pending.pop()
+        try:
+            info = path.stat(follow_symlinks=False)
+            # Windows junctions and other reparse points may not be POSIX symlinks.
+            reparse = bool(getattr(info, "st_file_attributes", 0) & 0x400)
+            if stat.S_ISLNK(info.st_mode) or reparse:
+                errors.append(f"cannot inspect summary tree link: {path}")
+            elif fnmatch.fnmatch(path.name, "validation-summary-*.json"):
+                if stat.S_ISREG(info.st_mode):
+                    summaries.append(path)
+                else:
+                    errors.append(f"summary candidate is not a regular file: {path}")
+            elif stat.S_ISDIR(info.st_mode):
+                with os.scandir(path) as entries:
+                    pending.extend(Path(entry.path) for entry in entries)
+        except OSError as exception:
+            errors.append(f"cannot inspect summary tree {path}: {type(exception).__name__}")
+    return summaries
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, required=True)
@@ -58,11 +86,15 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
+    errors: list[str] = []
     logs: dict[str, tuple[Path, list[dict[str, Any]]]] = {}
-    for path in args.root.rglob("aircraft/*.jsonl"):
-        rows = read_jsonl(path)
-        name = next((str(row.get("aircraft_name")) for row in rows if row.get("aircraft_name")), path.name)
-        logs[name] = (path, rows)
+    try:
+        for path in args.root.rglob("aircraft/*.jsonl"):
+            rows = read_jsonl(path)
+            name = next((str(row.get("aircraft_name")) for row in rows if row.get("aircraft_name")), path.name)
+            logs[name] = (path, rows)
+    except OSError as exception:
+        errors.append(f"cannot inspect aircraft log tree: {type(exception).__name__}")
 
     primary_entry = next(
         ((path, rows) for name, (path, rows) in logs.items()
@@ -139,7 +171,6 @@ def main() -> int:
     primary_acquisition_reasons = [str(row.get("reason", "")) for row in primary_acquisitions]
     opponent_acquisition_reasons = [str(row.get("reason", "")) for row in opponent_acquisitions]
 
-    errors: list[str] = []
     require(bool(primary_rows), errors, "primary A6M telemetry was not produced")
     require(bool(opponent_rows), errors, "opposing P-47N telemetry was not produced")
     require(bool(started), errors, "mutual dogfight scene never started")
@@ -181,13 +212,15 @@ def main() -> int:
         require(min(opponent_speeds) >= 8.5, errors,
                 f"P-47N speed became unsafe: {min(opponent_speeds):.2f} bps")
 
-    summary_paths = list(args.root.rglob("validation-summary-*.json"))
-    summary_path = max(summary_paths, key=lambda path: path.stat().st_mtime) if summary_paths else None
+    summary_paths = find_summaries(args.root, errors)
+    require(len(summary_paths) == 1, errors,
+            f"expected exactly one validation summary in the artifact tree, found {len(summary_paths)}")
+    summary_path = summary_paths[0] if len(summary_paths) == 1 else None
     summary: dict[str, Any] = {}
     if summary_path:
         try:
             summary = json.loads(summary_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+        except (OSError, UnicodeError, json.JSONDecodeError):
             summary = {}
     results = summary.get("results") or []
     require(summary.get("state") == "complete", errors,
