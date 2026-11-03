@@ -1,0 +1,18 @@
+gradle.beforeProject { p ->
+    p.tasks.configureEach { t ->
+        if (t.name == 'runGameTestServer') {
+            t.doFirst {
+                def cfg = t.getRunConfig().get()
+                if (new File(cfg.getWorkingDirectory()).canonicalFile != p.file('run-gametest').canonicalFile) {
+                    throw new GradleException('Unexpected GameTest working directory')
+                }
+                if (!t.jvmArgumentProviders.empty) {
+                    throw new GradleException('Uninspected JVM argument providers')
+                }
+                cfg.property('forge.enabledGameTestNamespaces', 'wwdebug_benchmark_stop_probe')
+                cfg.property('wwdebug.benchmarkStopProbe', 'fresh-disposable-world-single-jvm')
+                println 'STOP_PROBE_CONFIG namespace=' + cfg.getProperties().get('forge.enabledGameTestNamespaces') + ' workdir=' + cfg.getWorkingDirectory()
+            }
+        }
+    }
+}
