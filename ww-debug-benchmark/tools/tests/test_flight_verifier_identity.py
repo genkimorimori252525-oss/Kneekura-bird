@@ -35,11 +35,11 @@ class FlightVerifierIdentityTests(unittest.TestCase):
         os.utime(path, (mtime, mtime))
         return path
 
-    def verify(self, scenario="full"):
+    def verify(self, scenario="full", env=None):
         output = self.root / "result.json"
         proc = subprocess.run([sys.executable, str(VERIFIER), "--root", str(self.root),
                                "--scenario", scenario, "--gradle-status", "0", "--output", str(output)],
-                              text=True, capture_output=True, check=False)
+                              text=True, capture_output=True, check=False, env=env)
         self.assertTrue(output.is_file(), proc.stderr)
         return proc, json.loads(output.read_text(encoding="utf-8"))
 
@@ -123,6 +123,91 @@ class FlightVerifierIdentityTests(unittest.TestCase):
         proc, result = self.verify()
         self.assertNotEqual(proc.returncode, 0, result)
 
+    def test_corrupt_target_or_unrelated_log_fails_with_result_file(self):
+        target = self.log("target.jsonl", [TARGET], 1)
+        unrelated = self.log("unrelated.jsonl", [OTHER], 2)
+        corruptions = {"invalid_json": b'{"event":\n', "invalid_utf8": b'\xff\n',
+                       "non_object": b'"not an object"\n', "blank_line": b'\n'}
+        messages = {"invalid_json": "invalid JSON", "invalid_utf8": "invalid UTF-8",
+                    "non_object": "non-object JSON", "blank_line": "invalid JSON"}
+        for scenario in ("full", "landing"):
+            for path, identity in ((target, TARGET), (unrelated, OTHER)):
+                for kind, broken in corruptions.items():
+                    with self.subTest(scenario=scenario, file=path.name, corruption=kind):
+                        path.write_bytes((json.dumps({"event": "frame", "aircraft_uuid": identity})
+                                          + "\n").encode("utf-8") + broken)
+                        (self.root / "result.json").unlink(missing_ok=True)
+                        proc, result = self.verify(scenario)
+                        self.assertNotEqual(proc.returncode, 0, result)
+                        self.assertFalse(result["passed"])
+                        self.assertTrue(any(path.name in error and messages[kind] in error
+                                            and "line 2" in error for error in result["errors"]), result)
+                        self.log(path.name, [identity], 1 if path == target else 2)
+
+    def test_unreadable_candidate_log_fails_with_result_file(self):
+        self.log("target.jsonl", [TARGET], 1)
+        (self.logs / "unreadable.jsonl").mkdir()
+        proc, result = self.verify()
+        self.assertNotEqual(proc.returncode, 0, result)
+        self.assertTrue(any("cannot read telemetry log" in error and "unreadable.jsonl" in error
+                            for error in result["errors"]), result)
+
+    def test_json_parser_resource_limits_fail_with_result_file(self):
+        target = self.log("target.jsonl", [TARGET], 1)
+        unrelated = self.log("unrelated.jsonl", [OTHER], 2)
+        corruptions = {
+            "ValueError": b'{"number":' + b'9' * 5000 + b'}\n',
+            "RecursionError": b'{"nested":' + b'[' * 10000 + b'0' + b']' * 10000 + b'}\n',
+        }
+        if not hasattr(sys, "get_int_max_str_digits"):
+            del corruptions["ValueError"]
+        child_env = dict(os.environ, PYTHONINTMAXSTRDIGITS="4300")
+        for scenario in ("full", "landing"):
+            for path, identity in ((target, TARGET), (unrelated, OTHER)):
+                for reason, broken in corruptions.items():
+                    with self.subTest(scenario=scenario, file=path.name, exception=reason):
+                        try:
+                            path.write_bytes((json.dumps({"event": "frame", "aircraft_uuid": identity})
+                                              + "\n").encode("utf-8") + broken)
+                            (self.root / "result.json").unlink(missing_ok=True)
+                            proc, result = self.verify(scenario, env=child_env)
+                            self.assertNotEqual(proc.returncode, 0, result)
+                            self.assertTrue(any(path.name in error and reason in error and "line 2" in error
+                                                for error in result["errors"]), result)
+                        finally:
+                            self.log(path.name, [identity], 1 if path == target else 2)
+
+    def test_duplicate_json_keys_and_nonstandard_numbers_fail(self):
+        target = self.log("target.jsonl", [TARGET], 1)
+        unrelated = self.log("unrelated.jsonl", [OTHER], 2)
+        corruptions = {
+            "DuplicateKeyError": b'{"aircraft_uuid":"ignored","aircraft_uuid":"duplicate"}\n',
+            "InvalidConstantError NaN": b'{"value":NaN}\n',
+            "InvalidConstantError Infinity": b'{"value":Infinity}\n',
+            "InvalidConstantError -Infinity": b'{"value":-Infinity}\n',
+        }
+        for scenario in ("full", "landing"):
+            for path, identity in ((target, TARGET), (unrelated, OTHER)):
+                for reason, broken in corruptions.items():
+                    with self.subTest(scenario=scenario, file=path.name, error=reason):
+                        try:
+                            path.write_bytes((json.dumps({"event": "frame", "aircraft_uuid": identity})
+                                             + "\n").encode("utf-8") + broken)
+                            (self.root / "result.json").unlink(missing_ok=True)
+                            proc, result = self.verify(scenario)
+                            self.assertNotEqual(proc.returncode, 0, result)
+                            self.assertTrue(any(path.name in error and reason in error and "line 2" in error
+                                                for error in result["errors"]), result)
+                        finally:
+                            self.log(path.name, [identity], 1 if path == target else 2)
+
+    def test_standard_json_with_same_key_in_distinct_objects_is_accepted(self):
+        row = {"event": "frame", "aircraft_uuid": TARGET,
+               "a": {"value": 1.2e-3}, "b": {"value": None}}
+        (self.logs / "valid.jsonl").write_text(json.dumps(row) + "\n", encoding="utf-8")
+        proc, result = self.verify()
+        self.assertEqual(proc.returncode, 0, result)
+
     @unittest.skipUnless(sys.platform.startswith("linux"), "RSS delta uses Linux ru_maxrss units")
     def test_multi_aircraft_memory_does_not_scale_with_total_log_size(self):
         aircraft_ids = [str(uuid.UUID(int=index + 1)) for index in range(4)]
@@ -168,6 +253,8 @@ print(json.dumps({"exit": code, "peak_growth_kib": after - before}))
         ]
         (self.logs / "turn.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows),
                                               encoding="utf-8")
+        with (self.logs / "turn.jsonl").open("a", encoding="utf-8") as stream:
+            stream.write('{"broken":\n')
         proc, result = self.verify("turn")
         self.assertEqual(proc.returncode, 0, result)
 
