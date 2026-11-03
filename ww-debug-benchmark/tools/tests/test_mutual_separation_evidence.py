@@ -6,7 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from mutual_fixture import complete_summary, parked_cleanup
+from mutual_fixture import combat_identity, complete_summary, parked_cleanup
 
 VERIFIER = Path(__file__).resolve().parents[1] / "verify_mutual_dogfight_scenario.py"
 PRIMARY = "11111111-1111-4111-8111-111111111111"
@@ -63,6 +63,7 @@ class MutualSeparationEvidenceTests(unittest.TestCase):
         for name, rows in (("primary.jsonl", self.primary), ("opponent.jsonl", self.opponent)):
             if name == "primary.jsonl":
                 rows = parked_cleanup(rows, PRIMARY)
+            rows = combat_identity(rows, name == "primary.jsonl")
             (self.logs / name).write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
         output = self.root / "result.json"
         process = subprocess.run([sys.executable, str(VERIFIER), "--root", str(self.root),
@@ -80,6 +81,7 @@ class MutualSeparationEvidenceTests(unittest.TestCase):
                 proc, result = self.verify()
                 self.assertNotEqual(proc.returncode, 0, result)
                 self.assertFalse(result["passed"])
+                self.assertIn("rounded mutual collision observation does not establish 8-block separation: 7.4", result["errors"])
                 rows.remove(row)
 
     def test_each_participant_requires_a_pair_observation(self):
@@ -90,6 +92,8 @@ class MutualSeparationEvidenceTests(unittest.TestCase):
                 rows.remove(row)
                 proc, result = self.verify()
                 self.assertNotEqual(proc.returncode, 0, result)
+                missing_role = "opponent" if primary else "primary"
+                self.assertIn(f"{missing_role} has no interpretable mutual collision-separation observation", result["errors"])
                 rows.append(row)
 
     def test_rounded_boundary_is_unprovable_and_eight_point_one_passes(self):
@@ -97,6 +101,7 @@ class MutualSeparationEvidenceTests(unittest.TestCase):
         self.primary.append(row)
         proc, result = self.verify()
         self.assertNotEqual(proc.returncode, 0, result)
+        self.assertIn("rounded mutual collision observation does not establish 8-block separation: 8.0", result["errors"])
         row["reason"] = f"other_uuid={OPPONENT}:current=8.1:predicted=3.0"
         proc, result = self.verify()
         self.assertEqual(proc.returncode, 0, result)
@@ -106,6 +111,7 @@ class MutualSeparationEvidenceTests(unittest.TestCase):
         self.primary.append(self.collision(value="7.4", event="collision_avoidance_start"))
         proc, result = self.verify()
         self.assertNotEqual(proc.returncode, 0, result)
+        self.assertIn("rounded mutual collision observation does not establish 8-block separation: 7.4", result["errors"])
 
     def test_unavailable_or_unidentifiable_samples_fail_closed(self):
         self.primary.remove(self.primary_sample)
@@ -124,6 +130,7 @@ class MutualSeparationEvidenceTests(unittest.TestCase):
                 self.primary.append(row)
                 proc, result = self.verify()
                 self.assertNotEqual(proc.returncode, 0, result)
+                self.assertIn("primary collision evidence has an invalid target or current distance", result["errors"])
                 self.primary.remove(row)
 
     def test_outside_window_and_unrelated_target_do_not_become_pair_samples(self):
@@ -138,6 +145,7 @@ class MutualSeparationEvidenceTests(unittest.TestCase):
         self.primary.extend([self.collision(value="7.4", other=OTHER), self.collision(value="9.0")])
         proc, result = self.verify()
         self.assertNotEqual(proc.returncode, 0, result)
+        self.assertIn("rounded collision observation with another aircraft does not establish 8-block separation: 7.4", result["errors"])
 
     def test_adapter_with_missing_override_and_spaced_fields_is_not_ignored(self):
         self.primary.append(self.collision(value="9.0"))
@@ -147,6 +155,7 @@ class MutualSeparationEvidenceTests(unittest.TestCase):
         self.primary.append(bad)
         proc, result = self.verify()
         self.assertNotEqual(proc.returncode, 0, result)
+        self.assertIn("rounded mutual collision observation does not establish 8-block separation: 7.4", result["errors"])
 
     def test_unknown_collision_tick_or_mixed_aircraft_identity_fails(self):
         for invalid in (None, True, 150.5, float("inf"), -1):
@@ -171,6 +180,7 @@ class MutualSeparationEvidenceTests(unittest.TestCase):
         completion["reason"] = original.replace("minimum_separation=9.0", "minimum_separation=8.0")
         proc, result = self.verify()
         self.assertNotEqual(proc.returncode, 0, result)
+        self.assertIn("rounded scene minimum does not establish 8-block separation: 8.0", result["errors"])
         completion["reason"] = original.replace("minimum_separation=9.0", "minimum_separation=8.01")
         proc, result = self.verify()
         self.assertEqual(proc.returncode, 0, result)
@@ -183,6 +193,7 @@ class MutualSeparationEvidenceTests(unittest.TestCase):
         completion["reason"] = original.replace("maximum_separation=100.0", "maximum_separation=480.00")
         proc, result = self.verify()
         self.assertNotEqual(proc.returncode, 0, result)
+        self.assertIn("rounded scene maximum does not establish the 480-block limit: 480.0", result["errors"])
         completion["reason"] = original.replace("maximum_separation=100.0", "maximum_separation=479.99")
         proc, result = self.verify()
         self.assertEqual(proc.returncode, 0, result)

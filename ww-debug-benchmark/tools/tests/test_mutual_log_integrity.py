@@ -6,7 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from mutual_fixture import complete_summary, parked_cleanup
+from mutual_fixture import combat_identity, complete_summary, parked_cleanup
 
 VERIFIER = Path(__file__).resolve().parents[1] / "verify_mutual_dogfight_scenario.py"
 PRIMARY = "AUTOPILOT TEST warfare_wings:a6m"
@@ -35,7 +35,7 @@ class MutualLogIntegrityTests(unittest.TestCase):
              "reason": f"other_uuid={OPPONENT_ID}:current=9.0"},
             {"event": "mutual_dogfight_validation_status", "server_tick": 15, "reason": "separation=9.5"},
             {"event": "combat_target_acquired", "reason": "target_faction=blue:explicit_faction_hostile=true"},
-            {"event": "air_combat_action_transition", "reason": "doctrine=turn_fighter:to=TURN"},
+            {"event": "air_combat_action_transition", "reason": "doctrine=turn_fighter:to=INTERCEPT"},
             {"event": "weapon_fire"},
             {"event": "frame", "server_tick": 15, "speed_bps": 30, "on_ground": False},
             {"event": "mutual_dogfight_validation_completed", "server_tick": 20,
@@ -46,7 +46,7 @@ class MutualLogIntegrityTests(unittest.TestCase):
             {"event": "control_adapter", "server_tick": 15, "applied_safety_override": "collision_avoidance",
              "reason": f"other_uuid={PRIMARY_ID}:current=9.0"},
             {"event": "combat_target_acquired", "reason": "target_faction=red:explicit_faction_hostile=true"},
-            {"event": "air_combat_action_transition", "reason": "doctrine=energy_fighter:to=TURN"},
+            {"event": "air_combat_action_transition", "reason": "doctrine=energy_fighter:to=INTERCEPT"},
             {"event": "weapon_fire"},
             {"event": "frame", "server_tick": 15, "speed_bps": 30, "on_ground": False},
         ])
@@ -58,6 +58,8 @@ class MutualLogIntegrityTests(unittest.TestCase):
         rows = [dict(row, aircraft_name=name, aircraft_uuid=uid) for row in rows]
         if name == PRIMARY:
             rows = parked_cleanup(rows, uid)
+        if name in (PRIMARY, OPPONENT):
+            rows = combat_identity(rows, name == PRIMARY)
         path.write_text("".join(json.dumps(row) + "\n" for row in rows),
                         encoding="utf-8")
 

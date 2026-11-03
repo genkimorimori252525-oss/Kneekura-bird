@@ -5,7 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from mutual_fixture import complete_summary, parked_cleanup
+from mutual_fixture import combat_identity, complete_summary, parked_cleanup
 
 VERIFIER = Path(__file__).resolve().parents[1] / 'verify_mutual_dogfight_scenario.py'
 PRIMARY = 'AUTOPILOT TEST warfare_wings:a6m'
@@ -56,6 +56,7 @@ class MutualFrameIntegrityTests(unittest.TestCase):
         for name, rows in (('a6m.jsonl', self.primary), ('p47n.jsonl', self.opponent)):
             if name == 'a6m.jsonl':
                 rows = parked_cleanup(rows, PRIMARY_ID)
+            rows = combat_identity(rows, name == 'a6m.jsonl')
             (self.logs / name).write_text(''.join(json.dumps(item) + '\n' for item in rows), encoding='utf-8')
         output = self.root / 'result.json'
         output.unlink(missing_ok=True)

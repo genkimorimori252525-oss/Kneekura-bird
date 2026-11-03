@@ -1,5 +1,28 @@
 """Common complete mission evidence for independent verifier regression fixtures."""
 
+PILOT_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+PILOT_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+
+
+def combat_identity(rows, primary):
+    pilot, target = (PILOT_A, PILOT_B) if primary else (PILOT_B, PILOT_A)
+    result = []
+    for source in rows:
+        row = dict(source)
+        row.setdefault("pilot_uuid", pilot)
+        event = row.get("event")
+        if "server_tick" not in row and event in ("combat_target_acquired", "air_combat_action_transition", "weapon_fire"):
+            row["server_tick"] = {"combat_target_acquired": 12, "air_combat_action_transition": 13,
+                                  "weapon_fire": 14}[event]
+        if event == "mutual_dogfight_validation_started":
+            row["reason"] = row.get("reason", "") + f":primary_pilot_uuid={PILOT_A}:opponent_pilot_uuid={PILOT_B}"
+        elif event == "combat_target_acquired":
+            row["reason"] = row.get("reason", "") + f":uuid={target}"
+        elif event == "weapon_fire":
+            row["reason"] = row.get("reason", "") + f":target_uuid={target}"
+        result.append(row)
+    return result
+
 
 def complete_summary(uid):
     return {"state": "complete", "total": 1, "completed": 1, "results": [{

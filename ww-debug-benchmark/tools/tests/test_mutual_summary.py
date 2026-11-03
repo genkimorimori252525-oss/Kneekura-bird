@@ -12,6 +12,8 @@ VERIFIER = Path(__file__).resolve().parents[1] / "verify_mutual_dogfight_scenari
 PRIMARY = "15a7c379-1310-4def-b8a0-fdaa8b1787b1"
 OPPONENT = "f93acc19-18a9-44de-9f33-f0ddc38f7095"
 OTHER = "7bd32675-6cff-4a29-a777-0e76c2348004"
+PRIMARY_PILOT = "2a8ad002-ac1b-4f83-8903-60fb4366ddee"
+OPPONENT_PILOT = "696d5d49-c397-4b53-a30d-f7eeaa531887"
 
 
 class MutualSummaryTests(unittest.TestCase):
@@ -25,18 +27,20 @@ class MutualSummaryTests(unittest.TestCase):
         opponent = "MUTUAL BLUE P47N"
 
         def row(name, aircraft_id, event, tick, reason="", **extra):
-            return {"aircraft_name": name, "aircraft_uuid": aircraft_id, "event": event,
+            return {"aircraft_name": name, "aircraft_uuid": aircraft_id,
+                    "pilot_uuid": PRIMARY_PILOT if aircraft_id == PRIMARY else OPPONENT_PILOT, "event": event,
                     "server_tick": tick, "reason": reason, **extra}
 
         self.primary_path = logs / "primary.jsonl"
         self.primary_rows = [
             row(primary, PRIMARY, "mutual_dogfight_validation_started", 100,
-                f"primary_uuid={PRIMARY}:opponent_uuid={OPPONENT}"),
+                f"primary_uuid={PRIMARY}:primary_pilot_uuid={PRIMARY_PILOT}:"
+                f"opponent_uuid={OPPONENT}:opponent_pilot_uuid={OPPONENT_PILOT}"),
             row(primary, PRIMARY, "combat_target_acquired", 101,
-                "target_faction=blue:explicit_faction_hostile=true"),
+                f"uuid={OPPONENT_PILOT}:target_faction=blue:explicit_faction_hostile=true"),
             row(primary, PRIMARY, "air_combat_action_transition", 102,
                 "to=INTERCEPT:doctrine=turn_fighter"),
-            row(primary, PRIMARY, "weapon_fire", 103),
+            row(primary, PRIMARY, "weapon_fire", 103, f"target_uuid={OPPONENT_PILOT}"),
             row(primary, PRIMARY, "frame", 104, speed_bps=25, on_ground=False),
             row(primary, PRIMARY, "control_adapter", 104, f"other_uuid={OPPONENT}:current=9.0",
                 applied_safety_override="collision_avoidance"),
@@ -54,10 +58,10 @@ class MutualSummaryTests(unittest.TestCase):
         self.write_primary()
         rows = [
             row(opponent, OPPONENT, "combat_target_acquired", 101,
-                "target_faction=red:explicit_faction_hostile=true"),
+                f"uuid={PRIMARY_PILOT}:target_faction=red:explicit_faction_hostile=true"),
             row(opponent, OPPONENT, "air_combat_action_transition", 102,
                 "to=INTERCEPT:doctrine=energy_fighter"),
-            row(opponent, OPPONENT, "weapon_fire", 103),
+            row(opponent, OPPONENT, "weapon_fire", 103, f"target_uuid={PRIMARY_PILOT}"),
             row(opponent, OPPONENT, "frame", 104, speed_bps=25, on_ground=False),
             row(opponent, OPPONENT, "control_adapter", 104, f"other_uuid={PRIMARY}:current=9.0",
                 applied_safety_override="collision_avoidance"),
