@@ -8,6 +8,7 @@ import com.wwdebug.benchmark.ReflectiveAircraft;
 import com.wwdebug.benchmark.WWDebugBenchmarkMod;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.gametest.framework.GameTestServer;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
@@ -338,8 +339,30 @@ public final class AutopilotValidationManager {
                 pilot.setPersistenceRequired();
                 pilot.setCustomName(Component.literal("WW autonomous-flight test pilot"));
 
-                level.addFreshEntity(aircraft);
-                level.addFreshEntity(pilot);
+                var uuidPlan = MutualDogfightUuidOrder.resolve(server instanceof GameTestServer,
+                        System.getProperty("wwdebug.flightGameTestScenario", "full"),
+                        System.getProperty("wwdebug.flightGameTestAircraft", "warfare_wings:a6m"),
+                        System.getProperty("wwdebug.mutualUuidOrder"));
+                if (uuidPlan.isPresent()) {
+                    var plan = uuidPlan.get();
+                    if (!"warfare_wings:a6m".equals(candidate.id().toString())
+                            || level.getEntity(plan.primaryAircraft()) != null
+                            || level.getEntity(plan.primaryPilot()) != null) {
+                        throw new IllegalStateException("mutual UUID fixture conflicts with validation state");
+                    }
+                    aircraft.setUUID(plan.primaryAircraft());
+                    pilot.setUUID(plan.primaryPilot());
+                    WWDebugBenchmarkMod.LOGGER.info(
+                            "Mutual GameTest UUID fixture order={} primary={} primary_pilot={}",
+                            plan.order(), plan.primaryAircraft(), plan.primaryPilot());
+                }
+                if (uuidPlan.isPresent()) {
+                    MutualDogfightUuidFixture.add(level, aircraft, uuidPlan.get().primaryAircraft(), "primary_aircraft");
+                    MutualDogfightUuidFixture.add(level, pilot, uuidPlan.get().primaryPilot(), "primary_pilot");
+                } else {
+                    level.addFreshEntity(aircraft);
+                    level.addFreshEntity(pilot);
+                }
                 if (!pilot.startRiding(aircraft, true)) {
                     pilot.discard();
                     aircraft.discard();

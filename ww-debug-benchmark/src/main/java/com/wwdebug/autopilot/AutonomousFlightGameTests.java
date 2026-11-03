@@ -12,6 +12,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestAssertException;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.gametest.framework.GameTestServer;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.block.Blocks;
@@ -61,6 +62,11 @@ public final class AutonomousFlightGameTests {
     public static void measuredProfileAutonomousFlight(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
         MinecraftServer server = level.getServer();
+        // Reject a mistyped or mismatched opt-in before creating a validation scene.
+        MutualDogfightUuidOrder.resolve(server instanceof GameTestServer,
+                System.getProperty("wwdebug.flightGameTestScenario", "full"),
+                System.getProperty("wwdebug.flightGameTestAircraft", "warfare_wings:a6m"),
+                System.getProperty("wwdebug.mutualUuidOrder"));
         BlockPos templateOrigin = helper.absolutePos(BlockPos.ZERO);
         int highestTerrainY = highestTerrainInRunwayCorridor(level, templateOrigin);
         int runwayY = Math.min(level.getMaxBuildHeight() - CLEAR_HEIGHT - 2,

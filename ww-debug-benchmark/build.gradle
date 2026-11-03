@@ -54,6 +54,9 @@ minecraft {
                     (project.findProperty('flightTestAircraft') ?: 'warfare_wings:a6m').toString()
             property 'wwdebug.flightGameTestScenario',
                     (project.findProperty('flightTestScenario') ?: 'full').toString()
+            if (project.hasProperty('mutualUuidOrder')) {
+                property 'wwdebug.mutualUuidOrder', project.property('mutualUuidOrder').toString()
+            }
         }
     }
 }

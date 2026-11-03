@@ -2,6 +2,7 @@ package com.wwdebug.autopilot;
 
 import com.wwdebug.benchmark.ReflectiveAircraft;
 import com.wwdebug.benchmark.ReflectiveArmament;
+import net.minecraft.gametest.framework.GameTestServer;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
@@ -158,6 +159,22 @@ final class MutualDogfightValidationManager {
                     "mutual_dogfight_validation_setup_failed", "could_not_create_p47n", phase);
             return;
         }
+        var uuidPlan = MutualDogfightUuidOrder.resolve(level.getServer() instanceof GameTestServer,
+                System.getProperty(SCENARIO_PROPERTY, "full"),
+                System.getProperty("wwdebug.flightGameTestAircraft", "warfare_wings:a6m"),
+                System.getProperty("wwdebug.mutualUuidOrder"));
+        if (uuidPlan.isPresent()) {
+            var plan = uuidPlan.get();
+            if (!primary.getUUID().equals(plan.primaryAircraft())
+                    || !primaryPilot.getUUID().equals(plan.primaryPilot())
+                    || level.getEntity(plan.opponentAircraft()) != null
+                    || level.getEntity(plan.opponentPilot()) != null) {
+                failUuidFixture(level, primary, scene, phase, opponent, null,
+                        "mutual_uuid_fixture_conflicts_with_scene_state");
+                return;
+            }
+            opponent.setUUID(plan.opponentAircraft());
+        }
 
         Vec3 forward = horizontal(primary.getLookAngle());
         if (forward.lengthSqr() < 1.0e-8) {
@@ -180,7 +197,17 @@ final class MutualDogfightValidationManager {
         opponent.addTag(OPPONENT_TAG);
         opponent.moveTo(opponentPosition.x, opponentPosition.y, opponentPosition.z,
                 yaw(opponentDirection), 0.0f);
-        level.addFreshEntity(opponent);
+        if (uuidPlan.isPresent()) {
+            try {
+                MutualDogfightUuidFixture.add(level, opponent, uuidPlan.get().opponentAircraft(),
+                        "opponent_aircraft");
+            } catch (IllegalStateException failure) {
+                failUuidFixture(level, primary, scene, phase, opponent, null, failure.getMessage());
+                return;
+            }
+        } else {
+            level.addFreshEntity(opponent);
+        }
 
         Villager opponentPilot = EntityType.VILLAGER.create(level);
         if (opponentPilot == null) {
@@ -197,7 +224,19 @@ final class MutualDogfightValidationManager {
         opponentPilot.setCustomName(Component.literal("MUTUAL BLUE PILOT"));
         opponentPilot.moveTo(opponentPosition.x, opponentPosition.y, opponentPosition.z,
                 yaw(opponentDirection), 0.0f);
-        level.addFreshEntity(opponentPilot);
+        uuidPlan.ifPresent(plan -> opponentPilot.setUUID(plan.opponentPilot()));
+        if (uuidPlan.isPresent()) {
+            try {
+                MutualDogfightUuidFixture.add(level, opponentPilot, uuidPlan.get().opponentPilot(),
+                        "opponent_pilot");
+            } catch (IllegalStateException failure) {
+                failUuidFixture(level, primary, scene, phase, opponent, opponentPilot,
+                        failure.getMessage());
+                return;
+            }
+        } else {
+            level.addFreshEntity(opponentPilot);
+        }
         if (!opponentPilot.startRiding(opponent, true)) {
             opponentPilot.discard();
             opponent.discard();
@@ -244,12 +283,26 @@ final class MutualDogfightValidationManager {
                         + ":primary_faction=red"
                         + ":opponent_uuid=" + opponent.getUUID()
                         + ":opponent_pilot_uuid=" + opponentPilot.getUUID()
+                        + uuidPlan.map(plan -> ":uuid_order=" + plan.order()).orElse("")
                         + ":opponent_faction=blue"
                         + ":initial_separation=" + round(primary.distanceTo(opponent))
                         + ":opponent_speed_bps=" + round(opponentSpeed)
                         + ":primary_initial_shots=" + scene.primaryInitialShots
                         + ":opponent_initial_shots=" + scene.opponentInitialShots,
                 phase);
+    }
+
+    private static void failUuidFixture(ServerLevel level, Entity primary, Scene scene,
+                                        FlightPhase phase, Entity opponent, Entity opponentPilot,
+                                        String reason) {
+        if (opponentPilot != null) {
+            opponentPilot.discard();
+        }
+        opponent.discard();
+        clearFaction(primary, RED_FACTION, HOSTILE_BLUE);
+        scene.completed = true;
+        AutopilotLogManager.writeEvent(level.getServer(), primary,
+                "mutual_dogfight_validation_setup_failed", reason, phase);
     }
 
     @SuppressWarnings("unchecked")
