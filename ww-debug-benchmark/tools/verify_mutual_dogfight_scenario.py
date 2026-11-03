@@ -34,6 +34,13 @@ def reject_summary_constant(value: str) -> None:
     raise SummaryInvalidConstantError(value)
 
 
+def finite_summary_float(value: str) -> float:
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError("summary number exceeds finite float range")
+    return number
+
+
 def summary_unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in pairs:
@@ -582,9 +589,11 @@ def main() -> int:
         try:
             summary = json.loads(summary_path.read_text(encoding="utf-8"),
                                  object_pairs_hook=summary_unique_object,
-                                 parse_constant=reject_summary_constant)
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError, SummaryDuplicateKeyError,
-                SummaryInvalidConstantError) as exc:
+                                 parse_constant=reject_summary_constant,
+                                 parse_float=finite_summary_float)
+            if not isinstance(summary, dict):
+                raise ValueError("validation summary must be an object")
+        except (OSError, UnicodeDecodeError, ValueError, RecursionError) as exc:
             errors.append(f"cannot read validation summary {summary_path}: {type(exc).__name__}")
             summary = {}
     results = summary.get("results") or []

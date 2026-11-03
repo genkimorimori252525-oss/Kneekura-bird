@@ -50,7 +50,7 @@ class MutualSummaryJsonIntegrityTests(unittest.TestCase):
         return proc.returncode, json.loads(output.read_text(encoding="utf-8"))
 
     def test_valid_summary_passes(self):
-        status, result = self.verify(b'{"state":"complete","results":[{"passed":true}]}')
+        status, result = self.verify(b'{"state":"complete","results":[{"passed":true}],"unused":1.25e3}')
         self.assertEqual(status, 0, result)
         self.assertTrue(result["passed"])
 
@@ -75,6 +75,34 @@ class MutualSummaryJsonIntegrityTests(unittest.TestCase):
             with self.subTest(value=value):
                 status, result = self.verify(
                     b'{"state":"complete","results":[{"passed":true,"unused":' + value + b'}]}')
+                self.assertNotEqual(status, 0, result)
+                self.assertFalse(result["passed"])
+                self.assertTrue(any("summary" in error for error in result["errors"]), result)
+
+    def test_overflowing_numbers_fail_even_in_unused_fields(self):
+        for value in (b"1e9999", b"-1e9999"):
+            with self.subTest(value=value):
+                status, result = self.verify(
+                    b'{"state":"complete","results":[{"passed":true}],"unused":' + value + b'}')
+                self.assertNotEqual(status, 0, result)
+                self.assertFalse(result["passed"])
+                self.assertTrue(any("summary" in error for error in result["errors"]), result)
+
+    def test_parser_limits_save_failed_result(self):
+        values = [b'{"unused":' + b'[' * 10000 + b'0' + b']' * 10000 + b'}']
+        if hasattr(sys, "get_int_max_str_digits") and sys.get_int_max_str_digits() > 0:
+            values.append(b'{"unused":' + b'9' * (sys.get_int_max_str_digits() + 1) + b'}')
+        for value in values:
+            with self.subTest(kind="deep" if b'[' in value else "large integer"):
+                status, result = self.verify(value)
+                self.assertNotEqual(status, 0, result)
+                self.assertFalse(result["passed"])
+                self.assertTrue(any("summary" in error for error in result["errors"]), result)
+
+    def test_non_object_summary_saves_failed_result(self):
+        for value in (b"null", b"false", b"2", b'"text"', b"[]", b"[{}]"):
+            with self.subTest(value=value):
+                status, result = self.verify(value)
                 self.assertNotEqual(status, 0, result)
                 self.assertFalse(result["passed"])
                 self.assertTrue(any("summary" in error for error in result["errors"]), result)
