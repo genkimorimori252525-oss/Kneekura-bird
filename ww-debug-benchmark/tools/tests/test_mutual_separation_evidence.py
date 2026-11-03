@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from mutual_fixture import complete_summary, parked_cleanup
 
 VERIFIER = Path(__file__).resolve().parents[1] / "verify_mutual_dogfight_scenario.py"
 PRIMARY = "11111111-1111-4111-8111-111111111111"
@@ -29,7 +30,7 @@ class MutualSeparationEvidenceTests(unittest.TestCase):
                      "minimum_separation=9.0:maximum_separation=100.0:primary_track_ticks=100:"
                      "opponent_track_ticks=100:primary_combat_ticks=120:opponent_combat_ticks=120"),
         ])
-        summary = {"state": "complete", "total": 1, "results": [{"passed": True}]}
+        summary = complete_summary(PRIMARY)
         (self.root / "validation-summary-1.json").write_text(json.dumps(summary), encoding="utf-8")
         self.primary_sample = self.collision(value="9.0")
         self.opponent_sample = self.collision(primary=False, value="9.0")
@@ -60,6 +61,8 @@ class MutualSeparationEvidenceTests(unittest.TestCase):
 
     def verify(self):
         for name, rows in (("primary.jsonl", self.primary), ("opponent.jsonl", self.opponent)):
+            if name == "primary.jsonl":
+                rows = parked_cleanup(rows, PRIMARY)
             (self.logs / name).write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
         output = self.root / "result.json"
         process = subprocess.run([sys.executable, str(VERIFIER), "--root", str(self.root),

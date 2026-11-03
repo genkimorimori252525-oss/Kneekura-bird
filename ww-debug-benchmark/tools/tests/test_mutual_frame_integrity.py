@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from mutual_fixture import complete_summary, parked_cleanup
 
 VERIFIER = Path(__file__).resolve().parents[1] / 'verify_mutual_dogfight_scenario.py'
 PRIMARY = 'AUTOPILOT TEST warfare_wings:a6m'
@@ -49,10 +50,12 @@ class MutualFrameIntegrityTests(unittest.TestCase):
             row(OPPONENT, 'frame', 104, speed_bps=25, on_ground=False),
         ]
         (self.root / 'validation-summary-1.json').write_text(
-            json.dumps({'state': 'complete', 'results': [{'passed': True}]}), encoding='utf-8')
+            json.dumps(complete_summary(PRIMARY_ID)), encoding='utf-8')
 
     def verify(self):
         for name, rows in (('a6m.jsonl', self.primary), ('p47n.jsonl', self.opponent)):
+            if name == 'a6m.jsonl':
+                rows = parked_cleanup(rows, PRIMARY_ID)
             (self.logs / name).write_text(''.join(json.dumps(item) + '\n' for item in rows), encoding='utf-8')
         output = self.root / 'result.json'
         output.unlink(missing_ok=True)

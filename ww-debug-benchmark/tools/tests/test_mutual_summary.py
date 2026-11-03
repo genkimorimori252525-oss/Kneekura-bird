@@ -38,6 +38,8 @@ class MutualSummaryTests(unittest.TestCase):
                 "to=INTERCEPT:doctrine=turn_fighter"),
             row(primary, PRIMARY, "weapon_fire", 103),
             row(primary, PRIMARY, "frame", 104, speed_bps=25, on_ground=False),
+            row(primary, PRIMARY, "control_adapter", 104, f"other_uuid={OPPONENT}:current=9.0",
+                applied_safety_override="collision_avoidance"),
             row(primary, PRIMARY, "mutual_dogfight_validation_completed", 300,
                 "minimum_separation=10.0:maximum_separation=100.0:"
                 "primary_track_ticks=150:opponent_track_ticks=150:"
@@ -57,6 +59,8 @@ class MutualSummaryTests(unittest.TestCase):
                 "to=INTERCEPT:doctrine=energy_fighter"),
             row(opponent, OPPONENT, "weapon_fire", 103),
             row(opponent, OPPONENT, "frame", 104, speed_bps=25, on_ground=False),
+            row(opponent, OPPONENT, "control_adapter", 104, f"other_uuid={PRIMARY}:current=9.0",
+                applied_safety_override="collision_avoidance"),
         ]
         (logs / "opponent.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows),
                                             encoding="utf-8")
@@ -99,6 +103,9 @@ class MutualSummaryTests(unittest.TestCase):
                     code, result = self.verify()
                     self.assertNotEqual(code, 0, result)
                     self.assertFalse(result["passed"])
+                    expected = ("primary A6M summary UUID does not uniquely match the primary log and scene"
+                                if key == "entity_id" else f"post-combat summary {key} is invalid")
+                    self.assertIn(expected, result["errors"], result)
                     row[key] = original
 
     def test_summary_result_counts_must_be_consistent(self):
@@ -111,6 +118,15 @@ class MutualSummaryTests(unittest.TestCase):
                 code, result = self.verify()
                 self.assertNotEqual(code, 0, result)
                 self.assertFalse(result["passed"])
+                if key in ("total", "completed"):
+                    expected = f"primary post-combat summary {key} does not match result count"
+                elif key == "state":
+                    expected = "primary post-combat mission summary was not complete"
+                elif value == [original["results"][0]] * 2:
+                    expected = "mutual verification supports exactly one A6M summary result; aircraft=all is unsupported"
+                else:
+                    expected = "primary post-combat summary must contain aircraft results"
+                self.assertIn(expected, result["errors"], result)
 
     def test_multiple_aircraft_summary_cannot_claim_unverified_secondary(self):
         secondary = dict(self.summary["results"][0], entity_id="warfare_wings:p51d",
@@ -146,6 +162,15 @@ class MutualSummaryTests(unittest.TestCase):
                 code, result = self.verify()
                 self.assertNotEqual(code, 0, result)
                 self.assertFalse(result["passed"])
+                if key == "aircraft_uuid":
+                    expected = "post-combat summary aircraft UUIDs must be valid and unique"
+                elif key == "entity_id":
+                    expected = ("post-combat summary aircraft entity_ids must be unique"
+                                if value == "warfare_wings:a6m" else
+                                "post-combat summary aircraft entity_id is invalid")
+                else:
+                    expected = f"post-combat summary {key} is invalid"
+                self.assertIn(expected, result["errors"], result)
 
     def test_opponent_scene_aircraft_is_not_a_summary_primary_aircraft(self):
         secondary = dict(self.summary["results"][0], entity_id="warfare_wings:p51d",
@@ -154,6 +179,7 @@ class MutualSummaryTests(unittest.TestCase):
         self.summary["results"].append(secondary)
         code, result = self.verify()
         self.assertNotEqual(code, 0, result)
+        self.assertIn("scene opponent UUID must be distinct from all summary aircraft", result["errors"], result)
 
     def test_summary_parked_must_agree_with_primary_terminal_log(self):
         baseline = copy.deepcopy(self.primary_rows)
@@ -182,6 +208,8 @@ class MutualSummaryTests(unittest.TestCase):
                 self.write_primary()
                 code, result = self.verify()
                 self.assertNotEqual(code, 0, result)
+                self.assertIn("primary post-combat log does not establish parked validation cleanup",
+                              result["errors"], result)
 
     def test_parked_frame_must_confirm_grounded_low_speed_on_transition_tick(self):
         baseline = copy.deepcopy(self.primary_rows)
@@ -213,6 +241,8 @@ class MutualSummaryTests(unittest.TestCase):
                 self.write_primary()
                 code, result = self.verify()
                 self.assertNotEqual(code, 0, result)
+                self.assertIn("primary post-combat log does not establish parked validation cleanup",
+                              result["errors"], result)
 
     def test_every_parked_event_tick_is_valid_and_ordered_until_cleanup(self):
         baseline = copy.deepcopy(self.primary_rows)
@@ -225,6 +255,8 @@ class MutualSummaryTests(unittest.TestCase):
                 self.write_primary()
                 code, result = self.verify()
                 self.assertNotEqual(code, 0, result)
+                self.assertIn("primary post-combat log does not establish parked validation cleanup",
+                              result["errors"], result)
 
         # A terminal tick later than the inserted records cannot mask their reversal.
         self.primary_rows = copy.deepcopy(baseline)
@@ -236,6 +268,8 @@ class MutualSummaryTests(unittest.TestCase):
         self.write_primary()
         code, result = self.verify()
         self.assertNotEqual(code, 0, result)
+        self.assertIn("primary post-combat log does not establish parked validation cleanup",
+                      result["errors"], result)
 
     def test_multiple_aircraft_summary_requires_primary_a6m(self):
         secondary = dict(self.summary["results"][0], entity_id="warfare_wings:p51d",
@@ -245,6 +279,8 @@ class MutualSummaryTests(unittest.TestCase):
         self.summary["results"][0]["entity_id"] = "warfare_wings:b17"
         code, result = self.verify()
         self.assertNotEqual(code, 0, result)
+        self.assertIn("primary A6M summary UUID does not uniquely match the primary log and scene",
+                      result["errors"], result)
 
     def test_summary_uuid_must_match_every_primary_log_row(self):
         row = self.summary["results"][0]
@@ -254,12 +290,16 @@ class MutualSummaryTests(unittest.TestCase):
                 code, result = self.verify()
                 self.assertNotEqual(code, 0, result)
                 self.assertFalse(result["passed"])
+                self.assertIn("primary A6M summary UUID does not uniquely match the primary log and scene",
+                              result["errors"], result)
         row["aircraft_uuid"] = PRIMARY
         self.primary_rows[2]["aircraft_uuid"] = OTHER
         self.write_primary()
         code, result = self.verify()
         self.assertNotEqual(code, 0, result)
         self.assertFalse(result["passed"])
+        self.assertIn("primary A6M summary UUID does not uniquely match the primary log and scene",
+                      result["errors"], result)
 
     def test_uuid_comparison_uses_normalized_values(self):
         self.summary["results"][0]["aircraft_uuid"] = PRIMARY.upper()
@@ -272,12 +312,16 @@ class MutualSummaryTests(unittest.TestCase):
         code, result = self.verify()
         self.assertNotEqual(code, 0, result)
         self.assertFalse(result["passed"])
+        self.assertIn("primary A6M summary UUID does not uniquely match the primary log and scene",
+                      result["errors"], result)
 
     def test_malformed_summary_root_produces_failure_result(self):
         self.summary = []
         code, result = self.verify()
         self.assertNotEqual(code, 0, result)
         self.assertFalse(result["passed"])
+        self.assertTrue(any(error.startswith("cannot read validation summary ") and error.endswith(": ValueError")
+                            for error in result["errors"]), result)
 
 
 if __name__ == "__main__":

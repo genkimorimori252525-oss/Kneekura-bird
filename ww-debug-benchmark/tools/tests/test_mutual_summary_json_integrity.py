@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from mutual_fixture import complete_summary, parked_cleanup
 
 VERIFIER = Path(__file__).resolve().parents[1] / "verify_mutual_dogfight_scenario.py"
 PRIMARY_ID = "11111111-1111-4111-8111-111111111111"
@@ -43,8 +44,10 @@ class MutualSummaryJsonIntegrityTests(unittest.TestCase):
         ]
         for filename, name, uid, rows in (("primary.jsonl", "AUTOPILOT TEST warfare_wings:a6m", PRIMARY_ID, primary),
                                           ("opponent.jsonl", "MUTUAL BLUE P47N", OPPONENT_ID, opponent)):
-            (logs / filename).write_text("".join(json.dumps(dict(row, aircraft_name=name, aircraft_uuid=uid)) + "\n"
-                                                 for row in rows), encoding="utf-8")
+            rows = [dict(row, aircraft_name=name, aircraft_uuid=uid) for row in rows]
+            if uid == PRIMARY_ID:
+                rows = parked_cleanup(rows, uid)
+            (logs / filename).write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
 
     def verify(self, summary):
         self.summary.write_bytes(summary)
@@ -61,7 +64,9 @@ class MutualSummaryJsonIntegrityTests(unittest.TestCase):
         self.assertIn(expected, result["errors"], result)
 
     def test_valid_summary_passes(self):
-        status, result = self.verify(b'{"state":"complete","results":[{"passed":true}],"unused":1.25e3}')
+        summary = complete_summary(PRIMARY_ID)
+        summary["unused"] = 1.25e3
+        status, result = self.verify(json.dumps(summary).encode())
         self.assertEqual(status, 0, result)
         self.assertTrue(result["passed"])
 

@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from mutual_fixture import complete_summary, parked_cleanup
 
 VERIFIER = Path(__file__).resolve().parents[1] / "verify_mutual_dogfight_scenario.py"
 PRIMARY = "AUTOPILOT TEST warfare_wings:a6m"
@@ -23,7 +24,7 @@ class MutualLogIntegrityTests(unittest.TestCase):
         self.logs = self.root / "world/wwdebug/autopilot/run/aircraft"
         self.logs.mkdir(parents=True)
         (self.root / "validation-summary-1.json").write_text(
-            json.dumps({"state": "complete", "results": [{"passed": True}]}), encoding="utf-8")
+            json.dumps(complete_summary(PRIMARY_ID)), encoding="utf-8")
         self.primary = self.logs / "primary.jsonl"
         self.opponent = self.logs / "opponent.jsonl"
         self.other = self.logs / "other.jsonl"
@@ -54,7 +55,10 @@ class MutualLogIntegrityTests(unittest.TestCase):
     @staticmethod
     def write_rows(path, name, rows):
         uid = PRIMARY_ID if name == PRIMARY else OPPONENT_ID if name == OPPONENT else OTHER_ID
-        path.write_text("".join(json.dumps(dict(row, aircraft_name=name, aircraft_uuid=uid)) + "\n" for row in rows),
+        rows = [dict(row, aircraft_name=name, aircraft_uuid=uid) for row in rows]
+        if name == PRIMARY:
+            rows = parked_cleanup(rows, uid)
+        path.write_text("".join(json.dumps(row) + "\n" for row in rows),
                         encoding="utf-8")
 
     def verify(self):

@@ -11,6 +11,7 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest import mock
+from mutual_fixture import complete_summary, parked_cleanup
 
 
 VERIFIER = Path(__file__).resolve().parents[1] / "verify_mutual_dogfight_scenario.py"
@@ -59,10 +60,11 @@ class MutualRunStatusTests(unittest.TestCase):
             row(opponent, "weapon_fire", 103),
             row(opponent, "frame", 104, speed_bps=25, on_ground=False),
         ]
+        primary_rows = parked_cleanup(primary_rows, primary_id)
         for name, rows in (("a6m.jsonl", primary_rows), ("p47n.jsonl", opponent_rows)):
             (aircraft / name).write_text("".join(json.dumps(x) + "\n" for x in rows), encoding="utf-8")
         (self.root / "validation-summary-1.json").write_text(
-            json.dumps({"state": "complete", "results": [{"passed": True}]}), encoding="utf-8")
+            json.dumps(complete_summary(primary_id)), encoding="utf-8")
 
     def verify(self, status):
         output = self.root / "result.json"
