@@ -10,6 +10,12 @@ import unittest
 VERIFIER = Path(__file__).resolve().parents[1] / "verify_mutual_dogfight_scenario.py"
 PRIMARY = "AUTOPILOT TEST warfare_wings:a6m"
 OPPONENT = "MUTUAL BLUE P47N"
+INCOMPLETE_METRICS = ("start_tick", "completion_tick", "minimum_separation", "maximum_separation",
+                      "primary_track_ticks", "opponent_track_ticks", "primary_combat_ticks",
+                      "opponent_combat_ticks", "primary_actions", "opponent_actions",
+                      "primary_fire_count", "opponent_fire_count", "primary_min_speed_bps",
+                      "opponent_min_speed_bps", "primary_ground_frames", "opponent_ground_frames",
+                      "primary_doctrines", "opponent_doctrines")
 
 
 class MutualLogIntegrityTests(unittest.TestCase):
@@ -62,6 +68,7 @@ class MutualLogIntegrityTests(unittest.TestCase):
         proc, result = self.verify()
         self.assertEqual(proc.returncode, 0, result)
         self.assertTrue(result["passed"])
+        self.assertIs(result["metrics"]["telemetry_scan_complete"], True)
         self.assertEqual(result["metrics"]["minimum_separation"], 9.5)
 
     def test_carriage_return_record_separator_remains_supported(self):
@@ -74,6 +81,15 @@ class MutualLogIntegrityTests(unittest.TestCase):
                 proc, result = self.verify()
                 self.assertEqual(proc.returncode, 0, result)
 
+    def test_valid_but_unsafe_telemetry_remains_visible(self):
+        with self.primary.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps({"aircraft_name": PRIMARY, "event": "frame", "server_tick": 15,
+                                     "speed_bps": 30, "on_ground": True}) + "\n")
+        proc, result = self.verify()
+        self.assertNotEqual(proc.returncode, 0, result)
+        self.assertIs(result["metrics"]["telemetry_scan_complete"], True)
+        self.assertEqual(result["metrics"]["primary_ground_frames"], 1)
+
     def test_malformed_unsafe_approach_cannot_disappear(self):
         proc, result = self.verify()
         self.assertEqual(proc.returncode, 0, result)
@@ -83,6 +99,9 @@ class MutualLogIntegrityTests(unittest.TestCase):
         self.assertNotEqual(proc.returncode, 0, result)
         self.assertFalse(result["passed"])
         self.assertTrue(any("primary.jsonl" in error and "invalid JSON" in error for error in result["errors"]), result)
+        self.assertIs(result["metrics"]["telemetry_scan_complete"], False)
+        for key in INCOMPLETE_METRICS:
+            self.assertIsNone(result["metrics"][key], (key, result))
 
     def test_corrupt_selected_and_unselected_candidates_fail(self):
         corruptions = {
@@ -109,6 +128,9 @@ class MutualLogIntegrityTests(unittest.TestCase):
                         expected = "invalid JSON" if reason == "invalid JSON blank" else reason
                         self.assertTrue(any(path.name in error and expected in error
                                             for error in result["errors"]), result)
+                        self.assertIs(result["metrics"]["telemetry_scan_complete"], False)
+                        for key in INCOMPLETE_METRICS:
+                            self.assertIsNone(result["metrics"][key], (key, result))
                     finally:
                         path.write_bytes(original)
 
@@ -185,6 +207,29 @@ raise SystemExit(result)
             proc, result = self.verify()
             self.assertNotEqual(proc.returncode, 0, result)
             self.assertTrue(any("broken.jsonl" in error for error in result["errors"]), result)
+
+    def test_unreadable_aircraft_symlink_cannot_be_skipped(self):
+        parent = self.root / "other-run"
+        parent.mkdir()
+        regular_file = parent / "not-directory"
+        regular_file.write_text("not a directory", encoding="utf-8")
+        link = parent / "aircraft"
+        for target in (parent / "missing", regular_file, link):
+            with self.subTest(target=target):
+                try:
+                    link.symlink_to(target, target_is_directory=True)
+                except (OSError, NotImplementedError):
+                    self.skipTest("directory symlinks are unavailable")
+                try:
+                    proc, result = self.verify()
+                    self.assertNotEqual(proc.returncode, 0, result)
+                    self.assertTrue(any("cannot scan telemetry directory" in error and "aircraft" in error
+                                        for error in result["errors"]), result)
+                    self.assertIs(result["metrics"]["telemetry_scan_complete"], False)
+                    for key in INCOMPLETE_METRICS:
+                        self.assertIsNone(result["metrics"][key], (key, result))
+                finally:
+                    link.unlink()
 
 
 if __name__ == "__main__":
