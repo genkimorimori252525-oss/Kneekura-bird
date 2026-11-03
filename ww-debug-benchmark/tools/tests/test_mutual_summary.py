@@ -1,5 +1,6 @@
 """Post-combat completion must belong to the actual primary fighter."""
 import json
+import copy
 from pathlib import Path
 import subprocess
 import sys
@@ -94,7 +95,7 @@ class MutualSummaryTests(unittest.TestCase):
                     self.assertFalse(result["passed"])
                     row[key] = original
 
-    def test_summary_must_have_one_complete_result(self):
+    def test_summary_result_counts_must_be_consistent(self):
         original = self.summary.copy()
         for key, value in (("state", "running"), ("total", 2), ("total", True),
                            ("completed", 0), ("completed", "1"), ("results", []),
@@ -104,6 +105,42 @@ class MutualSummaryTests(unittest.TestCase):
                 code, result = self.verify()
                 self.assertNotEqual(code, 0, result)
                 self.assertFalse(result["passed"])
+
+    def test_multiple_aircraft_summary_can_include_the_same_primary(self):
+        secondary = dict(self.summary["results"][0], entity_id="warfare_wings:b17",
+                         aircraft_uuid=OTHER)
+        self.summary["total"] = self.summary["completed"] = 2
+        self.summary["results"].append(secondary)
+        code, result = self.verify()
+        self.assertEqual(code, 0, result)
+        self.assertTrue(result["passed"])
+
+    def test_multiple_aircraft_summary_rejects_bad_or_ambiguous_results(self):
+        secondary = dict(self.summary["results"][0], entity_id="warfare_wings:b17",
+                         aircraft_uuid=OTHER)
+        self.summary["total"] = self.summary["completed"] = 2
+        self.summary["results"].append(secondary)
+        original = copy.deepcopy(self.summary)
+        for key, value in (("passed", "false"), ("reason", "failed"),
+                           ("final_phase", "CRUISE_OUTBOUND"),
+                           ("last_transition_reason", "unknown"),
+                           ("aircraft_uuid", None), ("aircraft_uuid", "invalid"),
+                           ("aircraft_uuid", PRIMARY.upper())):
+            with self.subTest(key=key, value=value):
+                self.summary = copy.deepcopy(original)
+                self.summary["results"][1][key] = value
+                code, result = self.verify()
+                self.assertNotEqual(code, 0, result)
+                self.assertFalse(result["passed"])
+
+    def test_multiple_aircraft_summary_requires_primary_a6m(self):
+        secondary = dict(self.summary["results"][0], entity_id="warfare_wings:b17",
+                         aircraft_uuid=OTHER)
+        self.summary["total"] = self.summary["completed"] = 2
+        self.summary["results"].append(secondary)
+        self.summary["results"][0]["entity_id"] = "warfare_wings:b17"
+        code, result = self.verify()
+        self.assertNotEqual(code, 0, result)
 
     def test_summary_uuid_must_match_every_primary_log_row(self):
         row = self.summary["results"][0]

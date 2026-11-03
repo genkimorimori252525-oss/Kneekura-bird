@@ -396,30 +396,39 @@ def verify_primary_summary(summary: Any, primary_rows: list[dict[str, Any]],
         return
     require(summary.get("state") == "complete", errors,
             "primary post-combat mission summary was not complete")
+    results = summary.get("results")
+    if not isinstance(results, list) or not results or not all(isinstance(row, dict) for row in results):
+        errors.append("primary post-combat summary must contain aircraft results")
+        return
     for field in ("total", "completed"):
         value = summary.get(field)
-        require(type(value) is int and value == 1, errors,
-                f"primary post-combat summary {field} must be exactly one")
-    results = summary.get("results")
-    if not isinstance(results, list) or len(results) != 1 or not isinstance(results[0], dict):
-        errors.append("primary post-combat summary must contain exactly one aircraft result")
-        return
-    result = results[0]
-    for field, expected in (("entity_id", "warfare_wings:a6m"),
-                            ("passed", True), ("reason", "completed_full_mission"),
-                            ("final_phase", "PARKED"),
-                            ("last_transition_reason", "complete_stop_stable_for_40_ticks")):
-        actual = result.get(field)
-        valid = actual is True if field == "passed" else actual == expected
-        require(valid, errors, f"primary post-combat summary {field} is invalid")
+        require(type(value) is int and value == len(results), errors,
+                f"primary post-combat summary {field} does not match result count")
 
-    result_uuid = normalized_uuid(result.get("aircraft_uuid"))
+    result_uuids = [normalized_uuid(row.get("aircraft_uuid")) for row in results]
+    require(None not in result_uuids and len(set(result_uuids)) == len(result_uuids),
+            errors, "post-combat summary aircraft UUIDs must be valid and unique")
+    for result in results:
+        require(isinstance(result.get("entity_id"), str) and bool(result["entity_id"]),
+                errors, "post-combat summary aircraft entity_id is invalid")
+        for field, expected in (("passed", True), ("reason", "completed_full_mission"),
+                                ("final_phase", "PARKED"),
+                                ("last_transition_reason", "complete_stop_stable_for_40_ticks")):
+            actual = result.get(field)
+            valid = actual is True if field == "passed" else actual == expected
+            require(valid, errors, f"post-combat summary {field} is invalid")
+
     row_uuids = {normalized_uuid(row.get("aircraft_uuid")) for row in primary_rows}
     start_uuids = {normalized_uuid(texts(str(row.get("reason", ""))).get("primary_uuid"))
                    for row in started}
-    require(result_uuid is not None and row_uuids == {result_uuid}
-            and start_uuids == {result_uuid}, errors,
-            "primary summary UUID does not uniquely match the primary log and scene")
+    primary_ids = row_uuids & start_uuids
+    primary_id = next(iter(primary_ids)) if len(primary_ids) == 1 else None
+    primary_results = [row for row in results
+                       if row.get("entity_id") == "warfare_wings:a6m"
+                       and normalized_uuid(row.get("aircraft_uuid")) == primary_id]
+    require(primary_id is not None and row_uuids == {primary_id} and start_uuids == {primary_id}
+            and len(primary_results) == 1, errors,
+            "primary A6M summary UUID does not uniquely match the primary log and scene")
 
 
 def main() -> int:
