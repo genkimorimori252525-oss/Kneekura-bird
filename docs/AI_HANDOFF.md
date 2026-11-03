@@ -52,14 +52,16 @@ Independent focused fixes are drafts; they are not combined or merged. Do not re
   reject unrelated links. It overlaps the other verifier changes and is integrated only in the
   local checkpoint described below, not on main.
 - Draft [#137](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/137), head
-  `366f78bf`, rejects non-integer, negative or regressing ticks before filtering the combat
-  window. Six tests and an independent review passed, including a previously hidden dangerous
-  ground frame. It does not prove complete telemetry or continuous separation and is not yet
-  combined with the other drafts.
+  `07a48aae`, rejects non-integer, negative or regressing ticks before filtering the combat
+  window, and hides partial telemetry metrics on tick errors. Seven tests and independent review
+  passed. It does not prove complete telemetry or continuous separation. The later null-handling
+  change is not yet in the local combined checkpoint and is not merged.
 - Draft [#138](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/138), head
-  `ac39ef4a`, requires exact unique scene completion values, ordered min/max, and counters no
+  `abf9be37`, requires exact unique scene completion values, ordered min/max, and counters no
   greater than the positive scene age. The 2000-tick age cap matches the current producer and
-  must change with it. Nine tests and independent review passed; it is not yet jointly integrated.
+  must change with it. Age may not exceed elapsed server ticks under the fixed-mod normal tick
+  contract, but may be less; arbitrary external same-tick calls are not covered. Thirteen tests
+  and independent review passed. Its later age-versus-elapsed change is not yet locally integrated.
 - These candidates independently start from main and edit the same verifier. Do not merge them as if
   they were already composed: reconcile and rerun their combined regression tests and saved-log
   analysis. Integration of #129–#132 has 55 focused tests and three saved-run reanalyses in a
@@ -72,12 +74,25 @@ Independent focused fixes are drafts; they are not combined or merged. Do not re
   `/workspace/kneekura-mutual-integrated-discovery`, commit `893ecb0`, tree `0774bbae`: 109 tests
   passed and the same five saved runs had the same verdicts. #136's artifact-root symlink policy
   is stricter than #132's telemetry discovery; integration tested both, but Windows remains untested.
+  Adding #137 in `/workspace/kneekura-mutual-integrated-monotonic`, commit `29d56d4`, tree
+  `31ece094`, produced 115 passing tests and the same five reanalysis verdicts. Adding #138 in
+  `/workspace/kneekura-mutual-integrated-completion`, commit `149c46d`, tree `81f727ce`, produced
+  124 passing tests and the same five verdicts, with an age-boundary fixture corrected. These large
+  integrations must not become one PR.
+  The subsequent #137 null-handling integration is `/workspace/kneekura-mutual-integrated-order-null`,
+  commit `5f9c9a9`, tree `b487f2ab`: 125 tests passed and the same five verdicts. It preserves
+  scan completeness and crash details when invalid tick order makes telemetry metrics unknown.
   Independent review of `15ab796` also found that completion reason fields accept numeric prefixes
   with trailing text or duplicate keys and can accept minimum separation greater than maximum.
   A dangerous collision or ground frame in file order inside combat can also be hidden by a
-  regressing tick. Drafts #137–#138 propose fixes but have not been combined with `893ecb0`;
-  do not call the integration complete. No tick regression was observed in the 10 saved aircraft
-  logs reviewed, but this is not a proof for every run.
+  regressing tick. Drafts #137–#138 and the subsequent #137 correction to hide misleading partial
+  metrics are combined locally; do not call the integration complete. No tick regression was
+  observed in the 10 saved aircraft logs reviewed,
+  but this is not a proof for every run. A further counterexample has scene `age_ticks` greater
+  than completion tick minus start tick. Under the fixed-mod normal one-entity-tick-per-world-tick
+  contract age cannot exceed elapsed ticks, though it may be smaller; the producer does not guard
+  against arbitrary external mods invoking it more than once per tick. The #138 follow-up fixes
+  this under that contract but is not yet in the combined local checkpoint.
   Broken-link and incomplete-read metric fixes are also on #132. A failed result with a
   semantically invalid collision row can still display partial valid samples. No GameTest was
   rerun merely for verifier-only changes.
@@ -123,6 +138,9 @@ Independent focused fixes are drafts; they are not combined or merged. Do not re
   The #136-integrated `mutual-verifier-893ecb0-from-2585f44.bundle` has SHA-256
   `367ca0665309a1a7c7e802b6d60c5bbc7075e0dd989b8628c21a6326940e45c0`; its README and 109-test
   evidence explicitly retain the unresolved completion-value and tick-order false passes.
+  The later `mutual-verifier-5f9c9a9-from-2585f44.bundle` has SHA-256
+  `8101124922157f999cac5ad8126f20267e0c9552bb35866aa8316304dd38449e`; it was restored against
+  `2585f44` and includes the 125-test checkpoint while retaining the age-versus-elapsed limit.
   The independent analysis ZIP `kneekura-issue7-frame-pair-analysis-20261103.zip` has SHA-256
   `c2b8ff545cf16888cd13d4b058e9cdf7c2f3ba8d636738a2eb42678302ab7d2d`.
   The missing-frame analysis ZIP `kneekura-issue7-mutual-frame-gap-66e29f5-20261103.zip` has
