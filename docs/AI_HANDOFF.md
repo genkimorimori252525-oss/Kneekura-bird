@@ -4,6 +4,37 @@ Last updated: 2026-11-03 (Asia/Tokyo)
 
 ## 2026-11-03 continuation checkpoint
 
+### Stop refusal and post-takeover continuity: fixture red, candidate experimental
+
+Draft [#146](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/146), head
+`4b90c490b73238dc10a6ab616eba25fe1ddfe668`, is test-only on #145. In the fixed-mod,
+fresh-world run of local `a0d54fc` (tree `ae57505f4c45cdf29eb686091861f47581573fc4`),
+identity refusal and player-free stop controls passed. Before the player stop, phase was
+`STRAIGHT_ACCELERATION` tick 599 with control and heartbeat present. The actual stop
+returned 1, discarded the aircraft and detached the FakePlayer; the refusal assertion failed.
+One required test failed, Gradle exit 1. stdout SHA-256
+`8ad93b1d3bd37733009fff3ff96616bfd2990939f76239b1a4cd3fb68bb87c09`. Later refusal-success,
+occupied and dismounted assertions were not reached. Cleanup's forced-set baseline matched
+(25) and state maps were empty; ownership is not established.
+
+The local logs-only archive `kneekura-issue7-stop-refusal-a0d54fc-evidence-20261103.zip`
+has SHA-256 `8cd85d82371ff2a5f04bf1b3985ced55142360b952f25ba61f0096978afe0a62`; raw
+logs include generated UUIDs and environment details, and must be reviewed before sharing.
+The dedicated generated world is preserved separately. An experimental limited candidate
+is under investigation: keep only the player-occupied aircraft suspended after rejecting
+stop, invalidate its benchmark control, and avoid spawning pending tests while it is held.
+It is not a complete safe lifecycle: exception abort, server stopping, nested/non-controlling
+players, multiple active aircraft, transient mounts between ticks and ownership/recovery of
+forced chunks still need separate design and evidence. Synchronous calls in this fixture are
+not natural server END events. Do not merge or claim complete player safety on this basis.
+
+The fast `FlightSimulationMain` is an independent fighter-only preflight model, with no
+tick-by-tick trajectory or guaranteed final applied input. Existing real-MOD frames therefore
+cannot yet establish model physics error. As a later step, create a read-only comparability
+manifest with pinned source/MOD/config/profile, scenario, aircraft, observed tick intervals and
+unknowns; label current time-series comparisons NOT_COMPARABLE and never fill gaps as proof.
+Issue #7 records the proposed future fixed-condition, applied-input calibration.
+
 ### Public benchmark stop removes a player-controlled aircraft
 
 Draft [#145](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/145), head
