@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from mutual_fixture import fill_interior_frames
 
 
 VERIFIER = Path(__file__).resolve().parents[1] / "verify_mutual_dogfight_scenario.py"
@@ -66,6 +67,12 @@ class MutualTargetIdentityTests(unittest.TestCase):
             b("control_adapter", 104, f"other_uuid={AIRCRAFT_A}:current=9.0",
               applied_safety_override="collision_avoidance"),
         ]
+        # Keep each original event type in the pilot-identity probes, while
+        # avoiding hundreds of duplicate frame probes after coverage setup.
+        self.primary_identity_probes = list(self.primary)
+        self.opponent_identity_probes = list(self.opponent)
+        self.primary = fill_interior_frames(self.primary, 100, 300)
+        self.opponent = fill_interior_frames(self.opponent, 100, 300)
         (self.root / "validation-summary-1.json").write_text(
             json.dumps({"state": "complete", "total": 1, "completed": 1, "results": [{
                 "entity_id": "warfare_wings:a6m", "aircraft_uuid": AIRCRAFT_A, "passed": True,
@@ -130,7 +137,7 @@ class MutualTargetIdentityTests(unittest.TestCase):
 
     def test_invalid_in_window_pilot_makes_window_evidence_unknown(self):
         crash = self.make_crash()
-        for role, rows in (("primary", self.primary), ("opponent", self.opponent)):
+        for role, rows in (("primary", self.primary_identity_probes), ("opponent", self.opponent_identity_probes)):
             for row in rows:
                 if not 100 <= row["server_tick"] <= 300:
                     continue
@@ -216,7 +223,7 @@ class MutualTargetIdentityTests(unittest.TestCase):
     def test_each_log_must_match_scene_aircraft_and_pilot(self):
         for rows in (self.primary, self.opponent):
             for field in ("aircraft_uuid", "pilot_uuid"):
-                item = rows[1]
+                item = next(row for row in rows if row["event"] == "combat_target_acquired")
                 value = item[field]
                 for invalid in (None, OTHER):
                     with self.subTest(log=rows[0]["aircraft_name"], field=field, value=invalid):
@@ -322,8 +329,10 @@ class MutualTargetIdentityTests(unittest.TestCase):
         self.assertIn("primary fire must target the opposing pilot in the combat window", result["errors"], result)
 
     def test_uuid_normalization_accepts_uppercase(self):
-        self.primary[1]["reason"] = self.primary[1]["reason"].replace(PILOT_B, PILOT_B.upper())
-        self.opponent[0]["aircraft_uuid"] = AIRCRAFT_B.upper()
+        primary_acquisition = next(row for row in self.primary if row["event"] == "combat_target_acquired")
+        opponent_acquisition = next(row for row in self.opponent if row["event"] == "combat_target_acquired")
+        primary_acquisition["reason"] = primary_acquisition["reason"].replace(PILOT_B, PILOT_B.upper())
+        opponent_acquisition["aircraft_uuid"] = AIRCRAFT_B.upper()
         code, result = self.verify()
         self.assertEqual(code, 0, result)
 
@@ -432,7 +441,11 @@ class MutualTargetIdentityTests(unittest.TestCase):
             acquisition = next(row for row in rows if row["event"] == "combat_target_acquired")
             fire = next(row for row in rows if row["event"] == "weapon_fire")
             original_tick = acquisition["server_tick"]
+            original_index = rows.index(acquisition)
+            rows.remove(acquisition)
             acquisition["server_tick"] = fire["server_tick"] + 1
+            position = next(i for i, row in enumerate(rows) if row["server_tick"] > acquisition["server_tick"])
+            rows.insert(position, acquisition)
             with self.subTest(name=rows[0]["aircraft_name"], case="future tick"):
                 code, result = self.verify()
                 self.assertNotEqual(code, 0, result)
@@ -440,23 +453,22 @@ class MutualTargetIdentityTests(unittest.TestCase):
                 self.assertIn(f"{role} fired without prior in-window acquisition of the opposing pilot",
                               result["errors"], result)
             acquisition["server_tick"] = fire["server_tick"]
-            transition = next(row for row in rows if row["event"] == "air_combat_action_transition")
-            transition_tick = transition["server_tick"]
-            transition["server_tick"] = fire["server_tick"]
-            acquisition_index, fire_index = rows.index(acquisition), rows.index(fire)
-            rows[acquisition_index], rows[fire_index] = rows[fire_index], rows[acquisition_index]
+            rows.remove(acquisition)
+            rows.insert(rows.index(fire) + 1, acquisition)
             with self.subTest(name=rows[0]["aircraft_name"], case="same tick reversed"):
                 code, result = self.verify()
                 self.assertNotEqual(code, 0, result)
                 role = "primary" if rows is self.primary else "opponent"
                 self.assertIn(f"{role} fired without prior in-window acquisition of the opposing pilot",
                               result["errors"], result)
-            rows[acquisition_index], rows[fire_index] = rows[fire_index], rows[acquisition_index]
+            rows.remove(acquisition)
+            rows.insert(rows.index(fire), acquisition)
             with self.subTest(name=rows[0]["aircraft_name"], case="same tick ordered"):
                 code, result = self.verify()
                 self.assertEqual(code, 0, result)
             acquisition["server_tick"] = original_tick
-            transition["server_tick"] = transition_tick
+            rows.remove(acquisition)
+            rows.insert(original_index, acquisition)
 
     def test_later_acquisition_does_not_justify_earlier_fire(self):
         for rows in (self.primary, self.opponent):

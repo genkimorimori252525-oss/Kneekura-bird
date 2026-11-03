@@ -5,7 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from mutual_fixture import combat_identity, complete_summary, parked_cleanup
+from mutual_fixture import combat_identity, complete_summary, fill_interior_frames, parked_cleanup
 
 VERIFIER = Path(__file__).resolve().parents[1] / "verify_mutual_dogfight_scenario.py"
 PRIMARY_ID = "11111111-1111-4111-8111-111111111111"
@@ -48,6 +48,7 @@ class MutualSummaryJsonIntegrityTests(unittest.TestCase):
             if uid == PRIMARY_ID:
                 rows = parked_cleanup(rows, uid)
             rows = combat_identity(rows, uid == PRIMARY_ID)
+            rows = fill_interior_frames(rows, 10, 210)
             (logs / filename).write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
 
     def verify(self, summary):

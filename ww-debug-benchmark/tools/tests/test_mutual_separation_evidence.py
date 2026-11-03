@@ -6,7 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from mutual_fixture import combat_identity, complete_summary, parked_cleanup
+from mutual_fixture import combat_identity, complete_summary, fill_interior_frames, parked_cleanup
 
 VERIFIER = Path(__file__).resolve().parents[1] / "verify_mutual_dogfight_scenario.py"
 PRIMARY = "11111111-1111-4111-8111-111111111111"
@@ -43,6 +43,8 @@ class MutualSeparationEvidenceTests(unittest.TestCase):
         self.opponent_sample = self.collision(primary=False, value="9.0")
         self.add_row(self.primary, self.primary_sample)
         self.add_row(self.opponent, self.opponent_sample)
+        self.primary = fill_interior_frames(self.primary, 100, 200)
+        self.opponent = fill_interior_frames(self.opponent, 100, 200)
 
     @staticmethod
     def add_row(rows, row):

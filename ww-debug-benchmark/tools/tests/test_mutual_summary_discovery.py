@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from mutual_fixture import fill_interior_frames
 
 
 VERIFIER = Path(__file__).resolve().parents[1] / "verify_mutual_dogfight_scenario.py"
@@ -55,6 +56,7 @@ class MutualSummaryDiscoveryTests(unittest.TestCase):
             row(primary, PRIMARY, "session_end", 400,
                 "validation_aircraft_cleanup", phase="PARKED"),
         ]
+        self.primary_rows = fill_interior_frames(self.primary_rows, 100, 300)
         self.write_primary()
         rows = [
             row(opponent, OPPONENT, "combat_target_acquired", 101,
@@ -66,6 +68,7 @@ class MutualSummaryDiscoveryTests(unittest.TestCase):
             row(opponent, OPPONENT, "control_adapter", 104, f"other_uuid={PRIMARY}:current=9.0",
                 applied_safety_override="collision_avoidance"),
         ]
+        rows = fill_interior_frames(rows, 100, 300)
         (logs / "opponent.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows),
                                             encoding="utf-8")
         self.summary = {"state": "complete", "total": 1, "completed": 1, "results": [{

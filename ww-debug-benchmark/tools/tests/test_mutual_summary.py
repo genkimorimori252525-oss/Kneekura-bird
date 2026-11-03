@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from mutual_fixture import fill_interior_frames
 
 
 VERIFIER = Path(__file__).resolve().parents[1] / "verify_mutual_dogfight_scenario.py"
@@ -55,6 +56,7 @@ class MutualSummaryTests(unittest.TestCase):
             row(primary, PRIMARY, "session_end", 400,
                 "validation_aircraft_cleanup", phase="PARKED"),
         ]
+        self.primary_rows = fill_interior_frames(self.primary_rows, 100, 300)
         self.write_primary()
         rows = [
             row(opponent, OPPONENT, "combat_target_acquired", 101,
@@ -66,6 +68,7 @@ class MutualSummaryTests(unittest.TestCase):
             row(opponent, OPPONENT, "control_adapter", 104, f"other_uuid={PRIMARY}:current=9.0",
                 applied_safety_override="collision_avoidance"),
         ]
+        rows = fill_interior_frames(rows, 100, 300)
         (logs / "opponent.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows),
                                             encoding="utf-8")
         self.summary = {"state": "complete", "total": 1, "completed": 1, "results": [{
@@ -297,7 +300,7 @@ class MutualSummaryTests(unittest.TestCase):
                 self.assertIn("primary A6M summary UUID does not uniquely match the primary log and scene",
                               result["errors"], result)
         row["aircraft_uuid"] = PRIMARY
-        self.primary_rows[2]["aircraft_uuid"] = OTHER
+        next(row for row in self.primary_rows if row["event"] == "air_combat_action_transition")["aircraft_uuid"] = OTHER
         self.write_primary()
         code, result = self.verify()
         self.assertNotEqual(code, 0, result)
