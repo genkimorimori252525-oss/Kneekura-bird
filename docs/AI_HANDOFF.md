@@ -4,6 +4,26 @@ Last updated: 2026-11-03 (Asia/Tokyo)
 
 ## 2026-11-03 continuation checkpoint
 
+### Direct silent stop removes a player-controlled aircraft
+
+Draft [#148](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/148), head
+`a23157e6d423339f6f2cf5e8b745b68919193462`, is test-only on #145. In the fresh-world,
+fixed-mod run of local `6f96403` (production identical to main), one selected GameTest
+confirmed player-free silent-stop control, nonzero sentinels and a normally mounted FakePlayer
+controlling D4Y with the ArmorStand aboard. Direct `BenchmarkManager.stopSilently(server)`
+returned normally, removed aircraft and pilot, detached the surviving player and removed the
+session/control/heartbeat. One required test failed, Gradle exit 1. stdout SHA-256
+`70c379dabfd59c05c74973b311f9bb9910746dbc51c23de12d69df7e9e03d266`. The discarded object's
+unchanged snapshot does not establish aircraft survival. Forced-set cleanup matched its
+25-chunk baseline; shared ownership is unproven. This did **not** fire ServerStoppingEvent
+and does not establish real shutdown ordering, exception abort or client behavior. Independent
+review confirmed the scope.
+
+Local logs-only archive `kneekura-issue7-silent-stop-6f96403-evidence-20261103.zip` SHA-256
+`7254ead6b89660404c783ffe47915ea1bafcb44753ffb9e3a6ec07d737e3c4e6` contains generated
+UUIDs/environment details but no MOD jars or world; the disposable world is saved separately.
+Do not consider the experimental public-stop latch a guard for this independent entry point.
+
 ### Telemetry comparability manifest: draft, not model qualification
 
 Draft [#147](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/147), head
