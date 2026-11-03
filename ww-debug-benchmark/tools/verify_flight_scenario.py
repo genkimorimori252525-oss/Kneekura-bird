@@ -12,6 +12,27 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
+class DuplicateKeyError(ValueError):
+    pass
+
+
+class InvalidConstantError(ValueError):
+    pass
+
+
+def unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise DuplicateKeyError("duplicate JSON object key")
+        result[key] = value
+    return result
+
+
+def reject_json_constant(value: str) -> None:
+    raise InvalidConstantError(value)
+
+
 def latest(paths: Iterable[Path]) -> Path | None:
     candidates = [path for path in paths if path.is_file()]
     return max(candidates, key=lambda path: path.stat().st_mtime) if candidates else None
@@ -136,14 +157,42 @@ def summary_aircraft_logs(paths: Iterable[Path], summary: dict[str, Any],
         mixed = False
         row_count = 0
         frame_count = 0
+        reported: set[str] = set()
+
+        def report_corruption(kind: str, line_number: int) -> None:
+            # Bound diagnostics even if the file contains many corrupt rows.
+            if kind not in reported:
+                errors.append(f"{kind} in telemetry log {path} at line {line_number}")
+                reported.add(kind)
+
         try:
-            with path.open(encoding="utf-8") as stream:
-                for line in stream:
+            with path.open("rb") as stream:
+                for line_number, raw_line in enumerate(stream, 1):
                     try:
-                        row = json.loads(line)
+                        line = raw_line.decode("utf-8")
+                    except UnicodeDecodeError:
+                        report_corruption("invalid UTF-8", line_number)
+                        continue
+                    try:
+                        row = json.loads(line, object_pairs_hook=unique_json_object,
+                                         parse_constant=reject_json_constant)
                     except json.JSONDecodeError:
+                        report_corruption("invalid JSON", line_number)
+                        continue
+                    except DuplicateKeyError:
+                        report_corruption("DuplicateKeyError", line_number)
+                        continue
+                    except InvalidConstantError as exc:
+                        report_corruption(f"InvalidConstantError {exc}", line_number)
+                        continue
+                    except ValueError:
+                        report_corruption("JSON parser ValueError", line_number)
+                        continue
+                    except RecursionError:
+                        report_corruption("JSON parser RecursionError", line_number)
                         continue
                     if not isinstance(row, dict):
+                        report_corruption("non-object JSON", line_number)
                         continue
                     row_count += 1
                     frame_count += row.get("event") == "frame"
@@ -158,7 +207,8 @@ def summary_aircraft_logs(paths: Iterable[Path], summary: dict[str, Any],
                         mixed = True
                     if row_id in matches:
                         matching_ids.add(row_id)
-        except OSError:
+        except OSError as exc:
+            errors.append(f"cannot read telemetry log {path}: {type(exc).__name__}")
             continue
         for aircraft_uuid in matching_ids:
             matches[aircraft_uuid].append((path, row_count, frame_count))
