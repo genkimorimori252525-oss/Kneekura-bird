@@ -105,6 +105,30 @@ class MutualMonotonicTicksTests(unittest.TestCase):
         self.assertNotEqual(code, 0, result)
         self.assertTrue(result["errors"], result)
 
+    def test_bad_ticks_make_scene_metrics_unavailable(self):
+        baseline_primary, baseline_opponent = copy.deepcopy(self.primary), copy.deepcopy(self.opponent)
+        for role in ("primary", "opponent"):
+            for kind in ("decreasing", "invalid"):
+                with self.subTest(role=role, kind=kind):
+                    self.primary, self.opponent = copy.deepcopy(baseline_primary), copy.deepcopy(baseline_opponent)
+                    rows = self.primary if role == "primary" else self.opponent
+                    rows.insert(2, self.row(role, "frame", 99 if kind == "decreasing" else True,
+                                            speed_bps=25, on_ground=True))
+                    code, result = self.verify()
+                    self.assertNotEqual(code, 0, result)
+                    metrics = result["metrics"]
+                    for key in ("start_tick", "completion_tick", "minimum_separation", "maximum_separation",
+                                "primary_track_ticks", "opponent_track_ticks", "primary_combat_ticks",
+                                "opponent_combat_ticks", "primary_actions", "opponent_actions",
+                                "primary_fire_count", "opponent_fire_count", "primary_min_speed_bps",
+                                "opponent_min_speed_bps", "primary_ground_frames", "opponent_ground_frames",
+                                "primary_doctrines", "opponent_doctrines"):
+                        self.assertIsNone(metrics[key], (key, result))
+                    self.assertEqual(metrics["gradle_status"], 0)
+                    self.assertIsNotNone(metrics["primary_log"])
+                    self.assertIsNotNone(metrics["opponent_log"])
+                    self.assertIsNotNone(metrics["validation_summary"])
+
 
 if __name__ == "__main__":
     unittest.main()
