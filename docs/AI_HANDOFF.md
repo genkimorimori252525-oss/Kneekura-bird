@@ -57,11 +57,11 @@ Independent focused fixes are drafts; they are not combined or merged. Do not re
   passed. It does not prove complete telemetry or continuous separation. The later null-handling
   change is not yet in the local combined checkpoint and is not merged.
 - Draft [#138](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/138), head
-  `abf9be37`, requires exact unique scene completion values, ordered min/max, and counters no
+  `7cdef2c1`, requires exact unique scene completion values, ordered min/max, and counters no
   greater than the positive scene age. The 2000-tick age cap matches the current producer and
   must change with it. Age may not exceed elapsed server ticks under the fixed-mod normal tick
-  contract, but may be less; arbitrary external same-tick calls are not covered. Thirteen tests
-  and independent review passed. Its later age-versus-elapsed change is not yet locally integrated.
+  contract, but may be less; arbitrary external same-tick calls are not covered. Fifteen tests
+  and independent review passed. Its later window-invalid metric handling is locally integrated below.
 - These candidates independently start from main and edit the same verifier. Do not merge them as if
   they were already composed: reconcile and rerun their combined regression tests and saved-log
   analysis. Integration of #129–#132 has 55 focused tests and three saved-run reanalyses in a
@@ -82,6 +82,13 @@ Independent focused fixes are drafts; they are not combined or merged. Do not re
   The subsequent #137 null-handling integration is `/workspace/kneekura-mutual-integrated-order-null`,
   commit `5f9c9a9`, tree `b487f2ab`: 125 tests passed and the same five verdicts. It preserves
   scan completeness and crash details when invalid tick order makes telemetry metrics unknown.
+  Adding #138's age-versus-elapsed follow-up in `/workspace/kneekura-mutual-integrated-age-elapsed`,
+  commit `d26648d`, tree `ad5f569c`, produced 129 passing tests and the same five verdicts. This
+  large checkpoint is a reanalysis and exceeds the PR size limit; its changes remain unmerged.
+  `/workspace/kneekura-mutual-integrated-window-null`, commit `8bd26d6`, tree `2d0f0d67`, adds
+  invalid-window metric handling and participant/pilot identity checks, with 139 tests and the same
+  five verdicts. Its `scene_window_valid` requires scanning, tick order, valid scene boundaries and
+  participant identity; it is not a combat verdict or continuous safety proof.
   Independent review of `15ab796` also found that completion reason fields accept numeric prefixes
   with trailing text or duplicate keys and can accept minimum separation greater than maximum.
   A dangerous collision or ground frame in file order inside combat can also be hidden by a
@@ -91,8 +98,8 @@ Independent focused fixes are drafts; they are not combined or merged. Do not re
   but this is not a proof for every run. A further counterexample has scene `age_ticks` greater
   than completion tick minus start tick. Under the fixed-mod normal one-entity-tick-per-world-tick
   contract age cannot exceed elapsed ticks, though it may be smaller; the producer does not guard
-  against arbitrary external mods invoking it more than once per tick. The #138 follow-up fixes
-  this under that contract but is not yet in the combined local checkpoint.
+  against arbitrary external mods invoking it more than once per tick. The #138 follow-up rejects
+  the contradiction under that contract and is included in the latest local checkpoint.
   Broken-link and incomplete-read metric fixes are also on #132. A failed result with a
   semantically invalid collision row can still display partial valid samples. No GameTest was
   rerun merely for verifier-only changes.
@@ -141,12 +148,38 @@ Independent focused fixes are drafts; they are not combined or merged. Do not re
   The later `mutual-verifier-5f9c9a9-from-2585f44.bundle` has SHA-256
   `8101124922157f999cac5ad8126f20267e0c9552bb35866aa8316304dd38449e`; it was restored against
   `2585f44` and includes the 125-test checkpoint while retaining the age-versus-elapsed limit.
+  The newer `mutual-verifier-d26648d-from-2585f44.bundle` has SHA-256
+  `e6b4cf716f7fc220d3b92f1eb069d689cfbc7efd4f80c16cefb51ee6966c4352`; it contains the 129-test
+  checkpoint. Its failed result can still display partial metrics for an invalid window or age.
   The independent analysis ZIP `kneekura-issue7-frame-pair-analysis-20261103.zip` has SHA-256
   `c2b8ff545cf16888cd13d4b058e9cdf7c2f3ba8d636738a2eb42678302ab7d2d`.
   The missing-frame analysis ZIP `kneekura-issue7-mutual-frame-gap-66e29f5-20261103.zip` has
   SHA-256 `e47fdadfdadc5df0c0e2499c7748ad9001a50e8ed31e07357ba269f4c38464ed`. The opponent's
   mission clock can be held by route ownership, so its unchanged count is conditional evidence;
   chunk loading, actual entity ticking and logger acceptance were not directly measured.
+- A later opt-in probe is preserved on exploration-only branch `agent/issue7-mutual-observer-exploration`,
+  GitHub commit `43c7cee418008a1376ef7e954286f72ffbe57459`, tree `1bbd128d`, same tree as local
+  `dacb42c`. It samples before opponent rebind every 20 world ticks without forced loading; see
+  `ww-debug-benchmark/MUTUAL_OBSERVER.md` on that branch for limitations and fresh-world requirement.
+  Build and preflight 12/12 passed; low/high fixed-UUID runs used separate fresh worlds/JVMs and each
+  GameTest passed 64/64, Gradle 0. The combined verifier rejected low (adapter 7.4, scene 8.22,
+  fire 3/1) and passed high (adapter 9.4, scene 10.09, fire 9/1). Probe-free high previously had
+  fire 2/0 and failed, so the missing-fire failure was not reproduced. Noise/probe effects are not
+  isolated. Same-tick paired frame positions around low 7.4 are 7.448 / 7.433; the 8.22 scene value
+  matches a cross-tick position pair, consistent with measurement-time differences but not proof of
+  a unique cause or contact. In sampled missing-frame intervals, `position_entity_ticking=false`;
+  short gaps have no sample and logging, retained references and tickCount have documented limits.
+  Investigation files are in `mutual-observer-dacb42c-analysis-20261103/` in the ephemeral evidence
+  directory. Do not attribute causality or weaken collision/fire criteria based on this correlation.
+  Archive `kneekura-issue7-mutual-observer-dacb42c-20261103.zip` has SHA-256
+  `01bccbc78d3b4dc79d78a165eff1e9eefb1b166a8ad07e13b3005192a4e85555` and contains the logged
+  observations, verifier results and source patch, not mod jars or world data.
+- The existing test manager forces chunks around the primary at server tick END and accumulates
+  visited chunks until cleanup. Observer positions and forced-ticket updates are not simultaneous;
+  other owners and ticket levels are not recorded. A short-lived, owned opponent ticket could change
+  the test environment and load, and cannot establish ordinary server behavior. Before proposing it,
+  investigate read-only logging of requested ownership, actual ticket state and timing. Do not
+  remove unrelated forced chunks, change opening placement or relax safety constraints.
 - Local evidence archives are ephemeral. SHA-256: `kneekura-issue7-evidence-20261103.zip`
   `973cba1b0ef7e68808179616bf55762c7f3780c38a90992efe2f2f341c6cf6f8`;
   `kneekura-issue7-terrain-authority-final-20261103.zip`
