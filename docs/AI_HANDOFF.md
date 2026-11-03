@@ -4,6 +4,40 @@ Last updated: 2026-11-03 (Asia/Tokyo)
 
 ## 2026-11-03 continuation checkpoint
 
+### Later checkpoint: collision regression and verifier identity
+
+- Draft [#122](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/122) records this
+  handoff. Draft [#123](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/123)
+  contains a fixed-mod collision-risk regression test; its initial remote head is `1dfc9284`.
+  Draft [#124](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/124) fixes a
+  full/landing telemetry identity error and must be reconciled before integrating #123. At this
+  checkpoint #124 is being revised to preserve the existing `aircraft=all` multi-aircraft path.
+- With the same test and fixed mods, current main plus the test passed all 61 GameTests, while
+  #101 head `9c21ca34e3f91485f71cf845063bc78fb4c66be2` failed the expected startup engine-input
+  assertion. This demonstrates the specific no-avoidance-write case on the real mod, not all
+  flight axes or collision safety. The first two fixture runs failed before the assertion because
+  the test aircraft lacked usable fuel; their logs were preserved. Final test source SHA-256:
+  `22e31bf600b2cfddb7f2f936a9b333b80a35f5b6d589b9cb6fdc1de94c4a42d4`.
+- On the passing main run, the original full verifier incorrectly selected a later unrelated
+  test aircraft's two-frame log and returned pass. The summary aircraft UUID was different. The
+  initial #124 fix reprocessed the saved run and selected the matching 4,838-frame log; its
+  multi-aircraft compatibility correction still needs verification. Other scenario verifiers and
+  malformed-JSONL handling remain separate audit items.
+- Cloud evidence is under `/workspace/issue7-evidence-20261103/` in this instance, including
+  mod hashes, logs, verifier results and the preserved first two run directories. This path is
+  ephemeral: do not assume it exists in a later session. No mod jars were committed or published.
+  The main test worktree is `/workspace/kneekura-collision-test`; local commit `9d7180a` has the
+  first passing fixture. Its remote equivalent is #123's head, with identical source contents but
+  a different commit ID. Additional test changes may follow; inspect live GitHub and worktrees.
+- Before converting autonomy, separately verify actual collision avoidance is not overwritten,
+  terrain priority, combat suppression and player exclusion. A candidate test for the actual
+  avoidance write is under investigation. A risk-only ownership label can disagree with the
+  actual writer; do not silently treat that diagnostic label as evidence of an avoidance write.
+- [KNEEKURA TECH HUB](https://github.com/genkimorimori252525-oss/KNEEKURA-TECH-HUB) contains a
+  SimLab analyzer and schema that may help future trajectory analysis. No compatibility with this
+  mod's logs or calibrated aircraft physics is established; check conversion, provenance and
+  applicable reuse conditions before relying on or redistributing its contents.
+
 The owner explicitly activated **Jolly Endurance Mode** for this session. Starting checkpoint:
 main `2585f44fa02b84ed7f593bf9a65798a2b4f056ea`. Live GitHub showed two open draft PRs,
 [#101](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/101) and
