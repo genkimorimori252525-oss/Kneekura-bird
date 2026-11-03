@@ -4,6 +4,25 @@ Last updated: 2026-11-03 (Asia/Tokyo)
 
 ## 2026-11-03 continuation checkpoint
 
+### Silent stop bypasses the experimental takeover latch
+
+On the evidence-only [branch](https://github.com/genkimorimori252525-oss/Kneekura-bird/tree/agent/issue7-silent-stop-latch-evidence),
+head `e1781155abc756f08969c88e25772bb77e365718`, local `8a1db05` uses the experimental
+`92682c7` production code plus the #148 fixture with an explicit latch check. In a fresh
+fixed-mod world/JVM, the one selected test confirmed player-free positive control, stale
+control/heartbeat, then a direct benchmark tick with the same session/aircraft, latch=true,
+controls cleared and player, phase, inputs and forced set preserved. Direct `stopSilently`
+then removed aircraft and pilot, detached the surviving FakePlayer and removed the session.
+One required test failed, exit 1, stdout SHA-256
+`24abcc7a3ea747070858f34d4bac9d679930f916ef3025de658790a0c2d14646`. Fixture cleanup restored
+the 25-chunk baseline; ownership is not established. This was a direct method call, not a
+`ServerStoppingEvent`, and says nothing about real client or exception-abort behavior.
+
+Local logs-only archive `kneekura-issue7-silent-stop-after-latch-8a1db05-evidence-20261103.zip`
+SHA-256 `727c414f2d7be4d6a6b832100beb4a1cb078fca893c64c9e5e91b6aaa934c453`; review raw
+UUIDs/environment details before sharing. The generated world is preserved separately. The
+experimental candidate remains non-deployable; public-stop/END passes do not protect this path.
+
 ### Direct silent stop removes a player-controlled aircraft
 
 Draft [#148](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/148), head
