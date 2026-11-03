@@ -40,6 +40,12 @@ class MutualFrameIntegrityTests(unittest.TestCase):
             row(OPPONENT, 'weapon_fire', 103),
             row(OPPONENT, 'frame', 104, speed_bps=25, on_ground=False),
         ]
+        # Each interior tick has one valid frame. Boundary ticks are not required:
+        # initial setup may write directly, and teardown may precede an entity tick.
+        for rows, name in ((self.primary, PRIMARY), (self.opponent, OPPONENT)):
+            rows.extend(row(name, 'frame', tick, speed_bps=25, on_ground=False)
+                        for tick in range(101, 300) if tick != 104)
+            rows.sort(key=lambda item: item['server_tick'])
         (self.root / 'validation-summary-1.json').write_text(
             json.dumps({'state': 'complete', 'results': [{'passed': True}]}), encoding='utf-8')
 
@@ -73,6 +79,7 @@ class MutualFrameIntegrityTests(unittest.TestCase):
             with self.subTest(target=target):
                 rows = getattr(self, target)
                 frame = next(item for item in rows if item['event'] == 'frame')
+                old_tick = frame['server_tick']
                 frame['server_tick'] = 301
                 try:
                     code, result = self.verify()
@@ -81,7 +88,7 @@ class MutualFrameIntegrityTests(unittest.TestCase):
                     self.assertIsNone(result['metrics'][target + '_ground_frames'])
                     self.assertIsNone(result['metrics'][target + '_min_speed_bps'])
                 finally:
-                    frame['server_tick'] = 104
+                    frame['server_tick'] = old_tick
 
     def test_every_frame_needs_valid_nonnegative_finite_numeric_speed(self):
         for target in ('primary', 'opponent'):
