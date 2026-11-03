@@ -14,6 +14,7 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.decoration.ArmorStand;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.storage.LevelResource;
 import net.minecraft.world.phys.Vec3;
@@ -136,9 +137,19 @@ public final class BenchmarkManager {
     }
 
     public static int stop(CommandSourceStack source) {
-        BenchmarkSession session = SESSIONS.remove(source.getServer());
+        MinecraftServer server = source.getServer();
+        BenchmarkSession session = SESSIONS.get(server);
         if (session == null) {
             source.sendFailure(Component.literal("No benchmark is running."));
+            return 0;
+        }
+        if (session.surrenderOccupiedTests()) {
+            source.sendFailure(Component.literal(
+                    "Benchmark stop refused: an aircraft has been taken over by a player."));
+            return 0;
+        }
+        if (!SESSIONS.remove(server, session)) {
+            source.sendFailure(Component.literal("Benchmark session changed before it could be stopped."));
             return 0;
         }
         session.abort();
@@ -252,8 +263,12 @@ public final class BenchmarkManager {
             elapsedTicks++;
             for (AircraftTest test : new ArrayList<>(active)) {
                 test.tick();
-                if (test.finished()) {
-                    results.add(test.result());
+                if (test.finished() && !test.surrenderIfOccupied()) {
+                    Map<String, Object> result = test.result();
+                    if (test.surrenderIfOccupied()) {
+                        continue;
+                    }
+                    results.add(result);
                     test.cleanup();
                     active.remove(test);
                 }
@@ -261,8 +276,21 @@ public final class BenchmarkManager {
             fillBatch();
         }
 
+        private boolean surrenderOccupiedTests() {
+            boolean surrendered = false;
+            for (AircraftTest test : active) {
+                if (test.surrenderIfOccupied()) {
+                    surrendered = true;
+                }
+            }
+            return surrendered;
+        }
+
         private void fillBatch() {
             while (active.size() < MAX_CONCURRENT && !pending.isEmpty()) {
+                if (surrenderOccupiedTests()) {
+                    return;
+                }
                 Candidate candidate = pending.removeFirst();
                 Vec3 anchor = anchor(active.size());
                 AircraftTest test = AircraftTest.spawn(level, candidate, anchor);
@@ -390,6 +418,7 @@ public final class BenchmarkManager {
         private int phaseTick;
         private int stablePrepareTicks;
         private boolean finished;
+        private boolean surrenderedToPlayer;
         private String error = "";
         private double accelerationInitialSpeed = Double.NaN;
         private double accelerationInitialEnginePower = Double.NaN;
@@ -475,8 +504,20 @@ public final class BenchmarkManager {
             }
         }
 
+        private boolean surrenderIfOccupied() {
+            if (!surrenderedToPlayer && aircraft.getSelfAndPassengers().anyMatch(Player.class::isInstance)) {
+                surrenderedToPlayer = true;
+            }
+            if (surrenderedToPlayer) {
+                UUID aircraftId = aircraft.getUUID();
+                CONTROLS.remove(aircraftId);
+                CONTROL_HEARTBEATS.remove(aircraftId);
+            }
+            return surrenderedToPlayer;
+        }
+
         private void tick() {
-            if (finished) {
+            if (surrenderIfOccupied() || finished) {
                 return;
             }
             keepChunksLoaded();
