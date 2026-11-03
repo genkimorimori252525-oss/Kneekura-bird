@@ -478,6 +478,20 @@ def verify_primary_summary(summary: Any, primary_rows: list[dict[str, Any]],
             and all(row.get("phase") != "ABORTED" for row in primary_rows)
             and all(row.get("phase") == "PARKED" for row in primary_rows[parked_i:])
         )
+        # BRAKE records the transition and a frame from the same snapshot.
+        # Later parked frames, if any, must remain grounded and below the
+        # controller's strict 0.25 blocks/second horizontal-speed threshold.
+        frames = [row for row in primary_rows[parked_i + 1:end_i] if row.get("event") == "frame"]
+        frame_ticks = [row.get("server_tick") for row in frames]
+        terminal_ok = terminal_ok and bool(frames) and all(
+            type(value) is int and value >= 0 for value in frame_ticks
+        ) and frame_ticks[0] == ticks[1] and all(
+            ticks[1] <= value <= ticks[2] for value in frame_ticks
+        ) and frame_ticks == sorted(frame_ticks) and all(
+            row.get("on_ground") is True
+            and type(row.get("horizontal_speed_bps")) in (int, float)
+            and 0 <= row["horizontal_speed_bps"] < 0.25 for row in frames
+        )
     require(terminal_ok, errors,
             "primary post-combat log does not establish parked validation cleanup")
 

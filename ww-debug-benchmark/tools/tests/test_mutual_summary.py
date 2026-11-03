@@ -44,6 +44,8 @@ class MutualSummaryTests(unittest.TestCase):
                 "primary_combat_ticks=150:opponent_combat_ticks=150"),
             row(primary, PRIMARY, "phase_transition", 400,
                 "BRAKE->PARKED:complete_stop_stable_for_40_ticks", phase="PARKED"),
+            row(primary, PRIMARY, "frame", 400, phase="PARKED", on_ground=True,
+                horizontal_speed_bps=0.0),
             row(primary, PRIMARY, "session_end", 400,
                 "validation_aircraft_cleanup", phase="PARKED"),
         ]
@@ -161,22 +163,53 @@ class MutualSummaryTests(unittest.TestCase):
             with self.subTest(case=case):
                 self.primary_rows = copy.deepcopy(baseline)
                 if case == "no parked transition":
-                    self.primary_rows.pop(-2)
+                    self.primary_rows.pop(-3)
                 elif case == "no session end":
                     self.primary_rows.pop()
                 elif case == "abort after parked":
                     self.primary_rows.append(dict(self.primary_rows[-1], event="phase_transition",
                                                   phase="ABORTED", reason="PARKED->ABORTED:failed"))
                 elif case == "end before parked":
-                    self.primary_rows[-2], self.primary_rows[-1] = self.primary_rows[-1], self.primary_rows[-2]
+                    self.primary_rows[-3], self.primary_rows[-1] = self.primary_rows[-1], self.primary_rows[-3]
                 elif case == "wrong end reason":
                     self.primary_rows[-1]["reason"] = "other_cleanup"
                 elif case == "contradictory later frame":
-                    self.primary_rows.insert(-1, dict(self.primary_rows[-2], event="frame", phase="CRUISE"))
+                    self.primary_rows.insert(-1, dict(self.primary_rows[-2], phase="CRUISE"))
                 elif case == "invalid terminal tick":
                     self.primary_rows[-1]["server_tick"] = True
                 else:
-                    self.primary_rows[-2]["server_tick"] = 299
+                    self.primary_rows[-3]["server_tick"] = 299
+                self.write_primary()
+                code, result = self.verify()
+                self.assertNotEqual(code, 0, result)
+
+    def test_parked_frame_must_confirm_grounded_low_speed_on_transition_tick(self):
+        baseline = copy.deepcopy(self.primary_rows)
+        for case in ("missing", "wrong tick", "airborne", "missing ground", "fast", "negative speed",
+                     "missing speed", "boolean speed", "string speed", "infinite speed", "nan speed",
+                     "later fast frame", "later tick past cleanup"):
+            with self.subTest(case=case):
+                self.primary_rows = copy.deepcopy(baseline)
+                frame = self.primary_rows[-2]
+                if case == "missing":
+                    self.primary_rows.pop(-2)
+                elif case == "wrong tick":
+                    frame["server_tick"] = 401
+                elif case == "airborne":
+                    frame["on_ground"] = False
+                elif case == "missing ground":
+                    del frame["on_ground"]
+                elif case in ("fast", "negative speed", "boolean speed", "string speed",
+                              "infinite speed", "nan speed"):
+                    frame["horizontal_speed_bps"] = {"fast": 0.25, "negative speed": -1.0,
+                        "boolean speed": True, "string speed": "0.0", "infinite speed": float("inf"),
+                        "nan speed": float("nan")}[case]
+                elif case == "missing speed":
+                    del frame["horizontal_speed_bps"]
+                elif case == "later fast frame":
+                    self.primary_rows.insert(-1, dict(frame, horizontal_speed_bps=120))
+                else:
+                    self.primary_rows.insert(-1, dict(frame, server_tick=401))
                 self.write_primary()
                 code, result = self.verify()
                 self.assertNotEqual(code, 0, result)
