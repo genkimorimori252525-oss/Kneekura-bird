@@ -75,6 +75,19 @@ Independent focused fixes are drafts; they are not combined or merged. Do not re
   The fixture cannot rule out UUID collisions in unloaded chunks: use an empty new world and
   separate JVM for each run, preserve old worlds before starting, and check all 4 registrations and
   logs. Failure cleanup does not restore preexisting equipment; failure injection is untested.
+- Independent same-server-tick 3D frame pairing found the #128 run had minimum 7.433 blocks and
+  four paired ticks below 8, with 703 of 902 ticks paired and 199 missing. UUID low paired 720 /
+  941 ticks, minimum 10.850; UUID high 1479 / 2001 ticks, minimum 12.413. Same tick is not guaranteed
+  simultaneous; these do not establish continuous separation or bounding-box contact. High's P-47N
+  has 522 missing frame ticks, including a 113-tick gap. Scene tracking counters read cached state
+  on the primary side and cannot prove that the opponent was updated. Investigate entity ticks,
+  chunk state and logger acceptance before attributing its missing fire to UUID order alone.
+- Additional local artifacts are ephemeral: `kneekura-issue7-uuid-order-66e29f5-20261103.zip`
+  SHA-256 `3afa745546c21b92b42dfc86f6f2896686f6a78716712998a12e9fead840368f`; the incremental
+  `mutual-verifier-038f9f5-from-2585f44.bundle` SHA-256
+  `6697f394875d7122b1583a29991db68e252ec64d9dde7c03703c6531efd649ed` and its README were
+  verified by restoring with baseline `2585f44`. Pair-distance script and JSON are under
+  `/workspace/issue7-evidence-20261103/mutual-frame-pair-distances-independent.*`.
 - Local evidence archives are ephemeral. SHA-256: `kneekura-issue7-evidence-20261103.zip`
   `973cba1b0ef7e68808179616bf55762c7f3780c38a90992efe2f2f341c6cf6f8`;
   `kneekura-issue7-terrain-authority-final-20261103.zip`
