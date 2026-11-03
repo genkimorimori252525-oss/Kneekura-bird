@@ -4,6 +4,34 @@ Last updated: 2026-11-03 (Asia/Tokyo)
 
 ## 2026-11-03 continuation checkpoint
 
+### Player-controlled benchmark reset: reproduced, not fixed
+
+Draft [#141](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/141), head `e6bd4a6b`,
+is a **failing, test-only** probe stacked on #123. With fixed Minecraft 1.20.1 / Forge 47.4.20 and
+the pinned mods, a D4Y's benchmark ArmorStand remained aboard while a FakePlayer boarded normally
+and became controlling passenger. At a seeded phase boundary, a synchronous real
+`BenchmarkManager.tick` changed engine target ~0.24 to 0, returned position to the benchmark
+anchor and zeroed velocity. The three recorded input axes did not change. Player-free positive
+control reached the same reset; the dedicated GameTest failed its safety assertion, Gradle 1.
+The fixture base `fb1c5c0` differs from main `2585f44` only by test/helper additions. This is not
+evidence for natural 600-tick progression, network player input, same-value writes, attitude,
+fuel, or all shutdown paths. The observed GameTest forced-set baseline was 25 chunks and was
+equal after test cleanup; the vanilla global boolean does not establish exclusive ownership.
+
+Do not fix by just failing/aborting the benchmark: current `cleanup` discards the aircraft, and
+`stop` removes the session before abort can fail. Direct `BenchmarkManager.applyControl`, stale
+controls after takeover, END tick, multi-aircraft operation, stop/abort/server shutdown and
+ownership recovery require separate tests and a safe takeover design. `fillBatch` also chooses
+`anchor(active.size())`, which can reuse a remaining aircraft's slot after an earlier test finishes;
+this is a static risk not yet reproduced in-game. The one-aircraft, seeded fixture cannot qualify
+the complete player-safety requirement. Issue #7 and #141 contain the exact evidence and limits.
+
+The ephemeral evidence archive `kneekura-issue7-player-reset-e41daad-evidence-20261103.zip` has
+SHA-256 `4935c9191cbb25d9f5c6a2e20ac3b2afb167f3f9353e5000b8f096cbc686b722`. The separate
+`kneekura-issue7-player-reset-v5-private-world-20261103.zip` has SHA-256
+`7d712313590bb2e4dd999e44578d4530d8a865e6b1dcee6f086c4f2aa8566040`; it contains generated world
+data, test UUIDs and world serverconfig and should be reviewed before sharing. Both are local only.
+
 ### Later checkpoint: collision regression and verifier identity
 
 **Safety checkpoint:** Draft [#128](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/128)
