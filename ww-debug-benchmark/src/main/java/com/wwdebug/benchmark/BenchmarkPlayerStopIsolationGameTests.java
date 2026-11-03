@@ -107,6 +107,22 @@ public final class BenchmarkPlayerStopIsolationGameTests {
             check(playerCase.aircraft.getControllingPassenger() == playerCase.pilot, "inconclusive: player-case pilot not controlling");
             check(controls.containsKey(playerCase.aircraft.getUUID()), "inconclusive: player-case control missing");
             check(!hasPlayerPassenger(playerCase.aircraft), "inconclusive: unexpected player");
+            // Like the reset probe, prepare fuel before seeding. The utilization getter may
+            // update synchronized entity data, so these observations are player-free only.
+            double fuelBefore = ReflectiveAircraft.fuelUtilization(playerCase.aircraft);
+            WWDebugBenchmarkMod.LOGGER.info("benchmark_stop_probe fuel_before_tick={}", fuelBefore);
+            check(Double.isFinite(fuelBefore), "inconclusive: pre-tick fuel value is not finite");
+            playerCase.aircraft.tick();
+            double fuelAfter = ReflectiveAircraft.fuelUtilization(playerCase.aircraft);
+            WWDebugBenchmarkMod.LOGGER.info("benchmark_stop_probe fuel_after_tick={}", fuelAfter);
+            check(Double.isFinite(fuelAfter) && fuelAfter > 0.0,
+                    "inconclusive: aircraft fuel not available after native tick");
+            verifyLease(playerCase, level, sessions);
+            check(sessions.get(server) == playerCase.session && !playerCase.aircraft.isRemoved()
+                            && !playerCase.pilot.isRemoved() && controls.containsKey(playerCase.aircraft.getUUID())
+                            && playerCase.aircraft.getControllingPassenger() == playerCase.pilot
+                            && !hasPlayerPassenger(playerCase.aircraft),
+                    "inconclusive: native tick changed session, aircraft, or pilot state");
             // Seed before mounting: the test never injects control into a player-piloted aircraft.
             Vec3 initialPosition = playerCase.aircraft.position();
             playerCase.aircraft.setPos(initialPosition.x + 1.0, initialPosition.y + 3.0, initialPosition.z + 1.0);
