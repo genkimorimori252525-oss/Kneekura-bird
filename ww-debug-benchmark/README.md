@@ -94,6 +94,17 @@ A headless CI run is considered successful only when all of the following exist 
 - a measured or staged `flight_profiles.json`;
 - per-aircraft autonomous-flight JSONL telemetry.
 
+The mutual-dogfight verifier targets the fixed GameTest fixture, which creates
+both pilots as villagers. Every parsed row in the combat window must identify
+the matching scene pilot UUID and `minecraft:villager` pilot entity ID. A missing
+or different ID is unverified, including other mob types; this does not qualify
+arbitrary mob pilots. This check depends on both the separate strict JSONL
+integrity gate, which rejects malformed or ambiguous records, and the tick-order
+gate, which rejects invalid or decreasing ticks. Without them, the older parser
+can skip rows or a decreasing tick can place a player row outside the window.
+It does not establish the pilot or exclude AI inputs during missing ticks, nor
+does it replace a player takeover safety test.
+
 GitHub Actions runs the A6M headless smoke test on pull requests. The `WW Headless Flight GameTest` workflow can be started manually with `aircraft=all` for the complete fighter suite. Runtime mods are downloaded transiently from their exact official Modrinth versions and are not uploaded as workflow artifacts.
 
 ## Fixed-input benchmark commands

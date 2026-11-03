@@ -116,6 +116,12 @@ def verify_participants(started: list[dict[str, Any]], completed: list[dict[str,
             normalized_uuid(row.get("aircraft_uuid")) == aircraft_id
             and normalized_uuid(row.get("pilot_uuid")) == pilot_id for row in in_window),
             errors, f"{label} combat-window log does not match the scene aircraft and pilot")
+        # This verifier is for the fixed GameTest fixture, which creates both
+        # pilots as villagers. The registry ID only describes recorded rows;
+        # it does not establish pilot identity or input safety during gaps.
+        require(bool(in_window) and all(row.get("pilot_entity_id") == "minecraft:villager"
+                                        for row in in_window), errors,
+                f"{label} combat-window log must identify the fixed villager pilot")
 
     for label, rows, field, expected in (
             ("primary acquisition", primary_acquisitions, "uuid", opponent_pilot),
