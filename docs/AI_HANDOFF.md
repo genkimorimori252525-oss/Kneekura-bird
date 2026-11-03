@@ -4,6 +4,18 @@ Last updated: 2026-11-03 (Asia/Tokyo)
 
 ## 2026-11-03 continuation checkpoint
 
+### Ticket ownership journal: pure model only
+
+Draft [#149](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/149), head
+`7592721bec015db268e334431fcf5af96419ebb4`, adds a 3-file pure in-memory model on main.
+Fifteen synthetic tests passed: durable intent is an external assertion, successful API return
+is volatile only, and false/exception/crash/restart/identity or epoch mismatch and reported
+owner uncertainty enter absorbing `UNKNOWN`. Explicit exclusivity is a hypothetical assumption.
+No Forge, filesystem journal, world, production or actual chunk operation is connected. The
+model cannot prove fsync, exclusive ownership, crash recovery, restart, real ticks or detect a
+forged/reused epoch. Never infer or migrate ownership of existing vanilla boolean chunks from
+this model; fixed-Forge staged tests and safe unresolved-state handling are still required.
+
 ### Silent stop bypasses the experimental takeover latch
 
 On the evidence-only [branch](https://github.com/genkimorimori252525-oss/Kneekura-bird/tree/agent/issue7-silent-stop-latch-evidence),
