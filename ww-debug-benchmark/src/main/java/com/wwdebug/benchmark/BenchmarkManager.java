@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.wwdebug.autopilot.MobPilotGate;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
@@ -74,6 +75,12 @@ public final class BenchmarkManager {
 
     public static void applyControl(Entity vehicle) {
         if (vehicle.level().isClientSide) {
+            return;
+        }
+        if (MobPilotGate.isPlayerControlled(vehicle)) {
+            UUID aircraftId = vehicle.getUUID();
+            CONTROLS.remove(aircraftId);
+            CONTROL_HEARTBEATS.remove(aircraftId);
             return;
         }
         ControlInput input = CONTROLS.get(vehicle.getUUID());
