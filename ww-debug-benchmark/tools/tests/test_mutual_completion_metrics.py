@@ -69,11 +69,13 @@ class CompletionMetricsTests(unittest.TestCase):
                                 for row in rows),
                         encoding="utf-8")
 
-    def set_completion(self, reason):
+    def set_completion(self, reason, server_tick=None):
         rows = [json.loads(line) for line in self.primary.read_text(encoding="utf-8").splitlines()]
         for row in rows:
             if row.get("event") == "mutual_dogfight_validation_completed":
                 row["reason"] = reason
+                if server_tick is not None:
+                    row["server_tick"] = server_tick
         self.primary.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
 
     def verify(self):
@@ -196,10 +198,53 @@ class CompletionMetricsTests(unittest.TestCase):
         self.assertEqual(result["metrics"]["scene_age_ticks"], 2000)
         for age in (2001, 2_147_483_647):
             with self.subTest(age=age):
-                self.set_completion(COMPLETION.replace("age_ticks=200", f"age_ticks={age}"))
+                self.set_completion(COMPLETION.replace("age_ticks=200", f"age_ticks={age}"), server_tick=2010)
                 proc, result = self.verify()
                 self.assertNotEqual(proc.returncode, 0, result)
                 self.assertIn("scene completion age_ticks exceeds combat window 2000", result["errors"], result)
+
+    def test_scene_age_cannot_exceed_elapsed_server_ticks(self):
+        for age in (201, 2000):
+            with self.subTest(age=age):
+                self.set_completion(COMPLETION.replace("age_ticks=200", f"age_ticks={age}"))
+                proc, result = self.verify()
+                self.assertNotEqual(proc.returncode, 0, result)
+                self.assertTrue(any("age_ticks" in error and "elapsed" in error
+                                    for error in result["errors"]), result)
+
+    def test_scene_age_can_be_less_than_elapsed_server_ticks(self):
+        self.set_completion(COMPLETION.replace("age_ticks=200", "age_ticks=100").replace("=150", "=100"))
+        proc, result = self.verify()
+        self.assertEqual(proc.returncode, 0, result)
+        self.assertEqual(result["metrics"]["scene_age_ticks"], 100)
+
+    def test_tick_boundaries_must_be_unambiguous_nonnegative_integers(self):
+        original = self.primary.read_text(encoding="utf-8")
+        for event in ("mutual_dogfight_validation_started", "mutual_dogfight_validation_completed"):
+            for invalid in (None, -1, True, "10"):
+                with self.subTest(event=event, invalid=invalid):
+                    rows = [json.loads(line) for line in original.splitlines()]
+                    for row in rows:
+                        if row.get("event") == event:
+                            row["server_tick"] = invalid
+                    self.primary.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+                    proc, result = self.verify()
+                    self.assertNotEqual(proc.returncode, 0, result)
+                    self.assertTrue(any("tick" in error for error in result["errors"]), result)
+
+    def test_duplicate_start_or_reversed_boundaries_fail(self):
+        original = self.primary.read_text(encoding="utf-8")
+        with self.primary.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps({"aircraft_name": PRIMARY, "event": "mutual_dogfight_validation_started",
+                                     "server_tick": 10}) + "\n")
+        proc, result = self.verify()
+        self.assertNotEqual(proc.returncode, 0, result)
+        self.assertTrue(any("start" in error for error in result["errors"]), result)
+        self.primary.write_text(original, encoding="utf-8")
+        self.set_completion(COMPLETION, server_tick=9)
+        proc, result = self.verify()
+        self.assertNotEqual(proc.returncode, 0, result)
+        self.assertTrue(any("completion" in error and "start" in error for error in result["errors"]), result)
 
 
 if __name__ == "__main__":

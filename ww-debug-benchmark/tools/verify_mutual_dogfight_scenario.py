@@ -753,6 +753,13 @@ def main() -> int:
     if start_tick is not None and completion_tick is not None and not window_valid:
         errors.append("mutual dogfight completion must follow start")
 
+    # Under the fixed-mod normal tick path, age increases at most once per gameTime.
+    # Skipped calls can make age smaller; repeated calls in one gameTime are outside
+    # this validation contract and are not prevented by the producer.
+    if window_valid and completion_values["age_ticks"] is not None:
+        if completion_values["age_ticks"] > completion_tick - start_tick:
+            errors.append("scene completion age_ticks exceeds elapsed server ticks")
+
     def within_window(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return [row for row in rows if window_valid
                 and start_tick <= tick(row) <= completion_tick]
