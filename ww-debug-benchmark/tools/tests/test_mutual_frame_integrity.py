@@ -50,6 +50,12 @@ class MutualFrameIntegrityTests(unittest.TestCase):
             row(OPPONENT, 'control_adapter', 104, f'other_uuid={PRIMARY_ID}:current=9.0',
                 applied_safety_override='collision_avoidance'),
         ]
+        # Each interior tick has one valid frame. Boundary ticks are not required:
+        # initial setup may write directly, and teardown may precede an entity tick.
+        for rows, name in ((self.primary, PRIMARY), (self.opponent, OPPONENT)):
+            rows.extend(row(name, 'frame', tick, speed_bps=25, on_ground=False)
+                        for tick in range(101, 300) if tick != 104)
+            rows.sort(key=lambda item: item['server_tick'])
         (self.root / 'validation-summary-1.json').write_text(
             json.dumps(complete_summary(PRIMARY_ID)), encoding='utf-8')
 
@@ -93,6 +99,7 @@ class MutualFrameIntegrityTests(unittest.TestCase):
             with self.subTest(target=target):
                 rows = getattr(self, target)
                 frame = next(item for item in rows if item['event'] == 'frame')
+                old_tick = frame['server_tick']
                 original_index = rows.index(frame)
                 rows.pop(original_index)
                 frame['server_tick'] = 301
@@ -107,7 +114,7 @@ class MutualFrameIntegrityTests(unittest.TestCase):
                     self.assertIn(f'{name} has no combat-window frame telemetry', result['errors'], result)
                 finally:
                     rows.remove(frame)
-                    frame['server_tick'] = 104
+                    frame['server_tick'] = old_tick
                     rows.insert(original_index, frame)
 
     def test_every_frame_needs_valid_nonnegative_finite_numeric_speed(self):
