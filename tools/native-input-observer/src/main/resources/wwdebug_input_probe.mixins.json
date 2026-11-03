@@ -1,0 +1,8 @@
+{
+  "required": true,
+  "minVersion": "0.8.5",
+  "package": "com.wwdebug.probe.input.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "mixins": ["VehicleInputMixin"],
+  "injectors": { "defaultRequire": 1 }
+}
