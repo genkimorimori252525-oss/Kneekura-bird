@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import statistics
 import sys
@@ -14,6 +15,34 @@ from typing import Any
 TEXT = re.compile(r"([a-z_]+)=([^:]+)")
 NUMBER = re.compile(r"([a-z_]+)=(-?\d+(?:\.\d+)?)")
 ACTION = re.compile(r"(?:^|:)to=([A-Z_]+)")
+
+
+class SummaryDuplicateKeyError(ValueError):
+    pass
+
+
+class SummaryInvalidConstantError(ValueError):
+    pass
+
+
+def reject_summary_constant(value: str) -> None:
+    raise SummaryInvalidConstantError(value)
+
+
+def finite_summary_float(value: str) -> float:
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError("summary number exceeds finite float range")
+    return number
+
+
+def summary_unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise SummaryDuplicateKeyError("duplicate JSON object key")
+        result[key] = value
+    return result
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -186,8 +215,14 @@ def main() -> int:
     summary: dict[str, Any] = {}
     if summary_path:
         try:
-            summary = json.loads(summary_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+            summary = json.loads(summary_path.read_text(encoding="utf-8"),
+                                 object_pairs_hook=summary_unique_object,
+                                 parse_constant=reject_summary_constant,
+                                 parse_float=finite_summary_float)
+            if not isinstance(summary, dict):
+                raise ValueError("validation summary must be an object")
+        except (OSError, UnicodeDecodeError, ValueError, RecursionError) as exc:
+            errors.append(f"cannot read validation summary {summary_path}: {type(exc).__name__}")
             summary = {}
     results = summary.get("results") or []
     require(summary.get("state") == "complete", errors,
