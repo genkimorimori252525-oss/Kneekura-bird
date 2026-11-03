@@ -12,6 +12,13 @@ VERIFIER = Path(__file__).resolve().parents[1] / "verify_mutual_dogfight_scenari
 PRIMARY = "11111111-1111-4111-8111-111111111111"
 OPPONENT = "22222222-2222-4222-8222-222222222222"
 OTHER = "33333333-3333-4333-8333-333333333333"
+WINDOW_METRICS = ("start_tick", "completion_tick", "scene_age_ticks", "minimum_separation", "maximum_separation",
+                  "collision_observed_minimum", "collision_observation_rows", "collision_observation_rows_by_aircraft",
+                  "other_aircraft_collision_observed_minimum", "primary_track_ticks", "opponent_track_ticks",
+                  "primary_combat_ticks", "opponent_combat_ticks", "primary_actions", "opponent_actions",
+                  "primary_fire_count", "opponent_fire_count", "primary_combat_frame_count",
+                  "opponent_combat_frame_count", "primary_min_speed_bps", "opponent_min_speed_bps",
+                  "primary_ground_frames", "opponent_ground_frames", "primary_doctrines", "opponent_doctrines")
 
 
 class MutualSeparationEvidenceTests(unittest.TestCase):
@@ -71,8 +78,11 @@ class MutualSeparationEvidenceTests(unittest.TestCase):
         return self.row(uid, name, event, when,
                         f"other_uuid={target if other is None else other}:current={value}:predicted=3.0", **data)
 
-    def verify(self):
+    def verify(self, omit=None):
         for name, rows in (("primary.jsonl", self.primary), ("opponent.jsonl", self.opponent)):
+            if name == omit:
+                (self.logs / name).unlink(missing_ok=True)
+                continue
             if name == "primary.jsonl":
                 rows = parked_cleanup(rows, PRIMARY)
             rows = combat_identity(rows, name == "primary.jsonl")
@@ -84,6 +94,72 @@ class MutualSeparationEvidenceTests(unittest.TestCase):
         self.assertTrue(output.is_file(), process.stderr)
         return process, json.loads(output.read_text(encoding="utf-8"))
 
+    def make_crash(self):
+        path = self.root / "crash-reports/crash-test.txt"
+        path.parent.mkdir()
+        path.write_text("crash diagnostic", encoding="utf-8")
+        return str(path)
+
+    def assert_unknown_window(self, result, crash):
+        metrics = result["metrics"]
+        self.assertIs(metrics["scene_window_valid"], False, result)
+        for key in WINDOW_METRICS:
+            self.assertIsNone(metrics[key], (key, result))
+        self.assertIs(metrics["telemetry_scan_complete"], True)
+        self.assertEqual(metrics["gradle_status"], 0)
+        self.assertEqual(metrics["crash_reports"], [crash])
+        self.assertEqual(metrics["validation_summary"], str(self.root / "validation-summary-1.json"))
+
+    def test_missing_participant_invalidates_scene_window(self):
+        crash = self.make_crash()
+        for role in ("primary", "opponent"):
+            with self.subTest(role=role):
+                proc, result = self.verify(omit=f"{role}.jsonl")
+                self.assertNotEqual(proc.returncode, 0, result)
+                self.assertIn(f"{role} aircraft log is missing or ambiguous", result["errors"], result)
+                self.assert_unknown_window(result, crash)
+                other = "opponent" if role == "primary" else "primary"
+                self.assertIsNone(result["metrics"][f"{role}_log"], result)
+                self.assertEqual(result["metrics"][f"{other}_log"], str(self.logs / f"{other}.jsonl"))
+
+    def test_duplicate_candidate_name_invalidates_scene_window(self):
+        crash = self.make_crash()
+        shadow = self.logs / "shadow.jsonl"
+        for role in ("primary", "opponent"):
+            with self.subTest(role=role):
+                rows = self.primary if role == "primary" else self.opponent
+                rows = parked_cleanup(rows, PRIMARY) if role == "primary" else rows
+                rows = combat_identity(rows, role == "primary")
+                shadow.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+                try:
+                    proc, result = self.verify()
+                    self.assertNotEqual(proc.returncode, 0, result)
+                    self.assertIn(f"{role} aircraft log is missing or ambiguous", result["errors"], result)
+                    self.assert_unknown_window(result, crash)
+                    self.assertIn(result["metrics"][f"{role}_log"], (str(shadow), str(self.logs / f"{role}.jsonl")))
+                    other = "opponent" if role == "primary" else "primary"
+                    self.assertEqual(result["metrics"][f"{other}_log"], str(self.logs / f"{other}.jsonl"))
+                finally:
+                    shadow.unlink()
+
+    def test_duplicate_uuid_under_other_name_invalidates_scene_window(self):
+        crash = self.make_crash()
+        shadow = self.logs / "shadow.jsonl"
+        for role in ("primary", "opponent"):
+            with self.subTest(role=role):
+                uid = PRIMARY if role == "primary" else OPPONENT
+                row = self.row(uid, "unrelated display name", "frame", 150, speed_bps=25.0, on_ground=False)
+                shadow.write_text(json.dumps(row) + "\n", encoding="utf-8")
+                try:
+                    proc, result = self.verify()
+                    self.assertNotEqual(proc.returncode, 0, result)
+                    self.assertIn(f"{role} aircraft UUID occurs in more than one telemetry file", result["errors"], result)
+                    self.assert_unknown_window(result, crash)
+                    for selected in ("primary", "opponent"):
+                        self.assertEqual(result["metrics"][f"{selected}_log"], str(self.logs / f"{selected}.jsonl"))
+                finally:
+                    shadow.unlink()
+
     def test_adapter_below_eight_is_rejected_for_either_participant(self):
         for primary in (True, False):
             with self.subTest(primary=primary):
@@ -94,6 +170,8 @@ class MutualSeparationEvidenceTests(unittest.TestCase):
                 self.assertNotEqual(proc.returncode, 0, result)
                 self.assertFalse(result["passed"])
                 self.assertIn("rounded mutual collision observation does not establish 8-block separation: 7.4", result["errors"])
+                self.assertIs(result["metrics"]["scene_window_valid"], True, result)
+                self.assertEqual(result["metrics"]["collision_observed_minimum"], 7.4, result)
                 rows.remove(row)
 
     def test_each_participant_requires_a_pair_observation(self):
@@ -233,6 +311,10 @@ class MutualSeparationEvidenceTests(unittest.TestCase):
                 started["reason"] = reason
                 proc, result = self.verify()
                 self.assertNotEqual(proc.returncode, 0, result)
+                self.assertIn("scene start does not uniquely identify the selected aircraft pair", result["errors"])
+                self.assertIs(result["metrics"]["scene_window_valid"], False, result)
+                self.assertIsNone(result["metrics"]["primary_ground_frames"], result)
+                self.assertIsNone(result["metrics"]["collision_observation_rows"], result)
                 self.assertIn("scene start does not uniquely identify the selected aircraft pair", result["errors"])
 
     def test_scene_minimum_requires_unambiguous_reported_precision(self):

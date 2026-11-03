@@ -700,6 +700,7 @@ def main() -> int:
     opponent_candidates = [(path, rows) for name, path, rows in logs if "MUTUAL BLUE P47N" in name]
     require(len(primary_candidates) == 1, errors, "primary aircraft log is missing or ambiguous")
     require(len(opponent_candidates) == 1, errors, "opponent aircraft log is missing or ambiguous")
+    participant_logs_unambiguous = len(primary_candidates) == 1 and len(opponent_candidates) == 1
     primary_entry = primary_candidates[0] if primary_candidates else None
     opponent_entry = opponent_candidates[0] if opponent_candidates else None
     primary_rows = primary_entry[1] if primary_entry else []
@@ -709,15 +710,24 @@ def main() -> int:
 
     # The same UUID under a different name can otherwise hide a second log of the
     # selected aircraft. Unrelated aircraft names/UUIDs do not affect selection.
+    participant_ids: dict[str, str] = {}
     for role, entry in (("primary", primary_entry), ("opponent", opponent_entry)):
         if entry is None:
+            participant_logs_unambiguous = False
             continue
         path, rows = entry
+        if not rows or any(not isinstance(row.get("aircraft_uuid"), str) for row in rows):
+            participant_logs_unambiguous = False
         selected_ids = {row.get("aircraft_uuid") for row in rows if isinstance(row.get("aircraft_uuid"), str)}
         try:
             selected_ids = {str(uuid.UUID(value)) for value in selected_ids}
         except ValueError:
+            participant_logs_unambiguous = False
             continue  # The identity check below reports invalid selected telemetry.
+        if len(selected_ids) == 1:
+            participant_ids[role] = next(iter(selected_ids))
+        else:
+            participant_logs_unambiguous = False
         for _, other_path, other_rows in logs:
             if other_path == path:
                 continue
@@ -726,9 +736,12 @@ def main() -> int:
                     value = row.get("aircraft_uuid")
                     if isinstance(value, str) and str(uuid.UUID(value)) in selected_ids:
                         errors.append(f"{role} aircraft UUID occurs in more than one telemetry file")
+                        participant_logs_unambiguous = False
                         break
                 except ValueError:
                     continue
+    if len(participant_ids) != 2 or len(set(participant_ids.values())) != 2:
+        participant_logs_unambiguous = False
 
     started = [row for row in primary_rows if row.get("event") == "mutual_dogfight_validation_started"]
     completed = [row for row in primary_rows if row.get("event") == "mutual_dogfight_validation_completed"]
@@ -761,9 +774,13 @@ def main() -> int:
                         and age_ticks <= completion_tick - start_tick)
     if window_valid and age_ticks is not None and not age_window_valid:
         errors.append("scene completion age_ticks exceeds elapsed server ticks")
+    scene_pair_matches = (len(started) == 1 and len(participant_ids) == 2
+                          and reason_uuid(started[0], "primary_uuid") == participant_ids["primary"]
+                          and reason_uuid(started[0], "opponent_uuid") == participant_ids["opponent"])
     # This only establishes that the window can be interpreted from the logs;
     # it is not a verdict on combat, safety, or complete mission evidence.
-    scene_window_valid = bool(age_window_valid and telemetry_complete
+    scene_window_valid = bool(age_window_valid and telemetry_complete and participant_logs_unambiguous
+                              and scene_pair_matches
                               and primary_tick_order_valid and opponent_tick_order_valid)
 
     def within_window(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
