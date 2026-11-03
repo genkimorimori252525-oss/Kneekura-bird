@@ -209,8 +209,7 @@ class CompletionMetricsTests(unittest.TestCase):
                 self.set_completion(COMPLETION.replace("age_ticks=200", f"age_ticks={age}"))
                 proc, result = self.verify()
                 self.assertNotEqual(proc.returncode, 0, result)
-                self.assertTrue(any("age_ticks" in error and "elapsed" in error
-                                    for error in result["errors"]), result)
+                self.assertIn("scene completion age_ticks exceeds elapsed server ticks", result["errors"], result)
 
     def test_scene_age_can_be_less_than_elapsed_server_ticks(self):
         self.set_completion(COMPLETION.replace("age_ticks=200", "age_ticks=100").replace("=150", "=100"))
@@ -230,21 +229,27 @@ class CompletionMetricsTests(unittest.TestCase):
                     self.primary.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
                     proc, result = self.verify()
                     self.assertNotEqual(proc.returncode, 0, result)
-                    self.assertTrue(any("tick" in error for error in result["errors"]), result)
+                    label = "start" if event.endswith("started") else "completion"
+                    self.assertIn(f"mutual dogfight {label} event has missing or invalid tick",
+                                  result["errors"], result)
+                    self.assertIsNone(result["metrics"]["scene_age_ticks"], result)
+                    self.assertIsNone(result["metrics"]["collision_observed_minimum"], result)
+                    self.assertIsNone(result["metrics"]["primary_combat_frame_count"], result)
 
     def test_duplicate_start_or_reversed_boundaries_fail(self):
         original = self.primary.read_text(encoding="utf-8")
-        with self.primary.open("a", encoding="utf-8") as stream:
-            stream.write(json.dumps({"aircraft_name": PRIMARY, "event": "mutual_dogfight_validation_started",
-                                     "server_tick": 10}) + "\n")
+        rows = [json.loads(line) for line in original.splitlines()]
+        index = next(i for i, row in enumerate(rows) if row["event"] == "mutual_dogfight_validation_started")
+        rows.insert(index + 1, dict(rows[index]))
+        self.primary.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
         proc, result = self.verify()
         self.assertNotEqual(proc.returncode, 0, result)
-        self.assertTrue(any("start" in error for error in result["errors"]), result)
+        self.assertIn("expected exactly one mutual dogfight start event; found 2", result["errors"], result)
         self.primary.write_text(original, encoding="utf-8")
         self.set_completion(COMPLETION, server_tick=9)
         proc, result = self.verify()
         self.assertNotEqual(proc.returncode, 0, result)
-        self.assertTrue(any("completion" in error and "start" in error for error in result["errors"]), result)
+        self.assertIn("mutual dogfight completion must follow start", result["errors"], result)
 
 
 if __name__ == "__main__":
