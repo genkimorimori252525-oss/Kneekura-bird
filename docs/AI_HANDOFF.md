@@ -4,6 +4,44 @@ Last updated: 2026-11-03 (Asia/Tokyo)
 
 ## 2026-11-03 continuation checkpoint
 
+### Experimental suspension: two limited passes, not deployable
+
+Evidence-only [branch](https://github.com/genkimorimori252525-oss/Kneekura-bird/tree/agent/issue7-stop-refusal-exploration-only),
+head `24e1eb59ffb0d63595b2caf4ae57bfcbabf63b76`, local `92682c7`, tree
+`fbe83357b74e7cdf23b45568a3ccb03d4649c4d6`, changes one production file (+45/-4)
+over #146. Java 17/Gradle 8.8 build passed, deterministic preflight 12/12, and the isolated
+fixed-MOD stop-refusal GameTest selected and passed one test: player-free stop positive,
+occupied stop refused with same session/aircraft/passengers and target control/heartbeat
+cleared, two occupied and two dismounted synchronous benchmark calls passed. stdout SHA-256
+`264a612682568ccc8f339ef548af13d64092cbe43eb232af0c4c33a1d4693002`. Independent review
+confirmed the test fixture's cleanup explicitly invokes a private abort only after dismount;
+it does **not** show recovery using public stop.
+
+A second fresh-world test used the same production code with #144's pre-END fixture, local
+`336d7b2`, tree `36e4500fb24774a15e4d6f19886655cf30551e42`; its exact tree is on an
+[evidence-only branch](https://github.com/genkimorimori252525-oss/Kneekura-bird/tree/agent/issue7-stop-candidate-pre-end-evidence).
+One dedicated GameTest passed, with the player-free reset positive and the initial phase 599
+and existing control/heartbeat established, followed by the initial direct call and three
+occupied plus three dismounted synchronous calls. stdout SHA-256
+`968e8184b5b2d97f644365589a49e5c80dd75e5ddabe43f636c6299b5b47d10b`. **The fixture itself
+sets sentinel position/velocity and controls after the FakePlayer mounts**; the observation
+concerns later benchmark calls, not proof that no write happened during all player control.
+Both tests compare values and do not detect same-value writes; they do not dispatch natural
+server END events. Each fixture reported identical 25-chunk baseline sets after test-specific
+cleanup and zero session/control/heartbeat counts, without proving exclusive ownership.
+
+**Do not merge/deploy this candidate.** Its latch has no release: subsequent public stop is
+rejected even after dismount, retaining the session and forced chunks indefinitely. Exception
+abort and `stopSilently` bypass the latch; shutdown/restart, actual event timing, multiple
+aircraft, non-controlling/nested occupants, transient mounts, shared chunk ownership and recovery
+remain unresolved. Continue by specifying and testing safe recovery/exception/shutdown and
+other-aircraft behavior without deleting unknown-owned chunks or aircraft.
+
+Local logs-only archive `kneekura-issue7-experimental-suspension-92682c7-evidence-20261103.zip`
+SHA-256 `f42759e3c93ac0c517e50d9e9a0574569c1096a379fbecd60b59f157f12f6603`; raw logs contain
+generated UUIDs and environment details, not MOD JARs or generated worlds. The two disposable
+worlds are retained separately.
+
 ### Stop refusal and post-takeover continuity: fixture red, candidate experimental
 
 Draft [#146](https://github.com/genkimorimori252525-oss/Kneekura-bird/pull/146), head
