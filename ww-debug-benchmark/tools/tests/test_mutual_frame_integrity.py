@@ -47,6 +47,7 @@ class MutualFrameIntegrityTests(unittest.TestCase):
         for name, rows in (('a6m.jsonl', self.primary), ('p47n.jsonl', self.opponent)):
             (self.logs / name).write_text(''.join(json.dumps(item) + '\n' for item in rows), encoding='utf-8')
         output = self.root / 'result.json'
+        output.unlink(missing_ok=True)
         proc = subprocess.run([sys.executable, str(VERIFIER), '--root', str(self.root),
                                '--gradle-status', '0', '--output', str(output)],
                               capture_output=True, text=True, check=False)
@@ -141,6 +142,60 @@ class MutualFrameIntegrityTests(unittest.TestCase):
                         self.assertIsNone(result['metrics'][target + '_min_speed_bps'])
                     finally:
                         rows.pop()
+
+    def test_boundary_ticks_must_be_nonnegative_integers(self):
+        for event in ('mutual_dogfight_validation_started', 'mutual_dogfight_validation_completed'):
+            for value in (None, True, '105', 104.9, float('inf'), -1):
+                with self.subTest(event=event, value=repr(value)):
+                    boundary = next(item for item in self.primary if item['event'] == event)
+                    old = boundary['server_tick']
+                    boundary['server_tick'] = value
+                    try:
+                        code, result = self.verify()
+                        self.assertNotEqual(code, 0, result)
+                        self.assertFalse(result['passed'])
+                        for target in ('primary', 'opponent'):
+                            self.assertIsNone(result['metrics'][target + '_ground_frames'])
+                            self.assertIsNone(result['metrics'][target + '_min_speed_bps'])
+                    finally:
+                        boundary['server_tick'] = old
+
+    def test_missing_boundary_tick_cannot_define_a_window(self):
+        for event in ('mutual_dogfight_validation_started', 'mutual_dogfight_validation_completed'):
+            with self.subTest(event=event):
+                boundary = next(item for item in self.primary if item['event'] == event)
+                old = boundary.pop('server_tick')
+                try:
+                    code, result = self.verify()
+                    self.assertNotEqual(code, 0, result)
+                    self.assertFalse(result['passed'])
+                finally:
+                    boundary['server_tick'] = old
+
+    def test_completion_must_follow_start(self):
+        boundary = next(item for item in self.primary
+                        if item['event'] == 'mutual_dogfight_validation_completed')
+        for value in (100, 99):
+            with self.subTest(completion=value):
+                boundary['server_tick'] = value
+                try:
+                    code, result = self.verify()
+                    self.assertNotEqual(code, 0, result)
+                    self.assertFalse(result['passed'])
+                finally:
+                    boundary['server_tick'] = 300
+
+    def test_multiple_start_or_completion_events_are_ambiguous(self):
+        for event in ('mutual_dogfight_validation_started', 'mutual_dogfight_validation_completed'):
+            with self.subTest(event=event):
+                boundary = next(item for item in self.primary if item['event'] == event)
+                self.primary.append(dict(boundary))
+                try:
+                    code, result = self.verify()
+                    self.assertNotEqual(code, 0, result)
+                    self.assertFalse(result['passed'])
+                finally:
+                    self.primary.pop()
 
     def test_reported_ground_contact_and_unsafe_speed_still_fail(self):
         for key, value in (('on_ground', True), ('speed_bps', 8.4)):

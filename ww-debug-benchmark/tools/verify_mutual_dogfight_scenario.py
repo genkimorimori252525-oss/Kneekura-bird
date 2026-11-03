@@ -34,13 +34,6 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
-def tick(row: dict[str, Any]) -> int:
-    try:
-        return int(row.get("server_tick", -1))
-    except (TypeError, ValueError):
-        return -1
-
-
 def numbers(reason: str) -> dict[str, float]:
     return {name: float(value) for name, value in NUMBER.findall(reason)}
 
@@ -52,6 +45,18 @@ def texts(reason: str) -> dict[str, str]:
 def require(condition: bool, errors: list[str], message: str) -> None:
     if not condition:
         errors.append(message)
+
+
+def boundary_tick(events: list[dict[str, Any]], label: str, errors: list[str]) -> int | None:
+    """An ambiguous or unplaceable boundary cannot define a safety window."""
+    if len(events) != 1:
+        errors.append(f"expected exactly one mutual dogfight {label} event; found {len(events)}")
+        return None
+    value = events[0].get("server_tick")
+    if type(value) is not int or value < 0:
+        errors.append(f"mutual dogfight {label} event has missing or invalid tick")
+        return None
+    return value
 
 
 def combat_frame_metrics(frames: list[dict[str, Any]], label: str,
@@ -157,10 +162,12 @@ def main() -> int:
         if (match := ACTION.search(str(row.get("reason", ""))))
     ]
 
-    start_tick = min((tick(row) for row in started), default=-1)
-    completion_tick = max((tick(row) for row in completed), default=-1)
-
     errors: list[str] = []
+    start_tick = boundary_tick(started, "start", errors)
+    completion_tick = boundary_tick(completed, "completion", errors)
+    window_valid = start_tick is not None and completion_tick is not None and completion_tick > start_tick
+    if start_tick is not None and completion_tick is not None and not window_valid:
+        errors.append("mutual dogfight completion must follow start")
 
     def combat_frames(rows: list[dict[str, Any]], label: str) -> tuple[list[dict[str, Any]], bool]:
         invalid_ticks = sum(
@@ -172,7 +179,7 @@ def main() -> int:
         frames = [
             row for row in rows if row.get("event") == "frame"
             and type(row.get("server_tick")) is int and row["server_tick"] >= 0
-            and start_tick >= 0 and completion_tick >= start_tick
+            and window_valid
             and start_tick <= row["server_tick"] <= completion_tick
         ]
         return frames, invalid_ticks == 0
