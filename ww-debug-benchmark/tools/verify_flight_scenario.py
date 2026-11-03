@@ -7,6 +7,7 @@ import argparse
 import json
 import math
 import sys
+import uuid
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -102,6 +103,37 @@ def transition_reasons(rows: list[dict[str, Any]]) -> set[str]:
 def require(condition: bool, errors: list[str], message: str) -> None:
     if not condition:
         errors.append(message)
+
+
+def summary_aircraft_log(paths: Iterable[Path], summary: dict[str, Any],
+                         errors: list[str]) -> tuple[Path | None, list[dict[str, Any]]]:
+    """Select the single completed validation aircraft, never a newer unrelated log."""
+    results = summary.get("results")
+    if not isinstance(results, list) or len(results) != 1 or not isinstance(results[0], dict):
+        errors.append("full/landing verification requires exactly one summary aircraft")
+        return None, []
+    aircraft_uuid = results[0].get("aircraft_uuid")
+    try:
+        if not isinstance(aircraft_uuid, str):
+            raise ValueError("not a string")
+        uuid.UUID(aircraft_uuid)
+    except ValueError:
+        errors.append("summary aircraft UUID is missing or invalid")
+        return None, []
+
+    matches: list[tuple[Path, list[dict[str, Any]]]] = []
+    for path in paths:
+        rows = read_jsonl(path)
+        if any(row.get("aircraft_uuid") == aircraft_uuid for row in rows):
+            matches.append((path, rows))
+    if len(matches) != 1:
+        errors.append(f"expected one telemetry log for summary aircraft {aircraft_uuid}, found {len(matches)}")
+        return None, []
+    path, rows = matches[0]
+    if any(row.get("aircraft_uuid") != aircraft_uuid for row in rows):
+        errors.append(f"telemetry log contains missing or mixed aircraft UUIDs: {path}")
+        return None, []
+    return path, rows
 
 
 def verify_summary(summary: dict[str, Any], errors: list[str], metrics: dict[str, Any]) -> None:
@@ -265,17 +297,20 @@ def main() -> int:
     profile_paths = list(args.root.rglob("flight_profiles.json"))
     require(bool(profile_paths), errors, "no measured flight_profiles.json was produced or staged")
 
-    log_path = latest(args.root.rglob("aircraft/*.jsonl"))
-    rows = read_jsonl(log_path)
+    summary_path = latest(args.root.rglob("validation-summary-*.json"))
+    summary = read_json(summary_path)
+    metrics["summary_path"] = str(summary_path) if summary_path else None
+
+    if args.scenario in {"full", "landing"}:
+        log_path, rows = summary_aircraft_log(args.root.rglob("aircraft/*.jsonl"), summary, errors)
+    else:
+        log_path = latest(args.root.rglob("aircraft/*.jsonl"))
+        rows = read_jsonl(log_path)
     frames = [row for row in rows if row.get("event") == "frame"]
     require(bool(rows), errors, "no per-aircraft autonomous-flight telemetry was produced")
     require(bool(frames), errors, "no autonomous-flight frame telemetry was produced")
     metrics["telemetry_log"] = str(log_path) if log_path else None
     metrics["frame_count"] = len(frames)
-
-    summary_path = latest(args.root.rglob("validation-summary-*.json"))
-    summary = read_json(summary_path)
-    metrics["summary_path"] = str(summary_path) if summary_path else None
 
     if args.scenario in {"full", "landing"}:
         require(bool(summary), errors, "no autonomous-flight validation summary was produced")
