@@ -21,17 +21,70 @@ NUMBER = re.compile(r"([a-z_]+)=(-?\d+(?:\.\d+)?)")
 ACTION = re.compile(r"(?:^|:)to=([A-Z_]+)")
 
 
-def read_jsonl(path: Path) -> list[dict[str, Any]]:
+class DuplicateKeyError(ValueError):
+    pass
+
+
+class InvalidConstantError(ValueError):
+    pass
+
+
+def unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise DuplicateKeyError("duplicate JSON object key")
+        result[key] = value
+    return result
+
+
+def reject_json_constant(value: str) -> None:
+    raise InvalidConstantError(value)
+
+
+def read_jsonl(path: Path, errors: list[str]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
+    reported: set[str] = set()
+
+    def report_corruption(kind: str, line_number: int) -> None:
+        if kind not in reported:
+            errors.append(f"{kind} in telemetry log {path} at line {line_number}")
+            reported.add(kind)
+
     try:
-        for line in path.read_text(encoding="utf-8").splitlines():
-            try:
-                value = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(value, dict):
+        # Surrogate escapes let us reject invalid bytes per line while preserving the previous
+        # universal-newline handling for LF, CRLF and CR-delimited historical logs.
+        with path.open("r", encoding="utf-8", errors="surrogateescape", newline=None) as stream:
+            for line_number, line in enumerate(stream, 1):
+                try:
+                    line.encode("utf-8")
+                except UnicodeEncodeError:
+                    report_corruption("invalid UTF-8", line_number)
+                    continue
+                try:
+                    value = json.loads(line, object_pairs_hook=unique_json_object,
+                                       parse_constant=reject_json_constant)
+                except json.JSONDecodeError:
+                    report_corruption("invalid JSON", line_number)
+                    continue
+                except DuplicateKeyError:
+                    report_corruption("DuplicateKeyError", line_number)
+                    continue
+                except InvalidConstantError as exc:
+                    report_corruption(f"InvalidConstantError {exc}", line_number)
+                    continue
+                except ValueError:
+                    report_corruption("JSON parser ValueError", line_number)
+                    continue
+                except RecursionError:
+                    report_corruption("JSON parser RecursionError", line_number)
+                    continue
+                if not isinstance(value, dict):
+                    report_corruption("non-object JSON", line_number)
+                    continue
                 rows.append(value)
-    except OSError:
+    except OSError as exc:
+        errors.append(f"cannot read telemetry log {path}: {type(exc).__name__}")
         return []
     return rows
 
@@ -256,7 +309,7 @@ def main() -> int:
 
     logs: list[tuple[str, Path, list[dict[str, Any]]]] = []
     for path in args.root.rglob("aircraft/*.jsonl"):
-        rows = read_jsonl(path)
+        rows = read_jsonl(path, errors)
         name = next((str(row.get("aircraft_name")) for row in rows if row.get("aircraft_name")), path.name)
         logs.append((name, path, rows))
 
