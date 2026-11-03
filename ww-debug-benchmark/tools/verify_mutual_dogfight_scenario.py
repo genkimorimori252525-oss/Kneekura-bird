@@ -140,6 +140,12 @@ def main() -> int:
     opponent_acquisition_reasons = [str(row.get("reason", "")) for row in opponent_acquisitions]
 
     errors: list[str] = []
+    crash_reports = sorted(path for path in (args.root / "crash-reports").glob("*.txt")
+                           if path.is_file())
+    require(args.gradle_status == 0, errors,
+            f"Gradle GameTest exit code was {args.gradle_status}")
+    require(not crash_reports, errors,
+            "crash report created: " + ", ".join(str(path) for path in crash_reports))
     require(bool(primary_rows), errors, "primary A6M telemetry was not produced")
     require(bool(opponent_rows), errors, "opposing P-47N telemetry was not produced")
     require(bool(started), errors, "mutual dogfight scene never started")
@@ -201,6 +207,7 @@ def main() -> int:
         "errors": errors,
         "metrics": {
             "gradle_status": args.gradle_status,
+            "crash_reports": [str(path) for path in crash_reports],
             "primary_log": str(primary_entry[0]) if primary_entry else None,
             "opponent_log": str(opponent_entry[0]) if opponent_entry else None,
             "start_tick": start_tick,
