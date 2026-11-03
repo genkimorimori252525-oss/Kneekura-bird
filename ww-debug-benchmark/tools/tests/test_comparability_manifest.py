@@ -100,6 +100,34 @@ class ComparabilityManifestTests(unittest.TestCase):
                 self.assertEqual(manifest["frame_ticks"][key], 1)
                 self.assertEqual(manifest["frame_ticks"]["observed_count"], len(ticks))
 
+    def test_redacted_identity_distinguishes_run_and_aircraft_type(self):
+        _, baseline = self.verify()
+        for row in self.rows:
+            row['run_id'] = 'different-private-run'
+        _, different_run = self.verify()
+        self.assertEqual(baseline['identity']['aircraft_uuid_sha256'],
+                         different_run['identity']['aircraft_uuid_sha256'])
+        self.assertNotEqual(baseline['identity']['run_id_sha256'],
+                            different_run['identity']['run_id_sha256'])
+        self.assertEqual(baseline['identity']['aircraft_type_sha256'],
+                         different_run['identity']['aircraft_type_sha256'])
+        for row in self.rows:
+            row['aircraft_entity_id'] = 'warfare_wings:p47n'
+        _, different_type = self.verify()
+        self.assertNotEqual(different_run['identity']['aircraft_type_sha256'],
+                            different_type['identity']['aircraft_type_sha256'])
+        self.assertEqual(different_run['identity']['run_id_sha256'],
+                         different_type['identity']['run_id_sha256'])
+
+    def test_identity_hash_domains_are_distinct(self):
+        for row in self.rows:
+            row['run_id'] = 'shared-private-label'
+            row['aircraft_entity_id'] = 'shared-private-label'
+        proc, manifest = self.verify()
+        self.assertNotIn('shared-private-label', proc.stdout + proc.stderr)
+        self.assertNotEqual(manifest['identity']['run_id_sha256'],
+                            manifest['identity']['aircraft_type_sha256'])
+
     def test_mixed_identity_or_missing_identity_is_invalid(self):
         changes = (("aircraft_uuid", OTHER), ("aircraft_entity_id", "warfare_wings:p47n"),
                    ("run_id", "different-private-run"), ("aircraft_uuid", "not-a-uuid"),

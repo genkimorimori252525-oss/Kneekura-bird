@@ -257,8 +257,10 @@ def parse_telemetry(raw):
         errors.append('malformed_known_frame_fields')
     # Do not combine tick/field metrics across distinct aircraft or run identities.
     if len(identities) == 1:
-        aircraft, _, _ = next(iter(identities))
-        redacted = {'aircraft_uuid_sha256': digest_text('aircraft_uuid', aircraft)}
+        aircraft, kind, run = next(iter(identities))
+        redacted = {'aircraft_uuid_sha256': digest_text('aircraft_uuid', aircraft),
+                    'aircraft_type_sha256': digest_text('aircraft_type', kind),
+                    'run_id_sha256': digest_text('run_id', run)}
     else:
         redacted, summary, fields, unknown_fields = None, None, Counter(), Counter()
         first_tick, last_tick, backwards_rows, quality_flags = None, None, None, []
