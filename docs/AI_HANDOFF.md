@@ -36,6 +36,15 @@ abort and `stopSilently` bypass the latch; shutdown/restart, actual event timing
 aircraft, non-controlling/nested occupants, transient mounts, shared chunk ownership and recovery
 remain unresolved. Continue by specifying and testing safe recovery/exception/shutdown and
 other-aircraft behavior without deleting unknown-owned chunks or aircraft.
+Fixed Forge `stopRiding` fires a dismount event and changes passenger state; fixed IA seat and
+controller selection depend on passenger order. Removing the benchmark pilot while promising
+the occupied aircraft is unchanged is not established. The existing boolean forced-chunk ledger
+lacks other-owner/refcount and original-dimension evidence; partial construction can lose ledger
+entries. Do not unforce or detach based solely on an equal set or dismount. A future owner-tagged
+Forge ticket experiment must handle partial add/remove, restart and migration independently;
+existing vanilla entries cannot be silently attributed to the new owner. A separate natural-END
+probe is being designed; same-tick event-priority snapshots cannot exclude other listeners or
+same-value writes, and asynchronous teardown cannot be assumed successful.
 
 Local logs-only archive `kneekura-issue7-experimental-suspension-92682c7-evidence-20261103.zip`
 SHA-256 `f42759e3c93ac0c517e50d9e9a0574569c1096a379fbecd60b59f157f12f6603`; raw logs contain
