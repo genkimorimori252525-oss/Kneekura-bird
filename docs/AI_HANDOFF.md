@@ -1,5 +1,14 @@
 # AI development handoff
 
+## Cloud validation transition (2026-11-03)
+
+The owner requested public visibility and cloud validation. The repository was made public after
+GitHub Actions was disabled at repository level to protect the Windows self-hosted runner from
+public PR execution. Actions remains disabled, so all existing workflows are paused. See
+`docs/CLOUD_VALIDATION_DESIGN.md` for the experiment, evidence boundaries, and safe resumption
+requirements. The hosted preflight workflow is untested; it does not replace exact-physics
+GameTests. PR #101 remains a draft with the collision-risk regression checkpoint unresolved.
+
 Last updated: 2026-08-30 (Asia/Tokyo)
 
 ## Jolly Runner Hub multi-repository operation
