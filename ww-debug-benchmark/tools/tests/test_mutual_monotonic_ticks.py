@@ -152,6 +152,7 @@ class MutualMonotonicTicksTests(unittest.TestCase):
                         self.assertIsNone(metrics[key], (key, result))
                     self.assertEqual(metrics["gradle_status"], 0)
                     self.assertIs(metrics["telemetry_scan_complete"], True)
+                    self.assertIs(metrics["scene_window_valid"], False)
                     self.assertEqual(metrics["crash_reports"], [])
                     self.assertIsNotNone(metrics["primary_log"])
                     self.assertIsNotNone(metrics["opponent_log"])

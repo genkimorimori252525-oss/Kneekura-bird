@@ -17,6 +17,13 @@ COMPLETION = ("reciprocal_fire_confirmed:age_ticks=200:"
               "primary_track_ticks=150:opponent_track_ticks=150:"
               "primary_combat_ticks=150:opponent_combat_ticks=150:"
               "minimum_separation=9.5:maximum_separation=40.0")
+WINDOW_METRICS = ("start_tick", "completion_tick", "scene_age_ticks", "minimum_separation", "maximum_separation",
+                  "collision_observed_minimum", "collision_observation_rows", "collision_observation_rows_by_aircraft",
+                  "other_aircraft_collision_observed_minimum", "primary_track_ticks", "opponent_track_ticks",
+                  "primary_combat_ticks", "opponent_combat_ticks", "primary_actions", "opponent_actions",
+                  "primary_fire_count", "opponent_fire_count", "primary_combat_frame_count",
+                  "opponent_combat_frame_count", "primary_min_speed_bps", "opponent_min_speed_bps",
+                  "primary_ground_frames", "opponent_ground_frames", "primary_doctrines", "opponent_doctrines")
 
 
 class CompletionMetricsTests(unittest.TestCase):
@@ -87,6 +94,23 @@ class CompletionMetricsTests(unittest.TestCase):
         self.assertTrue(output.exists(), proc.stderr)
         return proc, json.loads(output.read_text(encoding="utf-8"))
 
+    def assert_unknown_window_and_preserved_diagnostics(self, result):
+        metrics = result["metrics"]
+        self.assertIs(metrics["scene_window_valid"], False, result)
+        for key in WINDOW_METRICS:
+            self.assertIsNone(metrics[key], (key, result))
+        self.assertIs(metrics["telemetry_scan_complete"], True)
+        self.assertEqual(metrics["gradle_status"], 0)
+        self.assertEqual(metrics["crash_reports"], [str(self.root / "crash-reports/crash-test.txt")])
+        self.assertEqual(metrics["primary_log"], str(self.primary))
+        self.assertEqual(metrics["opponent_log"], str(self.opponent))
+        self.assertEqual(metrics["validation_summary"], str(self.root / "validation-summary-1.json"))
+
+    def create_crash_evidence(self):
+        crash = self.root / "crash-reports/crash-test.txt"
+        crash.parent.mkdir()
+        crash.write_text("crash diagnostic", encoding="utf-8")
+
     def test_standard_completion_succeeds(self):
         proc, result = self.verify()
         self.assertEqual(proc.returncode, 0, result)
@@ -155,6 +179,9 @@ class CompletionMetricsTests(unittest.TestCase):
         proc, result = self.verify()
         self.assertNotEqual(proc.returncode, 0, result)
         self.assertIn("expected exactly one mutual dogfight completion event; found 2", result["errors"], result)
+        self.assertIs(result["metrics"]["scene_window_valid"], False, result)
+        for key in WINDOW_METRICS:
+            self.assertIsNone(result["metrics"][key], (key, result))
 
     def test_scene_age_is_present_unique_positive_java_integer(self):
         for field in ("age_ticks=0", "age_ticks=-1", "age_ticks=200junk", "age_ticks=200.0",
@@ -216,6 +243,52 @@ class CompletionMetricsTests(unittest.TestCase):
         proc, result = self.verify()
         self.assertEqual(proc.returncode, 0, result)
         self.assertEqual(result["metrics"]["scene_age_ticks"], 100)
+
+    def test_invalid_age_cannot_leave_window_metrics_as_safety_evidence(self):
+        self.create_crash_evidence()
+        for value, expected in (("", "scene completion has missing, ambiguous or invalid integer age_ticks"),
+                                ("abc", "scene completion has missing, ambiguous or invalid integer age_ticks"),
+                                ("0", "scene completion age_ticks must be positive"),
+                                ("2001", "scene completion age_ticks exceeds combat window 2000"),
+                                ("201", "scene completion age_ticks exceeds elapsed server ticks")):
+            with self.subTest(age=value):
+                field = f"age_ticks={value}:" if value else ""
+                self.set_completion(COMPLETION.replace("age_ticks=200:", field))
+                proc, result = self.verify()
+                self.assertNotEqual(proc.returncode, 0, result)
+                self.assertIn(expected, result["errors"], result)
+                self.assert_unknown_window_and_preserved_diagnostics(result)
+
+    def test_ambiguous_start_cannot_leave_window_metrics_as_safety_evidence(self):
+        self.create_crash_evidence()
+        rows = [json.loads(line) for line in self.primary.read_text(encoding="utf-8").splitlines()]
+        index = next(i for i, row in enumerate(rows) if row["event"] == "mutual_dogfight_validation_started")
+        rows.insert(index + 1, dict(rows[index]))
+        self.primary.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+        proc, result = self.verify()
+        self.assertNotEqual(proc.returncode, 0, result)
+        self.assertIn("expected exactly one mutual dogfight start event; found 2", result["errors"], result)
+        self.assert_unknown_window_and_preserved_diagnostics(result)
+
+    def test_valid_window_preserves_unsafe_observations(self):
+        rows = [json.loads(line) for line in self.primary.read_text(encoding="utf-8").splitlines()]
+        for row in rows:
+            if row["event"] == "frame" and row["server_tick"] == 15:
+                row["on_ground"] = True
+            if row["event"] == "control_adapter":
+                row["reason"] = f"other_uuid={OPPONENT_ID}:current=7.4"
+            if row["event"] == "mutual_dogfight_validation_completed":
+                row["reason"] = row["reason"].replace("minimum_separation=9.5", "minimum_separation=7.4")
+        self.primary.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+        proc, result = self.verify()
+        self.assertNotEqual(proc.returncode, 0, result)
+        self.assertIs(result["metrics"]["scene_window_valid"], True, result)
+        self.assertEqual(result["metrics"]["primary_ground_frames"], 1)
+        self.assertEqual(result["metrics"]["collision_observed_minimum"], 7.4)
+        self.assertEqual(result["metrics"]["minimum_separation"], 7.4)
+        self.assertIn("A6M touched the ground during mutual combat: 1 frames", result["errors"], result)
+        self.assertIn("rounded mutual collision observation does not establish 8-block separation: 7.4",
+                      result["errors"], result)
 
     def test_tick_boundaries_must_be_unambiguous_nonnegative_integers(self):
         original = self.primary.read_text(encoding="utf-8")

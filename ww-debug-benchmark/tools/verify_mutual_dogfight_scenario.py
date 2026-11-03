@@ -756,9 +756,15 @@ def main() -> int:
     # Under the fixed-mod normal tick path, age increases at most once per gameTime.
     # Skipped calls can make age smaller; repeated calls in one gameTime are outside
     # this validation contract and are not prevented by the producer.
-    if window_valid and completion_values["age_ticks"] is not None:
-        if completion_values["age_ticks"] > completion_tick - start_tick:
-            errors.append("scene completion age_ticks exceeds elapsed server ticks")
+    age_ticks = completion_values["age_ticks"]
+    age_window_valid = (window_valid and age_ticks is not None
+                        and age_ticks <= completion_tick - start_tick)
+    if window_valid and age_ticks is not None and not age_window_valid:
+        errors.append("scene completion age_ticks exceeds elapsed server ticks")
+    # This only establishes that the window can be interpreted from the logs;
+    # it is not a verdict on combat, safety, or complete mission evidence.
+    scene_window_valid = bool(age_window_valid and telemetry_complete
+                              and primary_tick_order_valid and opponent_tick_order_valid)
 
     def within_window(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return [row for row in rows if window_valid
@@ -915,6 +921,7 @@ def main() -> int:
         "metrics": {
             "gradle_status": args.gradle_status,
             "telemetry_scan_complete": telemetry_complete,
+            "scene_window_valid": scene_window_valid,
             "crash_reports": [str(path) for path in crash_reports],
             "primary_log": str(primary_entry[0]) if primary_entry else None,
             "opponent_log": str(opponent_entry[0]) if opponent_entry else None,
@@ -943,8 +950,8 @@ def main() -> int:
             "validation_summary": str(summary_path) if summary_path else None,
         },
     }
-    if not telemetry_complete or not (primary_tick_order_valid and opponent_tick_order_valid):
-        # A failed scan, unreadable row or invalid order can hide evidence for either aircraft.
+    if not scene_window_valid:
+        # Missing rows, bad order, an invalid window or age can hide evidence for either aircraft.
         # Do not present partial observations as complete safety measurements.
         for key in ("start_tick", "completion_tick", "scene_age_ticks", "minimum_separation", "maximum_separation",
                     "collision_observed_minimum", "collision_observation_rows",
@@ -954,8 +961,7 @@ def main() -> int:
                     "primary_fire_count", "opponent_fire_count", "primary_combat_frame_count",
                     "opponent_combat_frame_count", "primary_min_speed_bps", "opponent_min_speed_bps",
                     "primary_ground_frames", "opponent_ground_frames", "primary_doctrines", "opponent_doctrines"):
-            if key in result["metrics"]:
-                result["metrics"][key] = None
+            result["metrics"][key] = None
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(result, ensure_ascii=False, indent=2))
