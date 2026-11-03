@@ -22,6 +22,19 @@ NUMBER = re.compile(r"([a-z_]+)=(-?\d+(?:\.\d+)?)")
 ACTION = re.compile(r"(?:^|:)to=([A-Z_]+)")
 
 
+class SummaryDuplicateKeyError(ValueError):
+    pass
+
+
+def summary_unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise SummaryDuplicateKeyError("duplicate JSON object key")
+        result[key] = value
+    return result
+
+
 class DuplicateKeyError(ValueError):
     pass
 
@@ -559,8 +572,10 @@ def main() -> int:
     summary: dict[str, Any] = {}
     if summary_path:
         try:
-            summary = json.loads(summary_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+            summary = json.loads(summary_path.read_text(encoding="utf-8"),
+                                 object_pairs_hook=summary_unique_object)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, SummaryDuplicateKeyError) as exc:
+            errors.append(f"cannot read validation summary {summary_path}: {type(exc).__name__}")
             summary = {}
     results = summary.get("results") or []
     require(summary.get("state") == "complete", errors,
