@@ -50,6 +50,16 @@ final class MutualDogfightValidationManager {
     private MutualDogfightValidationManager() {
     }
 
+    /** Read-only retained scene reference for the explicitly enabled GameTest diagnostic. */
+    static ObservationTarget observationTarget(UUID primaryUuid) {
+        Scene scene = SCENES.get(primaryUuid);
+        return scene == null || !scene.started || scene.completed
+                ? null : new ObservationTarget(scene.opponentUuid, scene.opponent);
+    }
+
+    record ObservationTarget(UUID opponentUuid, Entity reference) {
+    }
+
     static void tick(ServerLevel level, Entity aircraft, FlightPhase phase) {
         if (!SCENARIO.equals(System.getProperty(SCENARIO_PROPERTY, "").trim().toLowerCase())
                 || aircraft.getTags().contains(OPPONENT_TAG)

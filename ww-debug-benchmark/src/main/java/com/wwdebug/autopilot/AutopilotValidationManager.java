@@ -217,6 +217,7 @@ public final class AutopilotValidationManager {
         private final List<Map<String, Object>> results = new ArrayList<>();
         private final int total;
         private final java.util.Set<Long> ownedForcedChunks = new java.util.HashSet<>();
+        private final MutualTicketObserver.Recorder ticketObserver = new MutualTicketObserver.Recorder();
 
         private Candidate activeCandidate;
         private Entity activeAircraft;
@@ -448,16 +449,29 @@ public final class AutopilotValidationManager {
                 return;
             }
             ChunkPos center = activeAircraft.chunkPosition();
-            for (int dx = -3; dx <= 3; dx++) {
-                for (int dz = -3; dz <= 3; dz++) {
-                    int chunkX = center.x + dx;
-                    int chunkZ = center.z + dz;
-                    long key = ChunkPos.asLong(chunkX, chunkZ);
-                    if (!serverLevel.getForcedChunks().contains(key)) {
-                        serverLevel.setChunkForced(chunkX, chunkZ, true);
-                        ownedForcedChunks.add(key);
+            var observation = ticketObserver.begin(serverLevel, activeAircraft, ownedForcedChunks, center);
+            boolean complete = false;
+            int index = 0;
+            try {
+                for (int dx = -3; dx <= 3; dx++) {
+                    for (int dz = -3; dz <= 3; dz++) {
+                        int chunkX = center.x + dx;
+                        int chunkZ = center.z + dz;
+                        long key = ChunkPos.asLong(chunkX, chunkZ);
+                        var forced = serverLevel.getForcedChunks();
+                        boolean alreadyForced = forced.contains(key);
+                        if (observation != null) observation.read(forced, key, alreadyForced, index);
+                        if (!alreadyForced) {
+                            boolean result = serverLevel.setChunkForced(chunkX, chunkZ, true);
+                            ownedForcedChunks.add(key);
+                            if (observation != null) observation.attempted(key, result);
+                        }
+                        index++;
                     }
                 }
+                complete = true;
+            } finally {
+                if (observation != null) observation.finish(complete);
             }
         }
 
