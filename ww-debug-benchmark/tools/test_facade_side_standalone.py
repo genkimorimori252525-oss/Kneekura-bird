@@ -105,6 +105,11 @@ public class SideProbe {
  public static ControlProposal offense(){return new ControlProposal(Authority.OFFENSIVE_COMBAT,0,0,0,0,"fixture");}
  public static void main(String[] args){
   String c=args[0];boolean client=c.startsWith("client-");boolean fighter=!c.contains("nonfighter");
+  if(c.equals("server-risk-null")){
+   ControlOutcome result=FighterCombatFacade.applyControl(null,true);
+   check(result.authority()==Authority.NONE && Tracker.calls()==0,"collision suppression must retain null short-circuit");
+   System.out.println("PASS "+c+" "+summary());return;
+  }
   Entity aircraft=new Entity(client?new Level(true):new ServerLevel(),fighter);
   Entity fakeServerOwner=new Entity(new ServerLevel(),true);
   check(fakeServerOwner!=aircraft && fakeServerOwner.id.equals(aircraft.id) && fakeServerOwner.id.equals(Tracker.ID),
@@ -144,7 +149,7 @@ public class SideProbe {
 }
 CASES=('client-tick','client-control','client-risk','server-nonfighter-tick','server-nonfighter-control',
        'server-fighter-tick','server-risk','server-proposal-energy','server-proposal-defense',
-       'server-proposal-offense','server-claimed','direct-clear')
+       'server-proposal-offense','server-claimed','direct-clear','server-risk-null')
 
 
 def sha(path):

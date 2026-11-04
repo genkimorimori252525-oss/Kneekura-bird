@@ -23,10 +23,10 @@ public final class FighterCombatFacade {
      * {@code FormationFlightManager} earlier in the tick.</p>
      */
     public static ControlOutcome applyControl(Entity aircraft, boolean collisionRisk) {
-        if (aircraft.level().isClientSide) {
+        if (collisionRisk) {
             return ControlOutcome.none();
         }
-        if (collisionRisk) {
+        if (aircraft.level().isClientSide) {
             return ControlOutcome.none();
         }
         if (!isFighter(aircraft)) {
