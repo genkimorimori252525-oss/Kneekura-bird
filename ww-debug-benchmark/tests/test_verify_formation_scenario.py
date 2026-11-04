@@ -37,7 +37,7 @@ def fixture():
     return logs
 
 
-def verify(logs):
+def verify(logs, reverse_scan=None):
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         aircraft = root / "aircraft"
@@ -46,9 +46,24 @@ def verify(logs):
             (aircraft / f"{name}.jsonl").write_text(
                 "".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
         output = root / "result.json"
+        if reverse_scan is None:
+            command = [sys.executable, str(VERIFIER)]
+        else:
+            # Exercise real files in both explicit discovery orders.
+            ordered_runner = """
+import pathlib, runpy, sys
+original = pathlib.Path.rglob
+reverse = sys.argv.pop(1) == 'reverse'
+script = sys.argv.pop(1)
+pathlib.Path.rglob = lambda self, pattern: iter(sorted(original(self, pattern), reverse=reverse))
+sys.argv[0] = script
+runpy.run_path(script, run_name='__main__')
+"""
+            command = [sys.executable, "-c", ordered_runner,
+                       "reverse" if reverse_scan else "forward", str(VERIFIER)]
         process = subprocess.run(
-            [sys.executable, str(VERIFIER), "--root", str(root), "--gradle-status", "0",
-             "--output", str(output)], capture_output=True, text=True, check=False)
+            command + ["--root", str(root), "--gradle-status", "0", "--output", str(output)],
+            capture_output=True, text=True, check=False)
         result = json.loads(output.read_text(encoding="utf-8"))
         return process.returncode, result
 
@@ -72,6 +87,73 @@ class FormationSafetyTest(unittest.TestCase):
         self.assertEqual(result["metrics"]["unsafe_ground_frames"], [])
         self.assertEqual(result["metrics"]["formation_speed"][LEADER],
                          {"minimum_formation_speed_bps": 20, "stall_guard_speed_bps": 10})
+
+    def test_distinct_names_pass_in_both_scan_orders(self):
+        for reverse_scan in (False, True):
+            with self.subTest(reverse_scan=reverse_scan):
+                status, result = verify(fixture(), reverse_scan=reverse_scan)
+                self.assertEqual(status, 0, result)
+                self.assertTrue(result["passed"], result)
+
+    def test_duplicate_aircraft_names_fail_without_complete_safety_metrics_in_both_scan_orders(self):
+        for reverse_scan in (False, True):
+            with self.subTest(reverse_scan=reverse_scan):
+                logs = fixture()
+                duplicate = fixture()[LEADER]
+                duplicate[0]["on_ground"] = True
+                logs["ZZZ_DUPLICATE"] = duplicate
+                status, result = verify(logs, reverse_scan=reverse_scan)
+                self.assertEqual(status, 1, result)
+                self.assertFalse(result["passed"], result)
+                self.assertTrue(any("duplicate" in error.lower() and LEADER in error
+                                    for error in result["errors"]), result)
+                paths = result["metrics"]["duplicate_formation_logs"][LEADER]
+                self.assertEqual({Path(path).name for path in paths},
+                                 {"FORMATION_LEADER.jsonl", "ZZZ_DUPLICATE.jsonl"})
+                self.assertNotIn("formation_speed", result["metrics"])
+                self.assertNotIn("unsafe_ground_frames", result["metrics"])
+
+    def test_duplicate_logs_report_observed_safety_violations_by_file_in_both_orders(self):
+        for reverse_scan in (False, True):
+            with self.subTest(reverse_scan=reverse_scan):
+                logs = fixture()
+                logs[LEADER][0]["speed_bps"] = 1
+                logs[LEADER][1]["on_ground"] = None
+                duplicate = fixture()[LEADER]
+                duplicate[0]["on_ground"] = True
+                logs["ZZZ_DUPLICATE"] = duplicate
+                status, result = verify(logs, reverse_scan=reverse_scan)
+                self.assertEqual(status, 1, result)
+                self.assertFalse(result["passed"], result)
+                errors = result["errors"]
+                self.assertTrue(any("FORMATION_LEADER.jsonl" in e and
+                                    "lost unsafe formation airspeed" in e for e in errors), result)
+                self.assertTrue(any("FORMATION_LEADER.jsonl" in e and
+                                    "invalid or missing on_ground" in e for e in errors), result)
+                self.assertTrue(any("ZZZ_DUPLICATE.jsonl" in e and
+                                    "touched ground" in e for e in errors), result)
+                self.assertIs(result["metrics"].get("formation_assessment_complete"), False)
+                self.assertNotIn("minimum_pairwise_distance_blocks", result["metrics"])
+                self.assertNotIn("formation_convergence", result["metrics"])
+
+    def test_duplicate_names_still_report_duplicate_ticks_and_known_frame_violations(self):
+        for reverse_scan in (False, True):
+            with self.subTest(reverse_scan=reverse_scan):
+                logs = fixture()
+                unsafe = dict(logs[LEADER][0], on_ground=True, speed_bps=1)
+                logs[LEADER].insert(0, unsafe)
+                logs["ZZZ_DUPLICATE"] = fixture()[LEADER]
+                status, result = verify(logs, reverse_scan=reverse_scan)
+                self.assertEqual(status, 1, result)
+                errors = result["errors"]
+                self.assertTrue(any("duplicate formation aircraft name" in e for e in errors), result)
+                self.assertTrue(any("FORMATION_LEADER.jsonl" in e and
+                                    "duplicate formation frame ticks" in e for e in errors), result)
+                self.assertTrue(any("FORMATION_LEADER.jsonl" in e and
+                                    "lost unsafe formation airspeed" in e for e in errors), result)
+                self.assertTrue(any("FORMATION_LEADER.jsonl" in e and
+                                    "touched ground" in e for e in errors), result)
+                self.assertIs(result["metrics"].get("formation_assessment_complete"), False)
 
     def test_every_ground_sample_must_be_a_boolean(self):
         for value in (MISSING, None, 0, 1, "false", [], {}):

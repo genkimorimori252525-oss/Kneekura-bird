@@ -67,6 +67,23 @@ def require(condition: bool, errors: list[str], message: str) -> None:
         errors.append(message)
 
 
+def write_result(output: Path, errors: list[str], metrics: dict[str, Any]) -> int:
+    result = {
+        "scenario": "formation",
+        "passed": not errors,
+        "errors": errors,
+        "metrics": metrics,
+    }
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    if errors:
+        for error in errors:
+            print("ERROR:", error, file=sys.stderr)
+        return 1
+    return 0
+
+
 def aircraft_name(rows: list[dict[str, Any]]) -> str:
     fallback = "unknown"
     for row in rows:
@@ -93,6 +110,97 @@ def slot_errors(rows: list[dict[str, Any]]) -> list[tuple[int, float]]:
     return values
 
 
+def assess_frame_safety(name: str, rows: list[dict[str, Any]],
+                        errors: list[str]) -> tuple[dict[str, Any] | None, list[tuple[str, int | None]]]:
+    unsafe_ground_frames: list[tuple[str, int | None]] = []
+    speed_metric: dict[str, Any] | None = None
+    formation_frames = [row for row in rows
+                        if row.get("event") == "frame"
+                        and str(row.get("phase", "")) in FORMATION_TEST_PHASES]
+    require(bool(formation_frames), errors,
+            f"{name} produced no straight-flight formation frames")
+    speeds: list[float] = []
+    guards: list[float] = []
+    unsafe_speeds: list[tuple[float, float]] = []
+    speed_guard_pairs: list[tuple[float, float]] = []
+    seen_ticks: set[int] = set()
+    duplicate_ticks: set[int] = set()
+    invalid_fields: dict[str, list[int | None]] = {
+        "on_ground": [], "speed_bps": [], "profile_stall_guard_speed_bps": []
+    }
+    for row in formation_frames:
+        row_tick = tick(row)
+        if row_tick is not None:
+            if row_tick in seen_ticks:
+                duplicate_ticks.add(row_tick)
+            seen_ticks.add(row_tick)
+        ground = row.get("on_ground")
+        if not isinstance(ground, bool):
+            invalid_fields["on_ground"].append(row_tick)
+        elif ground:
+            unsafe_ground_frames.append((name, row_tick))
+
+        values: dict[str, float | None] = {}
+        for field in ("speed_bps", "profile_stall_guard_speed_bps"):
+            raw = row.get(field)
+            try:
+                value = float(raw) if type(raw) in (int, float) else None
+            except OverflowError:
+                value = None
+            if value is None or not math.isfinite(value) or (field == "profile_stall_guard_speed_bps" and value <= 0):
+                invalid_fields[field].append(row_tick)
+                values[field] = None
+            else:
+                values[field] = value
+        speed = values["speed_bps"]
+        guard = values["profile_stall_guard_speed_bps"]
+        if speed is not None:
+            speeds.append(speed)
+        if guard is not None:
+            guards.append(guard)
+        if speed is not None and guard is not None:
+            speed_guard_pairs.append((speed, guard))
+            if speed < guard * 0.90:
+                unsafe_speeds.append((speed, guard))
+
+    require(not duplicate_ticks, errors,
+            f"{name} has duplicate formation frame ticks: {sorted(duplicate_ticks)[:5]}")
+    for field, invalid_ticks in invalid_fields.items():
+        require(not invalid_ticks, errors,
+                f"{name} has invalid or missing {field} in formation frames at ticks {invalid_ticks[:5]}")
+    # These metrics summarize observed frames only, and are incomplete if any
+    # observed speed or guard could not be evaluated.
+    if (formation_frames and not invalid_fields["speed_bps"]
+            and not invalid_fields["profile_stall_guard_speed_bps"]):
+        constant_guard = len(set(guards)) == 1
+        speed_metric = {
+            "minimum_formation_speed_bps": min(speeds),
+            "stall_guard_speed_bps": guards[0] if constant_guard else None,
+        }
+        if not constant_guard:
+            # Compare the exact values represented by the observed floats.
+            speed, guard = min(
+                speed_guard_pairs,
+                key=lambda pair: Fraction.from_float(pair[0]) / Fraction.from_float(pair[1]),
+            )
+            try:
+                ratio = float(Fraction.from_float(speed) / Fraction.from_float(guard))
+            except OverflowError:
+                ratio = None
+            if ratio == 0.0 and speed != 0.0:
+                ratio = None  # A nonzero ratio underflowed the float representation.
+            speed_metric.update({
+                "worst_speed_bps": speed,
+                "worst_stall_guard_speed_bps": guard,
+                "worst_speed_to_guard_ratio": ratio,
+            })
+    if unsafe_speeds:
+        speed, guard = min(unsafe_speeds, key=lambda pair: pair[0])
+        require(False, errors,
+                f"{name} lost unsafe formation airspeed: {speed:.3f}/{guard:.3f}")
+    return speed_metric, unsafe_ground_frames
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, required=True)
@@ -100,22 +208,42 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
-    logs: dict[str, tuple[Path, list[dict[str, Any]]]] = {}
+    logs_by_name: dict[str, list[tuple[Path, list[dict[str, Any]]]]] = {}
     for path in args.root.rglob("aircraft/*.jsonl"):
         rows = read_jsonl(path)
         name = aircraft_name(rows)
         if "FORMATION" in name:
-            logs[name] = (path, rows)
+            logs_by_name.setdefault(name, []).append((path, rows))
+
+    duplicates = {name: sorted(str(path) for path, _ in entries)
+                  for name, entries in sorted(logs_by_name.items()) if len(entries) > 1}
 
     errors: list[str] = []
     metrics: dict[str, Any] = {
         "scenario": "formation",
         "gradle_status": args.gradle_status,
-        "formation_aircraft": sorted(logs),
+        "formation_aircraft": sorted(logs_by_name),
         "crash_reports": [str(path) for path in args.root.glob("crash-reports/*.txt")],
     }
     require(args.gradle_status == 0, errors,
             f"headless GameTest exited with status {args.gradle_status}")
+    if duplicates:
+        metrics["duplicate_formation_logs"] = duplicates
+        for name, paths in duplicates.items():
+            errors.append(f"duplicate formation aircraft name {name}: {paths}")
+        metrics["formation_assessment_complete"] = False
+        errors.append("formation-wide and pairwise assessments were not performed because aircraft names are duplicated")
+        for name, entries in sorted(logs_by_name.items()):
+            for path, rows in sorted(entries, key=lambda entry: str(entry[0])):
+                label = f"{name} ({path})"
+                _, ground_frames = assess_frame_safety(label, rows, errors)
+                if ground_frames:
+                    errors.append(f"{label} touched ground during straight formation flight "
+                                  f"in {len(ground_frames)} frames; first ticks "
+                                  f"{[row_tick for _, row_tick in ground_frames][:5]}")
+        return write_result(args.output, errors, metrics)
+
+    logs = {name: entries[0] for name, entries in logs_by_name.items()}
     require(len(logs) >= 3, errors,
             f"expected at least three formation aircraft logs, found {len(logs)}")
 
@@ -147,22 +275,14 @@ def main() -> int:
     frames_by_name: dict[str, dict[int, list[tuple[float, float, float]]]] = {}
     for name, (_, rows) in logs.items():
         frames: dict[int, list[tuple[float, float, float]]] = {}
-        seen_ticks: set[int] = set()
-        duplicate_ticks: set[int] = set()
         for row in rows:
             if (row.get("event") != "frame"
                     or str(row.get("phase", "")) not in FORMATION_TEST_PHASES):
                 continue
             row_tick = tick(row)
-            if row_tick is not None:
-                if row_tick in seen_ticks:
-                    duplicate_ticks.add(row_tick)
-                seen_ticks.add(row_tick)
             row_position = position(row)
             if row_tick is not None and row_position is not None:
                 frames.setdefault(row_tick, []).append(row_position)
-        require(not duplicate_ticks, errors,
-                f"{name} has duplicate formation frame ticks: {sorted(duplicate_ticks)[:5]}")
         frames_by_name[name] = frames
 
     pair_series: dict[str, list[tuple[int, float]]] = {}
@@ -249,102 +369,14 @@ def main() -> int:
     unsafe_ground_frames = []
     speed_metrics: dict[str, Any] = {}
     for name, (_, rows) in logs.items():
-        formation_frames = [row for row in rows
-                            if row.get("event") == "frame"
-                            and str(row.get("phase", "")) in FORMATION_TEST_PHASES]
-        require(bool(formation_frames), errors,
-                f"{name} produced no straight-flight formation frames")
-        speeds: list[float] = []
-        guards: list[float] = []
-        unsafe_speeds: list[tuple[float, float]] = []
-        speed_guard_pairs: list[tuple[float, float]] = []
-        invalid_fields: dict[str, list[int | None]] = {
-            "on_ground": [], "speed_bps": [], "profile_stall_guard_speed_bps": []
-        }
-        for row in formation_frames:
-            row_tick = tick(row)
-            ground = row.get("on_ground")
-            if not isinstance(ground, bool):
-                invalid_fields["on_ground"].append(row_tick)
-            elif ground:
-                unsafe_ground_frames.append((name, row_tick))
-
-            values: dict[str, float | None] = {}
-            for field in ("speed_bps", "profile_stall_guard_speed_bps"):
-                raw = row.get(field)
-                try:
-                    value = float(raw) if type(raw) in (int, float) else None
-                except OverflowError:
-                    value = None
-                if value is None or not math.isfinite(value) or (field == "profile_stall_guard_speed_bps" and value <= 0):
-                    invalid_fields[field].append(row_tick)
-                    values[field] = None
-                else:
-                    values[field] = value
-            speed = values["speed_bps"]
-            guard = values["profile_stall_guard_speed_bps"]
-            if speed is not None:
-                speeds.append(speed)
-            if guard is not None:
-                guards.append(guard)
-            if speed is not None and guard is not None:
-                speed_guard_pairs.append((speed, guard))
-                if speed < guard * 0.90:
-                    unsafe_speeds.append((speed, guard))
-
-        for field, invalid_ticks in invalid_fields.items():
-            require(not invalid_ticks, errors,
-                    f"{name} has invalid or missing {field} in formation frames at ticks {invalid_ticks[:5]}")
-        # These metrics summarize observed frames only, and are incomplete if any
-        # observed speed or guard could not be evaluated.
-        speed_metrics[name] = None
-        if (formation_frames and not invalid_fields["speed_bps"]
-                and not invalid_fields["profile_stall_guard_speed_bps"]):
-            constant_guard = len(set(guards)) == 1
-            speed_metrics[name] = {
-                "minimum_formation_speed_bps": min(speeds),
-                "stall_guard_speed_bps": guards[0] if constant_guard else None,
-            }
-            if not constant_guard:
-                # Compare the exact values represented by the observed floats.
-                speed, guard = min(
-                    speed_guard_pairs,
-                    key=lambda pair: Fraction.from_float(pair[0]) / Fraction.from_float(pair[1]),
-                )
-                try:
-                    ratio = float(Fraction.from_float(speed) / Fraction.from_float(guard))
-                except OverflowError:
-                    ratio = None
-                if ratio == 0.0 and speed != 0.0:
-                    ratio = None  # A nonzero ratio underflowed the float representation.
-                speed_metrics[name].update({
-                    "worst_speed_bps": speed,
-                    "worst_stall_guard_speed_bps": guard,
-                    "worst_speed_to_guard_ratio": ratio,
-                })
-        if unsafe_speeds:
-            speed, guard = min(unsafe_speeds, key=lambda pair: pair[0])
-            require(False, errors,
-                    f"{name} lost unsafe formation airspeed: {speed:.3f}/{guard:.3f}")
+        speed_metrics[name], ground_frames = assess_frame_safety(name, rows, errors)
+        unsafe_ground_frames.extend(ground_frames)
     metrics["formation_speed"] = speed_metrics
     metrics["unsafe_ground_frames"] = unsafe_ground_frames
     require(not unsafe_ground_frames, errors,
             f"formation aircraft touched ground during straight formation flight: {unsafe_ground_frames[:5]}")
 
-    result = {
-        "scenario": "formation",
-        "passed": not errors,
-        "errors": errors,
-        "metrics": metrics,
-    }
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(json.dumps(result, ensure_ascii=False, indent=2))
-    if errors:
-        for error in errors:
-            print("ERROR:", error, file=sys.stderr)
-        return 1
-    return 0
+    return write_result(args.output, errors, metrics)
 
 
 if __name__ == "__main__":
