@@ -19,25 +19,64 @@ FORMATION_TEST_PHASES = {"CRUISE_OUTBOUND"}
 MAX_POSITION_PAIRS_PER_TICK = 4096
 
 
-def read_jsonl(path: Path) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    try:
-        for line in path.read_text(encoding="utf-8").splitlines():
+def reject_json_constant(value: str) -> None:
+    raise ValueError(f"invalid JSON constant {value}")
+
+
+def has_invalid_unicode(value: Any) -> bool:
+    pending = [value]
+    while pending:
+        item = pending.pop()
+        if isinstance(item, str):
             try:
-                value = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(value, dict):
+                item.encode("utf-8")
+            except UnicodeEncodeError:
+                return True
+        elif isinstance(item, dict):
+            pending.extend(item.keys())
+            pending.extend(item.values())
+        elif isinstance(item, list):
+            pending.extend(item)
+    return False
+
+
+def read_jsonl(path: Path) -> tuple[list[dict[str, Any]], list[str], list[tuple[int, dict[str, Any]]]]:
+    rows: list[dict[str, Any]] = []
+    errors: list[str] = []
+    unicode_invalid_rows: list[tuple[int, dict[str, Any]]] = []
+    line_number = 0
+    try:
+        with path.open("rb") as source:
+            for line_number, raw in enumerate(source, 1):
+                try:
+                    line = raw.decode("utf-8")
+                except UnicodeDecodeError:
+                    errors.append(f"{path} line {line_number}: invalid UTF-8")
+                    continue
+                try:
+                    value = json.loads(line, parse_constant=reject_json_constant)
+                except (ValueError, RecursionError):
+                    errors.append(f"{path} line {line_number}: invalid JSON or empty line")
+                    continue
+                if not isinstance(value, dict):
+                    errors.append(f"{path} line {line_number}: JSON value is not an object")
+                    continue
+                if has_invalid_unicode(value):
+                    errors.append(f"{path} line {line_number}: invalid Unicode scalar")
+                    unicode_invalid_rows.append((line_number, value))
+                    continue
                 rows.append(value)
-    except OSError:
-        return []
-    return rows
+        if not line_number:
+            errors.append(f"{path}: empty JSONL file")
+    except OSError as exc:
+        errors.append(f"{path}: failed to read JSONL: {exc}")
+    return rows, errors, unicode_invalid_rows
 
 
 def finite(value: Any) -> float | None:
     try:
         number = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
     return number if math.isfinite(number) else None
 
@@ -67,19 +106,31 @@ def require(condition: bool, errors: list[str], message: str) -> None:
         errors.append(message)
 
 
+def json_safe(value: Any) -> Any:
+    # Filesystem paths may contain surrogateescape characters on POSIX.
+    # Render those as literal escape text so the JSON contains Unicode scalars.
+    if isinstance(value, str):
+        return value.encode("utf-8", "backslashreplace").decode("utf-8")
+    if isinstance(value, dict):
+        return {json_safe(key): json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_safe(item) for item in value]
+    return value
+
+
 def write_result(output: Path, errors: list[str], metrics: dict[str, Any]) -> int:
-    result = {
+    result = json_safe({
         "scenario": "formation",
         "passed": not errors,
         "errors": errors,
         "metrics": metrics,
-    }
+    })
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(json.dumps(result, ensure_ascii=False, indent=2))
+    output.write_text(json.dumps(result, ensure_ascii=True, indent=2), encoding="utf-8")
+    print(json.dumps(result, ensure_ascii=True, indent=2))
     if errors:
         for error in errors:
-            print("ERROR:", error, file=sys.stderr)
+            print("ERROR:", error.encode("ascii", "backslashreplace").decode("ascii"), file=sys.stderr)
         return 1
     return 0
 
@@ -209,8 +260,14 @@ def main() -> int:
     args = parser.parse_args()
 
     logs_by_name: dict[str, list[tuple[Path, list[dict[str, Any]]]]] = {}
+    integrity_errors: list[str] = []
+    unicode_invalid_frames: list[tuple[Path, int, dict[str, Any]]] = []
     for path in args.root.rglob("aircraft/*.jsonl"):
-        rows = read_jsonl(path)
+        rows, file_errors, invalid_rows = read_jsonl(path)
+        integrity_errors.extend(file_errors)
+        unicode_invalid_frames.extend((path, line_number, row) for line_number, row in invalid_rows
+                                      if row.get("event") == "frame"
+                                      and str(row.get("phase", "")) in FORMATION_TEST_PHASES)
         name = aircraft_name(rows)
         if "FORMATION" in name:
             logs_by_name.setdefault(name, []).append((path, rows))
@@ -218,15 +275,24 @@ def main() -> int:
     duplicates = {name: sorted(str(path) for path, _ in entries)
                   for name, entries in sorted(logs_by_name.items()) if len(entries) > 1}
 
-    errors: list[str] = []
+    errors: list[str] = list(integrity_errors)
+    aircraft_metric = "observed_formation_aircraft" if integrity_errors else "formation_aircraft"
     metrics: dict[str, Any] = {
         "scenario": "formation",
         "gradle_status": args.gradle_status,
-        "formation_aircraft": sorted(logs_by_name),
+        aircraft_metric: sorted(logs_by_name),
         "crash_reports": [str(path) for path in args.root.glob("crash-reports/*.txt")],
     }
     require(args.gradle_status == 0, errors,
             f"headless GameTest exited with status {args.gradle_status}")
+    for path, line_number, row in unicode_invalid_frames:
+        label = f"{path} line {line_number} (identity unverified)"
+        _, ground_frames = assess_frame_safety(label, [row], errors)
+        if ground_frames:
+            errors.append(f"{label} touched ground at tick {ground_frames[0][1]}")
+    if unicode_invalid_frames:
+        errors.append("positions from Unicode-invalid frames were excluded from pairwise distance assessments; "
+                      "their identities are unverified")
     if duplicates:
         metrics["duplicate_formation_logs"] = duplicates
         for name, paths in duplicates.items():
@@ -265,11 +331,11 @@ def main() -> int:
     metrics["collision_start_count"] = len(collision_starts)
     metrics["collision_clear_count"] = len(collision_clears)
     metrics["formation_tracking_count"] = len(tracking_rows)
-    require(bool(collision_starts), errors,
+    require(bool(collision_starts) or bool(integrity_errors), errors,
             "predicted aircraft collision avoidance never activated")
-    require(bool(collision_clears), errors,
+    require(bool(collision_clears) or bool(integrity_errors), errors,
             "collision avoidance never cleared after separation")
-    require(bool(tracking_rows), errors,
+    require(bool(tracking_rows) or bool(integrity_errors), errors,
             "formation slot tracking never activated during straight flight")
 
     frames_by_name: dict[str, dict[int, list[tuple[float, float, float]]]] = {}
@@ -310,7 +376,7 @@ def main() -> int:
     metrics["minimum_pairwise_distance_blocks"] = None if truncated_pairs else minimum_evaluated
     if truncated_pairs:
         metrics["minimum_evaluated_pairwise_distance_blocks"] = minimum_evaluated
-    require(bool(all_distances), errors,
+    require(bool(all_distances) or bool(integrity_errors), errors,
             "synchronized formation position telemetry was unavailable")
     if all_distances:
         require(minimum_evaluated >= 2.0, errors,
@@ -338,7 +404,7 @@ def main() -> int:
             recovered_pairs += 1
     metrics["pairwise_separation"] = pair_metrics
     metrics["recovered_dangerous_pairs"] = None if truncated_pairs else recovered_pairs
-    if not truncated_pairs:
+    if not truncated_pairs and not integrity_errors:
         require(recovered_pairs >= 1, errors,
                 "no initially dangerous aircraft pair recovered to at least 15 blocks separation")
 
@@ -346,7 +412,7 @@ def main() -> int:
     for name in wingman_names[:2]:
         rows = logs[name][1]
         values = slot_errors(rows)
-        require(len(values) >= 6, errors,
+        require(len(values) >= 6 or bool(integrity_errors), errors,
                 f"{name} produced fewer than six straight-flight formation samples")
         if not values:
             continue
@@ -362,7 +428,10 @@ def main() -> int:
             "straight_flight_final_slot_error": final,
             "converged": converged,
         }
-        require(converged, errors,
+        if integrity_errors and len(values) >= 6 and not converged:
+            errors.append(f"{name} observed formation samples fail convergence threshold "
+                          f"(incomplete JSONL): {initial:.3f} -> median {late_median:.3f}")
+        require(converged or bool(integrity_errors), errors,
                 f"{name} did not sustain convergence: {initial:.3f} -> median {late_median:.3f}")
     metrics["formation_convergence"] = convergence
 
@@ -375,6 +444,16 @@ def main() -> int:
     metrics["unsafe_ground_frames"] = unsafe_ground_frames
     require(not unsafe_ground_frames, errors,
             f"formation aircraft touched ground during straight formation flight: {unsafe_ground_frames[:5]}")
+
+    if integrity_errors:
+        # Valid rows still provide evidence of violations, but no aggregate can
+        # describe all the telemetry once any discovered file is incomplete.
+        metrics = {key: metrics[key] for key in
+                   ("scenario", "gradle_status", aircraft_metric, "crash_reports")}
+        metrics["formation_assessment_complete"] = False
+        if unsafe_ground_frames:
+            metrics["observed_unsafe_ground_frames"] = unsafe_ground_frames
+        errors.append("formation-wide metrics are incomplete due to invalid or unreadable JSONL")
 
     return write_result(args.output, errors, metrics)
 

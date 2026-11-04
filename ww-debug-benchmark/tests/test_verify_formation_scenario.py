@@ -1,5 +1,6 @@
 import json
 import math
+import os
 import subprocess
 import sys
 import tempfile
@@ -37,7 +38,7 @@ def fixture():
     return logs
 
 
-def verify(logs, reverse_scan=None):
+def verify(logs, reverse_scan=None, raw_files=None, unreadable=None):
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         aircraft = root / "aircraft"
@@ -45,6 +46,11 @@ def verify(logs, reverse_scan=None):
         for name, rows in logs.items():
             (aircraft / f"{name}.jsonl").write_text(
                 "".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+        for name, data in (raw_files or {}).items():
+            (aircraft / f"{name}.jsonl").write_bytes(data)
+        if unreadable:
+            # Opening a discovered directory as a file fails without symlink privileges.
+            (aircraft / f"{unreadable}.jsonl").mkdir()
         output = root / "result.json"
         if reverse_scan is None:
             command = [sys.executable, str(VERIFIER)]
@@ -64,7 +70,12 @@ runpy.run_path(script, run_name='__main__')
         process = subprocess.run(
             command + ["--root", str(root), "--gradle-status", "0", "--output", str(output)],
             capture_output=True, text=True, check=False)
-        result = json.loads(output.read_text(encoding="utf-8"))
+        if not output.exists():
+            raise AssertionError(f"verifier did not write a result: {process.stderr}")
+        try:
+            result = json.loads(output.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise AssertionError(f"verifier wrote an invalid result: {process.stderr}") from exc
         return process.returncode, result
 
 
@@ -87,6 +98,179 @@ class FormationSafetyTest(unittest.TestCase):
         self.assertEqual(result["metrics"]["unsafe_ground_frames"], [])
         self.assertEqual(result["metrics"]["formation_speed"][LEADER],
                          {"minimum_formation_speed_bps": 20, "stall_guard_speed_bps": 10})
+
+    def test_malformed_aircraft_jsonl_fails_with_path_and_line(self):
+        for invalid in (b'\xff', b'', b'{"bad":', b'[]', b'null', b'{"bad": NaN}'):
+            with self.subTest(invalid=invalid):
+                logs = fixture()
+                rows = [json.dumps(row).encode() for row in logs[LEADER]]
+                raw = b'\n'.join([rows[0], invalid, *rows[1:]]) + b'\n'
+                status, result = verify(logs, raw_files={LEADER: raw})
+                self.assertEqual(status, 1, result)
+                self.assertFalse(result["passed"], result)
+                self.assertTrue(any("FORMATION_LEADER.jsonl" in e and "line 2" in e
+                                    for e in result["errors"]), result)
+                self.assertIs(result["metrics"].get("formation_assessment_complete"), False)
+                self.assertNotIn("formation_aircraft", result["metrics"])
+                self.assertIn(LEADER, result["metrics"]["observed_formation_aircraft"])
+                self.assertNotIn("minimum_pairwise_distance_blocks", result["metrics"])
+                self.assertNotIn("formation_speed", result["metrics"])
+
+    def test_unpaired_surrogates_are_rejected_with_valid_rows_retained(self):
+        for invalid in (b'{"aircraft_name":"FORMATION_\\ud800"}',
+                        b'{"nested":{"\\udfff":1}}',
+                        b'{"nested":[{"value":"\\ud800"}]}'):
+            with self.subTest(invalid=invalid):
+                logs = fixture()
+                logs[LEADER][0]["on_ground"] = True
+                logs[LEADER][1]["speed_bps"] = 1
+                rows = [json.dumps(row).encode() for row in logs[LEADER]]
+                raw = b'\n'.join([rows[0], invalid, *rows[1:]]) + b'\n'
+                status, result = verify(logs, raw_files={LEADER: raw})
+                self.assertEqual(status, 1, result)
+                self.assertTrue(any("line 2" in e and "Unicode" in e for e in result["errors"]), result)
+                self.assertTrue(any("touched ground" in e for e in result["errors"]), result)
+                self.assertTrue(any("lost unsafe formation airspeed" in e for e in result["errors"]), result)
+                self.assertIs(result["metrics"]["formation_assessment_complete"], False)
+
+    def test_unicode_invalid_frame_still_reports_its_ground_and_speed_violations(self):
+        for invalid_name in (False, True):
+            with self.subTest(invalid_name=invalid_name):
+                logs = fixture()
+                frame = dict(logs[LEADER][0], on_ground=True, speed_bps=1,
+                             metadata={"unrelated": "\ud800"})
+                if invalid_name:
+                    frame["aircraft_name"] = "FORMATION_\ud800"
+                rows = [json.dumps(row).encode() for row in logs[LEADER]]
+                raw = b'\n'.join([rows[0], json.dumps(frame).encode(), *rows[1:]]) + b'\n'
+                status, result = verify(logs, raw_files={LEADER: raw})
+                self.assertEqual(status, 1, result)
+                self.assertTrue(any("line 2" in e and "Unicode" in e for e in result["errors"]), result)
+                self.assertTrue(any("FORMATION_LEADER.jsonl" in e and "touched ground" in e
+                                    for e in result["errors"]), result)
+                self.assertTrue(any("FORMATION_LEADER.jsonl" in e and "lost unsafe formation airspeed" in e
+                                    for e in result["errors"]), result)
+                self.assertTrue(any("identity unverified" in e for e in result["errors"]), result)
+                self.assertTrue(any("excluded from pairwise distance" in e for e in result["errors"]), result)
+                self.assertIs(result["metrics"]["formation_assessment_complete"], False)
+                self.assertNotIn("formation_speed", result["metrics"])
+
+    def test_unicode_invalid_frame_with_huge_tick_retains_known_violations(self):
+        logs = fixture()
+        frame = dict(logs[LEADER][0], server_tick=10 ** 400, on_ground=True, speed_bps=1,
+                     metadata={"unrelated": "\ud800"})
+        rows = [json.dumps(row).encode() for row in logs[LEADER]]
+        raw = b'\n'.join([rows[0], json.dumps(frame).encode(), *rows[1:]]) + b'\n'
+        status, result = verify(logs, raw_files={LEADER: raw})
+        self.assertEqual(status, 1, result)
+        self.assertTrue(any("line 2" in e and "Unicode" in e for e in result["errors"]), result)
+        self.assertTrue(any("touched ground" in e for e in result["errors"]), result)
+        self.assertTrue(any("lost unsafe formation airspeed" in e for e in result["errors"]), result)
+
+    def test_escaped_surrogate_pair_is_accepted(self):
+        logs = fixture()
+        rows = [json.dumps(row).encode() for row in logs[LEADER]]
+        raw = b'\n'.join([rows[0], b'{"nested":{"\\ud83d\\ude80":"\\ud83d\\ude80"}}', *rows[1:]]) + b'\n'
+        status, result = verify(logs, raw_files={LEADER: raw})
+        self.assertEqual(status, 0, result)
+        self.assertTrue(result["passed"], result)
+
+    def test_valid_unicode_aircraft_name_is_preserved(self):
+        logs = fixture()
+        for row in logs[LEADER]:
+            row["aircraft_name"] = "FORMATION_LEADER_飛行"
+        status, result = verify(logs)
+        self.assertEqual(status, 0, result)
+        self.assertIn("FORMATION_LEADER_飛行", result["metrics"]["formation_aircraft"])
+
+    def test_invalid_unicode_in_first_aircraft_name_still_writes_result(self):
+        logs = fixture()
+        raw = b'{"aircraft_name":"FORMATION_\\ud800"}\n' + b''.join(
+            json.dumps(row).encode() + b'\n' for row in logs[LEADER])
+        status, result = verify(logs, raw_files={LEADER: raw})
+        self.assertEqual(status, 1, result)
+        self.assertTrue(any("line 1" in e and "Unicode" in e for e in result["errors"]), result)
+
+    @unittest.skipUnless(os.name == "posix", "surrogateescape file names require POSIX")
+    def test_invalid_bytes_in_file_name_do_not_break_json_result(self):
+        name = os.fsdecode(b'unknown-\xff')
+        status, result = verify(fixture(), raw_files={name: b'{broken'})
+        self.assertEqual(status, 1, result)
+        display_name = name.encode("utf-8", "backslashreplace").decode("utf-8")
+        self.assertTrue(any(display_name in e and "invalid JSON" in e
+                            for e in result["errors"]), result)
+        json.dumps(result, ensure_ascii=False).encode("utf-8")
+
+    def test_bad_unknown_and_unreadable_aircraft_files_also_fail(self):
+        for files in ({"raw_files": {"UNKNOWN": b'{broken'}},
+                      {"raw_files": {"EMPTY": b''}}, {"unreadable": "UNREADABLE"}):
+            with self.subTest(files=files):
+                status, result = verify(fixture(), **files)
+                self.assertEqual(status, 1, result)
+                self.assertFalse(result["passed"], result)
+                name = next(iter(files.get("raw_files", {})), files.get("unreadable"))
+                self.assertTrue(any(f"{name}.jsonl" in error for error in result["errors"]), result)
+
+    def test_invalid_line_keeps_known_safety_violations_on_both_sides(self):
+        for invalid in (b'{broken', b'\xff', b'', b'[]'):
+            with self.subTest(invalid=invalid):
+                logs = fixture()
+                logs[LEADER][0]["on_ground"] = True
+                logs[LEADER][1]["speed_bps"] = 1
+                logs[WING1][0]["position"]["x"] = 0.5
+                rows = [json.dumps(row).encode() for row in logs[LEADER]]
+                raw = b'\n'.join([rows[0], invalid, *rows[1:]]) + b'\n'
+                status, result = verify(logs, raw_files={LEADER: raw})
+                self.assertEqual(status, 1, result)
+                self.assertTrue(any("touched ground" in e for e in result["errors"]), result)
+                self.assertTrue(any("lost unsafe formation airspeed" in e for e in result["errors"]), result)
+                self.assertTrue(any("collision distance" in e for e in result["errors"]), result)
+                self.assertNotIn("formation_convergence", result["metrics"])
+
+    def test_incomplete_data_does_not_claim_unobserved_events_never_occurred(self):
+        logs = fixture()
+        logs[LEADER] = [row for row in logs[LEADER] if row["event"] == "frame"]
+        raw = b'\n'.join(json.dumps(row).encode() for row in logs[LEADER]) + b'\n{bad\n'
+        status, result = verify(logs, raw_files={LEADER: raw})
+        self.assertEqual(status, 1, result)
+        self.assertTrue(any("invalid JSON" in e for e in result["errors"]), result)
+        self.assertFalse(any("never activated" in e or "never cleared" in e
+                             for e in result["errors"]), result)
+
+    def test_incomplete_logs_still_report_observed_nonconvergence(self):
+        logs = fixture()
+        for row in logs[WING1]:
+            if row["event"] == "formation_slot_tracking":
+                row["reason"] = "slot_error=100"
+        status, result = verify(logs, raw_files={"UNKNOWN": b'{broken'})
+        self.assertEqual(status, 1, result)
+        self.assertTrue(any(WING1 in e and "observed" in e and "convergence" in e
+                            for e in result["errors"]), result)
+        self.assertNotIn("formation_convergence", result["metrics"])
+
+    def test_malformed_json_and_duplicate_names_report_both_issues(self):
+        logs = fixture()
+        duplicate = fixture()[LEADER]
+        duplicate[0]["on_ground"] = True
+        logs["ZZZ_DUPLICATE"] = duplicate
+        status, result = verify(logs, raw_files={"UNKNOWN": b'{broken'})
+        self.assertEqual(status, 1, result)
+        self.assertTrue(any("duplicate formation aircraft name" in e for e in result["errors"]), result)
+        self.assertTrue(any("UNKNOWN.jsonl" in e and "invalid JSON" in e for e in result["errors"]), result)
+        self.assertTrue(any("ZZZ_DUPLICATE.jsonl" in e and "touched ground" in e
+                            for e in result["errors"]), result)
+        self.assertIs(result["metrics"]["formation_assessment_complete"], False)
+        self.assertNotIn("formation_aircraft", result["metrics"])
+        self.assertIn(LEADER, result["metrics"]["observed_formation_aircraft"])
+
+    def test_lf_crlf_and_complete_last_line_without_newline_are_accepted(self):
+        for newline, trailing in ((b'\n', True), (b'\r\n', True), (b'\n', False), (b'\r\n', False)):
+            with self.subTest(newline=newline, trailing=trailing):
+                logs = fixture()
+                raw = newline.join(json.dumps(row).encode() for row in logs[LEADER])
+                status, result = verify(logs, raw_files={LEADER: raw + (newline if trailing else b'')})
+                self.assertEqual(status, 0, result)
+                self.assertTrue(result["passed"], result)
 
     def test_distinct_names_pass_in_both_scan_orders(self):
         for reverse_scan in (False, True):
@@ -171,9 +355,28 @@ class FormationSafetyTest(unittest.TestCase):
                     logs = fixture()
                     set_field(logs[LEADER][0], field, value)
                     result = self.assert_verdict(logs, False)
-                    self.assertTrue(any(field in error and LEADER in error
-                                        for error in result["errors"]), result)
-                    self.assertIsNone(result["metrics"]["formation_speed"][LEADER])
+                    if isinstance(value, float) and not math.isfinite(value):
+                        # Python serializes these as non-standard JSON constants.
+                        self.assertTrue(any("invalid JSON" in error and LEADER in error
+                                            for error in result["errors"]), result)
+                        self.assertIs(result["metrics"]["formation_assessment_complete"], False)
+                    else:
+                        self.assertTrue(any(field in error and LEADER in error
+                                            for error in result["errors"]), result)
+                        self.assertIsNone(result["metrics"]["formation_speed"][LEADER])
+
+    def test_json_number_outside_float_range_remains_a_field_error(self):
+        for field in ("speed_bps", "profile_stall_guard_speed_bps"):
+            with self.subTest(field=field):
+                logs = fixture()
+                logs[LEADER][0][field] = 123456
+                raw = ''.join(json.dumps(row) + '\n' for row in logs[LEADER]).encode()
+                raw = raw.replace(b'123456', b'1e400', 1)
+                status, result = verify(logs, raw_files={LEADER: raw})
+                self.assertEqual(status, 1, result)
+                self.assertTrue(any(field in e and "invalid or missing" in e
+                                    for e in result["errors"]), result)
+                self.assertIsNone(result["metrics"]["formation_speed"][LEADER])
 
     def test_nonpositive_guard_is_not_evaluable(self):
         for guard in (0, -1):
