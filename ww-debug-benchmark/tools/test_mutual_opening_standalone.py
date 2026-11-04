@@ -22,7 +22,8 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 public class Entity {
  private static long nextId;
- public final UUID id = new UUID(0, ++nextId);
+ public UUID id = new UUID(0, ++nextId);
+ public net.minecraft.world.level.Level world;
  public String name = "AUTOPILOT TEST PRIMARY";
  public Set<String> tags = new HashSet<>();
  public LivingEntity pilot;
@@ -30,11 +31,12 @@ public class Entity {
  public int moves, velocities, rolls, warms, controls;
  public Vec3 position = new Vec3(0, 0, 0), velocity = new Vec3(0, 0, 1);
  public UUID getUUID(){return id;}
+ public net.minecraft.world.level.Level level(){return world;}
  public Component getName(){return Component.literal(name);}
  public Set<String> getTags(){return tags;}
  public LivingEntity getControllingPassenger(){return pilot;}
  public boolean isRemoved(){return removed;}
- public AABB getBoundingBox(){return new AABB(0,0,0,1,1,1);}
+ public AABB getBoundingBox(){return new AABB(position.x,position.y,position.z,position.x+1,position.y+1,position.z+1);}
  public Vec3 getLookAngle(){return new Vec3(0,0,1);}
  public Vec3 getDeltaMovement(){return velocity;}
  public Vec3 position(){return position;}
@@ -46,6 +48,7 @@ public class Entity {
     'net/minecraft/world/entity/LivingEntity.java': 'package net.minecraft.world.entity; public class LivingEntity extends Entity {}',
     'net/minecraft/world/entity/Mob.java': 'package net.minecraft.world.entity; public class Mob extends LivingEntity {}',
     'net/minecraft/world/entity/player/Player.java': 'package net.minecraft.world.entity.player; public class Player extends net.minecraft.world.entity.LivingEntity {}',
+    'net/minecraft/world/level/Level.java': 'package net.minecraft.world.level; public class Level {}',
     'net/minecraft/server/level/ServerLevel.java': '''
 package net.minecraft.server.level;
 import java.util.*;
@@ -53,10 +56,12 @@ import java.util.function.Predicate;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.AABB;
-public class ServerLevel {
+public class ServerLevel extends net.minecraft.world.level.Level {
  public final List<Entity> candidates = new ArrayList<>();
+ public final Map<UUID, Entity> loaded = new HashMap<>();
+ public Entity getEntity(UUID uuid) { return loaded.get(uuid); }
  public List<Entity> getEntities(Entity except, AABB box, Predicate<? super Entity> filter) {
-   return candidates.stream().filter(e -> e != except).filter(filter).toList();
+   return candidates.stream().filter(e -> e != except && box.intersects(e.getBoundingBox())).filter(filter).toList();
  }
  public MinecraftServer getServer(){return null;}
 }
@@ -69,6 +74,36 @@ public class ReflectiveAircraft {
  public static void setRoll(Entity e,float roll){e.rolls++;}
  public static void warmEngine(Entity e,float target){e.warms++;}
  public static void applyControl(Entity e,float x,float y,float z,float engine){e.controls++;}
+}
+''',
+    'com/wwdebug/autopilot/CombatAwarenessManager.java': '''
+package com.wwdebug.autopilot;
+import java.util.*;
+public class CombatAwarenessManager { public static Optional<Object> currentSolution(UUID id){return Optional.empty();} }
+''',
+    'com/wwdebug/autopilot/AirCombatManeuverManager.java': '''
+package com.wwdebug.autopilot;
+import net.minecraft.world.entity.Entity;
+public class AirCombatManeuverManager { public static boolean active(Entity e){return false;} }
+''',
+    'com/wwdebug/benchmark/ReflectiveArmament.java': '''
+package com.wwdebug.benchmark;
+import net.minecraft.world.entity.Entity;
+public class ReflectiveArmament { public static int estimatedShotsRemaining(Entity e){return 1;} }
+''',
+    'com/wwdebug/autopilot/AutonomousFlightManager.java': '''
+package com.wwdebug.autopilot;
+import java.util.*;
+public class AutonomousFlightManager {
+ private static final Map<UUID,Object> SESSIONS = new HashMap<>();
+ private static class SessionEntry { private AutopilotSession session; }
+}
+''',
+    'com/wwdebug/autopilot/AutopilotSession.java': '''
+package com.wwdebug.autopilot;
+public class AutopilotSession {
+ private Object phase, phaseTicks, missionTicks, stableTicks, fallingTicks, phaseTargetYaw,
+                phaseDirection, transitionReason, lastOutput;
 }
 ''',
     'com/wwdebug/autopilot/AutopilotProfileRegistry.java': '''
@@ -93,52 +128,94 @@ public class AutopilotLogManager {
     'com/wwdebug/autopilot/OpeningProbe.java': '''
 package com.wwdebug.autopilot;
 import java.lang.reflect.Field;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.phys.Vec3;
 public class OpeningProbe {
  private static final String TAG="wwcombat:mutual_opponent";
  public static void main(String[] args) throws Exception {
   String c=args[0]; System.setProperty("wwdebug.flightGameTestScenario", "dogfight_mutual");
-  ServerLevel level=new ServerLevel(); Entity primary=new Entity(); primary.pilot=new Mob();
-  Entity first=new Entity(); first.tags.add(TAG); first.pilot=new Mob();
-  Entity second=new Entity(); second.tags.add(TAG); second.pilot=new Mob();
-  if(c.contains("player")) first.pilot=new Player();
-  if(c.contains("empty")) first.pilot=null;
+  ServerLevel level=new ServerLevel(); Entity primary=plane(level,false); Entity own=plane(level,true), decoy=plane(level,true);
+  Entity actor=primary; ServerLevel callLevel=level;
+  Object scene=null;
+  if(!c.equals("no-scene")) {
+   MutualDogfightValidationManager.tick(level,primary,FlightPhase.STARTUP);
+   scene=scene(primary.id); check(scene!=null,"real manager must create scene");
+   if(!c.equals("not-started")) ownScene(scene,primary,own);
+  }
+  level.candidates.add(own); level.loaded.put(own.id,own);
+  boolean two = c.equals("decoy-before") || c.equals("two-scenes") || c.equals("player-first") || c.equals("empty-first")
+       || c.equals("owner-removed") || c.equals("owner-tag-missing") || c.equals("owner-not-airplane") || c.equals("owner-outside");
+  if(two) {level.candidates.add(0,decoy);level.loaded.put(decoy.id,decoy);}
+  if(c.equals("two-scenes")) {
+   Entity otherPrimary=plane(level,false); MutualDogfightValidationManager.tick(level,otherPrimary,FlightPhase.STARTUP);
+   ownScene(scene(otherPrimary.id),otherPrimary,decoy);
+  }
+  if(c.equals("completed")) set(scene,"completed",true);
+  if(c.equals("player") || c.equals("player-first") || c.equals("retry-player")) own.pilot=new Player();
+  if(c.equals("empty") || c.equals("empty-first") || c.equals("retry-empty")) own.pilot=null;
+  if(c.equals("owner-removed")) own.removed=true;
+  if(c.equals("owner-tag-missing")) own.tags.clear();
+  if(c.equals("owner-not-airplane")) own.airplane=false;
+  if(c.equals("owner-outside")) own.position=new Vec3(500,0,0);
+  if(c.equals("owner-unloaded") || c.equals("late-lookup")) level.loaded.remove(own.id);
+  if(c.equals("wrong-uuid")) set(scene,"opponentUuid",decoy.id);
+  if(c.equals("different-primary")) {actor=plane(level,false);actor.id=primary.id;}
+  if(c.equals("primary-other-world")) primary.world=new ServerLevel();
+  if(c.equals("opponent-other-world")) own.world=new ServerLevel();
+  if(c.equals("different-level")) {
+   callLevel=new ServerLevel();callLevel.candidates.add(own);callLevel.loaded.put(own.id,own);
+  }
+  if(c.equals("same-uuid-other-object")) {
+   decoy.id=own.id;level.loaded.put(decoy.id,decoy);level.candidates.clear();level.candidates.add(decoy);
+  }
+  if(c.equals("reload")) {
+   own.removed=true;decoy.id=own.id;level.loaded.put(decoy.id,decoy);level.candidates.clear();level.candidates.add(decoy);
+   MutualDogfightValidationManager.tick(level,primary,FlightPhase.STARTUP);
+   check(get(scene,"opponent")==decoy,"real manager did not rebind reloaded object");
+  }
   if(c.equals("wrong-scenario")) System.setProperty("wwdebug.flightGameTestScenario", "full");
   if(c.equals("wrong-name")) primary.name="ordinary";
   if(c.equals("tagged-primary")) primary.tags.add(TAG);
-  if(c.equals("removed-first")) first.removed=true;
-  if(c.equals("nonairplane-first")) first.airplane=false;
-  if(!c.equals("no-candidate")) level.candidates.add(first);
-  if(c.endsWith("-first") || c.equals("removed-first") || c.equals("nonairplane-first")) level.candidates.add(second);
-  MutualDogfightOpeningAdapter.apply(level,primary,FlightPhase.CRUISE_OUTBOUND);
-  boolean refused = c.equals("player") || c.equals("empty") || c.equals("player-first") || c.equals("empty-first") || c.equals("retry-player") || c.equals("retry-empty");
-  boolean noAction=refused || c.equals("wrong-scenario") || c.equals("wrong-name") || c.equals("tagged-primary") || c.equals("no-candidate");
+  if(c.equals("no-candidate")) level.candidates.clear();
+  MutualDogfightOpeningAdapter.apply(callLevel,actor,FlightPhase.CRUISE_OUTBOUND);
+  boolean noAction=Set.of("player","empty","player-first","empty-first","retry-player","retry-empty",
+   "wrong-scenario","wrong-name","tagged-primary","no-candidate","no-scene","not-started","completed",
+   "owner-removed","owner-tag-missing","owner-not-airplane","owner-outside","owner-unloaded","late-lookup",
+   "wrong-uuid","different-primary","different-level","primary-other-world","opponent-other-world",
+   "same-uuid-other-object").contains(c);
   if(noAction) {
-   check(writes(first)==0 && writes(second)==0,"CONTRACT_FAIL unexpected mutation first="+describe(first)+" second="+describe(second));
+   check(writes(own)==0 && writes(decoy)==0,"CONTRACT_FAIL unexpected mutation own="+describe(own)+" decoy="+describe(decoy));
    check(!applied(primary.id) && AutopilotLogManager.events==0,"refusal must not mark APPLIED or log success");
   } else {
-   Entity expected=(c.equals("removed-first") || c.equals("nonairplane-first")) ? second : first;
-   Entity other=expected==first?second:first;
-   check(expected.moves==1 && expected.velocities==1 && expected.rolls==1 && expected.warms==1 && expected.controls==1,
-      "mob positive expected one of each operation "+describe(expected));
-   check(writes(other)==0 && applied(primary.id) && AutopilotLogManager.events==1,"wrong selection or missing success state");
-   MutualDogfightOpeningAdapter.apply(level,primary,FlightPhase.CRUISE_OUTBOUND);
-   check(expected.moves==1 && expected.velocities==1 && expected.rolls==1 && expected.warms==1 && expected.controls==1 && AutopilotLogManager.events==1,"duplicate opening");
+   Entity expected=c.equals("reload")?decoy:own;Entity other=expected==own?decoy:own;
+   positive(expected,other);check(applied(primary.id) && AutopilotLogManager.events==1,"missing success state");
+   MutualDogfightOpeningAdapter.apply(callLevel,actor,FlightPhase.CRUISE_OUTBOUND);
+   positive(expected,other);check(AutopilotLogManager.events==1,"duplicate opening");
   }
-  if(c.startsWith("retry-")) {
-   first.pilot=new Mob();
+  if(c.startsWith("retry-") || c.equals("late-lookup")) {
+   own.pilot=new Mob();level.loaded.put(own.id,own);
    MutualDogfightOpeningAdapter.apply(level,primary,FlightPhase.CRUISE_OUTBOUND);
-   check(first.moves==1 && first.velocities==1 && first.rolls==1 && first.warms==1 && first.controls==1 && applied(primary.id) && AutopilotLogManager.events==1,"same opponent mob retry failed");
+   positive(own,decoy);check(applied(primary.id) && AutopilotLogManager.events==1,"same owner retry failed");
   }
-  System.out.println("PASS "+c+" first="+describe(first)+" second="+describe(second)+" applied="+applied(primary.id)+" events="+AutopilotLogManager.events);
+  System.out.println("PASS "+c+" own="+describe(own)+" decoy="+describe(decoy)+" applied="+applied(primary.id)+" events="+AutopilotLogManager.events);
  }
+ private static Entity plane(ServerLevel l,boolean tag){Entity e=new Entity();e.world=l;e.pilot=new Mob();if(tag)e.tags.add(TAG);return e;}
+ private static void ownScene(Object scene,Entity primary,Entity opponent)throws Exception{
+  set(scene,"started",true);set(scene,"opponent",opponent);set(scene,"opponentUuid",opponent.id);
+  set(scene,"primaryPilotUuid",primary.pilot.id);set(scene,"opponentPilotUuid",opponent.pilot.id);
+ }
+ @SuppressWarnings("unchecked") private static Object scene(UUID id)throws Exception{
+  Field f=MutualDogfightValidationManager.class.getDeclaredField("SCENES");f.setAccessible(true);return ((Map<UUID,Object>)f.get(null)).get(id);
+ }
+ private static Object get(Object o,String name)throws Exception{Field f=o.getClass().getDeclaredField(name);f.setAccessible(true);return f.get(o);}
+ private static void set(Object o,String name,Object value)throws Exception{Field f=o.getClass().getDeclaredField(name);f.setAccessible(true);f.set(o,value);}
  private static int writes(Entity e){return e.moves+e.velocities+e.rolls+e.warms+e.controls;}
  private static String describe(Entity e){return e.moves+"/"+e.velocities+"/"+e.rolls+"/"+e.warms+"/"+e.controls;}
+ private static void positive(Entity e,Entity other){check(e.moves==1 && e.velocities==1 && e.rolls==1 && e.warms==1 && e.controls==1 && writes(other)==0,"wrong selected entity own="+describe(e)+" other="+describe(other));}
  @SuppressWarnings("unchecked") private static boolean applied(UUID id)throws Exception{
   Field field=MutualDogfightOpeningAdapter.class.getDeclaredField("APPLIED");field.setAccessible(true);return ((Set<UUID>)field.get(null)).contains(id);
  }
@@ -147,7 +224,10 @@ public class OpeningProbe {
 '''
 }
 CASES = ('player','empty','player-first','empty-first','retry-player','retry-empty','mob',
-         'wrong-scenario','wrong-name','tagged-primary','no-candidate','removed-first','nonairplane-first','mob-first')
+         'wrong-scenario','wrong-name','tagged-primary','no-candidate','no-scene','not-started','completed',
+         'owner-removed','owner-tag-missing','owner-not-airplane','owner-outside','owner-unloaded','late-lookup',
+         'wrong-uuid','different-primary','different-level','primary-other-world','opponent-other-world',
+         'same-uuid-other-object','decoy-before','two-scenes','reload')
 
 
 def sha(path):
@@ -178,10 +258,12 @@ def main():
     if a.classes and not a.source_provenance: p.error('--classes requires --source-provenance')
     out=a.output.absolute();out.mkdir(mode=0o700,parents=False,exist_ok=False)
     src=(a.source_root or a.source_provenance).resolve()
-    actual=[src/'com/wwdebug/autopilot'/name for name in ('MutualDogfightOpeningAdapter.java','MobPilotGate.java')]
+    actual=[src/'com/wwdebug/autopilot'/name for name in ('MutualDogfightOpeningAdapter.java','MobPilotGate.java','MutualDogfightValidationManager.java')]
     deps=[Path(x).resolve() for x in json.loads(a.dependencies_json.read_text())]
     java=(a.java_home/'bin/java').resolve();javac=(a.java_home/'bin/javac').resolve()
     output=out/'fixture-classes';output.mkdir();empty=out/'empty-sourcepath';empty.mkdir()
+    production=a.classes.resolve() if a.classes else out/'production'
+    if not a.classes: production.mkdir()
     fake_sources=[]
     for name,content in STUBS.items():
         path=out/'fixture-source'/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_text(content);fake_sources.append(path)
@@ -194,14 +276,18 @@ def main():
         (out/(name+'.json')).write_text(json.dumps({'argv':argv,'cwd':str(out),'exit':r.returncode},indent=2)+'\n')
         (out/(name+'.stdout')).write_bytes(r.stdout);(out/(name+'.stderr')).write_bytes(r.stderr)
         print(name,r.returncode,flush=True);return r.returncode
-    cp=os.pathsep.join(map(str,([a.classes.resolve()] if a.classes else [])+deps))
-    compile_sources=fake_sources+([] if a.classes else actual)
-    failed=run('compile',[str(javac),'-proc:none','--release','17','-cp',cp,'-sourcepath',str(empty),'-d',str(output),*map(str,compile_sources)]) != 0
+    deps_cp=os.pathsep.join(map(str,deps))
+    failed=0
+    if not a.classes:
+        failed+=run('compile-production',[str(javac),'-proc:none','--release','17','-cp',deps_cp,'-sourcepath',str(empty),'-d',str(production),*map(str,actual)]) != 0
+    cp=str(production)+os.pathsep+deps_cp
+    if not failed:
+        failed+=run('compile-fixture',[str(javac),'-proc:none','--release','17','-cp',cp,'-sourcepath',str(empty),'-d',str(output),*map(str,fake_sources)]) != 0
     if not failed:
         cp=str(output)+os.pathsep+cp
         for case in CASES:
             failed+=run(case,[str(java),'-Xmx128m','-Xverify:all','-Xlog:class+load=info:file='+str(out/(case+'.classes.log')),'-cp',cp,'com.wwdebug.autopilot.OpeningProbe',case]) != 0
-    after={'inputs':inventory(inputfiles),'classpath':inventory(observed),'fixture_classes':inventory([output])}
+    after={'inputs':inventory(inputfiles),'classpath':inventory(observed),'fixture_classes':inventory([output]),'production_classes':inventory([production])}
     (out/'after.json').write_text(json.dumps(after,indent=2)+'\n')
     if before['inputs']!=after['inputs'] or before['classpath']!=after['classpath']:
         print('input changed during run',file=sys.stderr);failed+=1

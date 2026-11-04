@@ -55,7 +55,7 @@ final class MutualDogfightValidationManager {
                 || !aircraft.getName().getString().startsWith(TEST_NAME_PREFIX)) {
             return;
         }
-        Scene scene = SCENES.computeIfAbsent(aircraft.getUUID(), ignored -> new Scene());
+        Scene scene = SCENES.computeIfAbsent(aircraft.getUUID(), ignored -> new Scene(level, aircraft));
         if (scene.completed) {
             return;
         }
@@ -368,6 +368,22 @@ final class MutualDogfightValidationManager {
         }
     }
 
+    /** Resolve only the live opponent recorded by this exact primary and level. */
+    static Entity openingOpponent(ServerLevel level, Entity primary) {
+        Scene scene = SCENES.get(primary.getUUID());
+        if (scene == null || scene.primary != primary || scene.level != level || primary.level() != level
+                || !scene.started || scene.completed || scene.opponentUuid == null) {
+            return null;
+        }
+        Entity opponent = scene.opponent;
+        if (opponent == null || opponent.isRemoved() || opponent.level() != level
+                || !scene.opponentUuid.equals(opponent.getUUID())
+                || level.getEntity(scene.opponentUuid) != opponent) {
+            return null;
+        }
+        return opponent;
+    }
+
     static void clear(UUID aircraftUuid) {
         Scene scene = SCENES.remove(aircraftUuid);
         if (scene == null) {
@@ -380,6 +396,8 @@ final class MutualDogfightValidationManager {
     }
 
     private static final class Scene {
+        private final ServerLevel level;
+        private final Entity primary;
         private UUID primaryPilotUuid;
         private Entity opponent;
         private UUID opponentUuid;
@@ -396,5 +414,10 @@ final class MutualDogfightValidationManager {
         private double maximumSeparation;
         private boolean started;
         private boolean completed;
+
+        private Scene(ServerLevel level, Entity primary) {
+            this.level = level;
+            this.primary = primary;
+        }
     }
 }
