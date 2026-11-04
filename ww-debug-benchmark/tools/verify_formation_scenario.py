@@ -10,6 +10,7 @@ import math
 import re
 import statistics
 import sys
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
@@ -224,22 +225,80 @@ def main() -> int:
         formation_frames = [row for row in rows
                             if row.get("event") == "frame"
                             and str(row.get("phase", "")) in FORMATION_TEST_PHASES]
-        unsafe_ground_frames.extend(
-            (name, tick(row)) for row in formation_frames if bool(row.get("on_ground"))
-        )
-        speeds = [value for row in formation_frames
-                  if (value := finite(row.get("speed_bps"))) is not None]
-        guards = [value for row in formation_frames
-                  if (value := finite(row.get("profile_stall_guard_speed_bps"))) is not None]
-        if speeds and guards:
-            minimum = min(speeds)
-            guard = guards[0]
+        require(bool(formation_frames), errors,
+                f"{name} produced no straight-flight formation frames")
+        speeds: list[float] = []
+        guards: list[float] = []
+        unsafe_speeds: list[tuple[float, float]] = []
+        speed_guard_pairs: list[tuple[float, float]] = []
+        invalid_fields: dict[str, list[int | None]] = {
+            "on_ground": [], "speed_bps": [], "profile_stall_guard_speed_bps": []
+        }
+        for row in formation_frames:
+            row_tick = tick(row)
+            ground = row.get("on_ground")
+            if not isinstance(ground, bool):
+                invalid_fields["on_ground"].append(row_tick)
+            elif ground:
+                unsafe_ground_frames.append((name, row_tick))
+
+            values: dict[str, float | None] = {}
+            for field in ("speed_bps", "profile_stall_guard_speed_bps"):
+                raw = row.get(field)
+                try:
+                    value = float(raw) if type(raw) in (int, float) else None
+                except OverflowError:
+                    value = None
+                if value is None or not math.isfinite(value) or (field == "profile_stall_guard_speed_bps" and value <= 0):
+                    invalid_fields[field].append(row_tick)
+                    values[field] = None
+                else:
+                    values[field] = value
+            speed = values["speed_bps"]
+            guard = values["profile_stall_guard_speed_bps"]
+            if speed is not None:
+                speeds.append(speed)
+            if guard is not None:
+                guards.append(guard)
+            if speed is not None and guard is not None:
+                speed_guard_pairs.append((speed, guard))
+                if speed < guard * 0.90:
+                    unsafe_speeds.append((speed, guard))
+
+        for field, invalid_ticks in invalid_fields.items():
+            require(not invalid_ticks, errors,
+                    f"{name} has invalid or missing {field} in formation frames at ticks {invalid_ticks[:5]}")
+        # These metrics summarize observed frames only, and are incomplete if any
+        # observed speed or guard could not be evaluated.
+        speed_metrics[name] = None
+        if (formation_frames and not invalid_fields["speed_bps"]
+                and not invalid_fields["profile_stall_guard_speed_bps"]):
+            constant_guard = len(set(guards)) == 1
             speed_metrics[name] = {
-                "minimum_formation_speed_bps": minimum,
-                "stall_guard_speed_bps": guard,
+                "minimum_formation_speed_bps": min(speeds),
+                "stall_guard_speed_bps": guards[0] if constant_guard else None,
             }
-            require(minimum >= guard * 0.90, errors,
-                    f"{name} lost unsafe formation airspeed: {minimum:.3f}/{guard:.3f}")
+            if not constant_guard:
+                # Compare the exact values represented by the observed floats.
+                speed, guard = min(
+                    speed_guard_pairs,
+                    key=lambda pair: Fraction.from_float(pair[0]) / Fraction.from_float(pair[1]),
+                )
+                try:
+                    ratio = float(Fraction.from_float(speed) / Fraction.from_float(guard))
+                except OverflowError:
+                    ratio = None
+                if ratio == 0.0 and speed != 0.0:
+                    ratio = None  # A nonzero ratio underflowed the float representation.
+                speed_metrics[name].update({
+                    "worst_speed_bps": speed,
+                    "worst_stall_guard_speed_bps": guard,
+                    "worst_speed_to_guard_ratio": ratio,
+                })
+        if unsafe_speeds:
+            speed, guard = min(unsafe_speeds, key=lambda pair: pair[0])
+            require(False, errors,
+                    f"{name} lost unsafe formation airspeed: {speed:.3f}/{guard:.3f}")
     metrics["formation_speed"] = speed_metrics
     metrics["unsafe_ground_frames"] = unsafe_ground_frames
     require(not unsafe_ground_frames, errors,
