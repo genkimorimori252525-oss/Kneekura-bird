@@ -28,7 +28,7 @@ public class Entity {
  public Set<String> tags = new HashSet<>();
  public LivingEntity pilot;
  public boolean removed, airplane = true;
- public int moves, velocities, rolls, warms, controls;
+ public int moves, velocities, rolls, warms, controls, stops, discards, tagRemovals;
  public Vec3 position = new Vec3(0, 0, 0), velocity = new Vec3(0, 0, 1);
  public UUID getUUID(){return id;}
  public net.minecraft.world.level.Level level(){return world;}
@@ -36,6 +36,9 @@ public class Entity {
  public Set<String> getTags(){return tags;}
  public LivingEntity getControllingPassenger(){return pilot;}
  public boolean isRemoved(){return removed;}
+ public void stopRiding(){stops++;}
+ public void discard(){discards++;removed=true;}
+ public boolean removeTag(String tag){tagRemovals++;return tags.remove(tag);}
  public AABB getBoundingBox(){return new AABB(position.x,position.y,position.z,position.x+1,position.y+1,position.z+1);}
  public Vec3 getLookAngle(){return new Vec3(0,0,1);}
  public Vec3 getDeltaMovement(){return velocity;}
@@ -96,6 +99,8 @@ package com.wwdebug.autopilot;
 import java.util.*;
 public class AutonomousFlightManager {
  private static final Map<UUID,Object> SESSIONS = new HashMap<>();
+ public static int forceStops;
+ public static void forceStop(UUID id,String reason){forceStops++;}
  private static class SessionEntry { private AutopilotSession session; }
 }
 ''',
@@ -138,6 +143,7 @@ public class OpeningProbe {
  private static final String TAG="wwcombat:mutual_opponent";
  public static void main(String[] args) throws Exception {
   String c=args[0]; System.setProperty("wwdebug.flightGameTestScenario", "dogfight_mutual");
+  if(c.startsWith("tick-")){tickCase(c);return;}
   ServerLevel level=new ServerLevel(); Entity primary=plane(level,false); Entity own=plane(level,true), decoy=plane(level,true);
   Entity actor=primary; ServerLevel callLevel=level;
   Object scene=null;
@@ -203,6 +209,55 @@ public class OpeningProbe {
   }
   System.out.println("PASS "+c+" own="+describe(own)+" decoy="+describe(decoy)+" applied="+applied(primary.id)+" events="+AutopilotLogManager.events);
  }
+ private static void tickCase(String c)throws Exception {
+  ServerLevel level=new ServerLevel(), otherLevel=new ServerLevel();
+  Entity primary=plane(level,false), opponent=plane(level,true), actor=primary;
+  boolean noScene=c.equals("tick-mismatch-before-create");
+  if(noScene) {
+   MutualDogfightValidationManager.tick(otherLevel,primary,FlightPhase.STARTUP);
+   check(scene(primary.id)==null && allActions(primary,opponent)==0 && AutopilotLogManager.events==0
+         && AutonomousFlightManager.forceStops==0,"CONTRACT_FAIL level mismatch created a scene or wrote state");
+   System.out.println("PASS "+c);return;
+  }
+  MutualDogfightValidationManager.tick(level,primary,FlightPhase.STARTUP);
+  Object state=scene(primary.id);check(state!=null,"real manager must create scene");ownScene(state,primary,opponent);
+  boolean completing=c.endsWith("-completion");
+  if(completing){set(state,"primaryInitialShots",2);set(state,"opponentInitialShots",2);}
+  ServerLevel callLevel=level;
+  if(c.startsWith("tick-different-object")){actor=plane(level,false);actor.id=primary.id;}
+  if(c.startsWith("tick-different-both")){actor=plane(otherLevel,false);actor.id=primary.id;callLevel=otherLevel;}
+  if(c.startsWith("tick-moved-owner")){primary.world=otherLevel;callLevel=otherLevel;}
+  if(c.startsWith("tick-wrong-level")){callLevel=otherLevel;}
+  Map<String,Object> before=snapshot(state);int actionsBefore=allActions(primary,opponent)+allActions(actor,null);
+  MutualDogfightValidationManager.tick(callLevel,actor,FlightPhase.STARTUP);
+  boolean own=c.startsWith("tick-own-");
+  if(!own){
+   check(snapshot(state).equals(before) && scene(primary.id)==state,"CONTRACT_FAIL non-owner changed scene state forceStops="+AutonomousFlightManager.forceStops
+     +" opponentDiscard="+opponent.discards+" pilotStop="+opponent.pilot.stops+" pilotDiscard="+opponent.pilot.discards
+     +" tagRemovals="+(actor.tagRemovals+actor.pilot.tagRemovals)+" events="+AutopilotLogManager.events);
+   check(allActions(primary,opponent)+allActions(actor,null)==actionsBefore && AutopilotLogManager.events==0
+         && AutonomousFlightManager.forceStops==0,"CONTRACT_FAIL non-owner invoked a writer, log, or cleanup");
+  } else if(completing) {
+   check(Boolean.TRUE.equals(get(state,"completed")) && AutonomousFlightManager.forceStops==1
+      && opponent.pilot.stops==1 && opponent.pilot.discards==1 && opponent.discards==1
+      && primary.tagRemovals==2 && primary.pilot.tagRemovals==2 && AutopilotLogManager.events==1,
+      "valid owner completion must reach fake cleanup and event");
+  } else {
+   check(((Integer)get(state,"ageTicks"))==1 && !Boolean.TRUE.equals(get(state,"completed"))
+      && allActions(primary,opponent)==0 && AutonomousFlightManager.forceStops==0 && AutopilotLogManager.events==0,
+      "valid owner tick must advance without cleanup");
+  }
+  System.out.println("PASS "+c+" age="+get(state,"ageTicks")+" completed="+get(state,"completed")
+    +" forceStops="+AutonomousFlightManager.forceStops+" opponentDiscard="+opponent.discards+" events="+AutopilotLogManager.events);
+ }
+ private static int allActions(Entity first,Entity second){return actions(first)+(first.pilot==null?0:actions(first.pilot))
+       +(second==null?0:actions(second)+(second.pilot==null?0:actions(second.pilot)));}
+ private static int actions(Entity e){return writes(e)+e.stops+e.discards+e.tagRemovals;}
+ private static Map<String,Object> snapshot(Object state)throws Exception{
+  Map<String,Object> out=new HashMap<>();for(Field f:state.getClass().getDeclaredFields()){
+   if(!java.lang.reflect.Modifier.isStatic(f.getModifiers())){f.setAccessible(true);out.put(f.getName(),f.get(state));}}
+  return out;
+ }
  private static Entity plane(ServerLevel l,boolean tag){Entity e=new Entity();e.world=l;e.pilot=new Mob();if(tag)e.tags.add(TAG);return e;}
  private static void ownScene(Object scene,Entity primary,Entity opponent)throws Exception{
   set(scene,"started",true);set(scene,"opponent",opponent);set(scene,"opponentUuid",opponent.id);
@@ -227,7 +282,11 @@ CASES = ('player','empty','player-first','empty-first','retry-player','retry-emp
          'wrong-scenario','wrong-name','tagged-primary','no-candidate','no-scene','not-started','completed',
          'owner-removed','owner-tag-missing','owner-not-airplane','owner-outside','owner-unloaded','late-lookup',
          'wrong-uuid','different-primary','different-level','primary-other-world','opponent-other-world',
-         'same-uuid-other-object','decoy-before','two-scenes','reload')
+         'same-uuid-other-object','decoy-before','two-scenes','reload',
+         'tick-mismatch-before-create','tick-different-object-normal','tick-different-object-completion',
+         'tick-different-both-normal','tick-different-both-completion','tick-moved-owner-normal',
+         'tick-moved-owner-completion','tick-wrong-level-normal','tick-wrong-level-completion',
+         'tick-own-normal','tick-own-completion')
 
 
 def sha(path):

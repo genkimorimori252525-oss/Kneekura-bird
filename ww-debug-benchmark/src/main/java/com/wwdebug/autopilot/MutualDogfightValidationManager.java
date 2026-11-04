@@ -50,12 +50,18 @@ final class MutualDogfightValidationManager {
     }
 
     static void tick(ServerLevel level, Entity aircraft, FlightPhase phase) {
+        if (aircraft.level() != level) {
+            return;
+        }
         if (!SCENARIO.equals(System.getProperty(SCENARIO_PROPERTY, "").trim().toLowerCase())
                 || aircraft.getTags().contains(OPPONENT_TAG)
                 || !aircraft.getName().getString().startsWith(TEST_NAME_PREFIX)) {
             return;
         }
         Scene scene = SCENES.computeIfAbsent(aircraft.getUUID(), ignored -> new Scene(level, aircraft));
+        if (scene.primary != aircraft || scene.level != level) {
+            return;
+        }
         if (scene.completed) {
             return;
         }
