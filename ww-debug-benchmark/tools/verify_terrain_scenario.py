@@ -181,6 +181,8 @@ def main() -> int:
         require(minimum_speed >= stall_guard * 0.80, errors,
                 f"terrain avoidance lost unsafe airspeed: {minimum_speed:.3f}/{stall_guard:.3f}")
 
+    require(all(type(frame.get("on_ground")) is bool for frame in frames), errors,
+            "terrain frame has invalid or missing on_ground")
     require(not any(bool(frame.get("on_ground")) for frame in frames), errors,
             "aircraft touched the ground during terrain avoidance")
 

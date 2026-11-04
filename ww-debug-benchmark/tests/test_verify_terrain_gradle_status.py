@@ -78,6 +78,33 @@ class TerrainGradleStatusTest(unittest.TestCase):
         self.assertNotEqual(status, 0, result)
         self.assertTrue(any("ground" in error for error in result["errors"]), result)
 
+    def test_every_frame_requires_explicit_boolean_on_ground(self):
+        missing = object()
+        for value in (missing, None, 0, 1, "", "false", [], {}):
+            with self.subTest(value=value):
+                # The first valid frame must not hide an invalid later frame.
+                frame = copy.deepcopy(self.rows[0])
+                if value is missing:
+                    frame.pop("on_ground")
+                else:
+                    frame["on_ground"] = value
+                self.rows.append(frame)
+                self.write_rows()
+                status, result = self.verify(0)
+                self.rows.pop()
+                self.assertNotEqual(status, 0, result)
+                self.assertFalse(result["passed"], result)
+                self.assertTrue(any("on_ground" in error for error in result["errors"]), result)
+
+    def test_invalid_on_ground_does_not_hide_observed_contact(self):
+        self.rows[0]["on_ground"] = None
+        self.rows.append(dict(self.rows[0], on_ground=True))
+        self.write_rows()
+        status, result = self.verify(0)
+        self.assertNotEqual(status, 0, result)
+        self.assertTrue(any("on_ground" in error for error in result["errors"]), result)
+        self.assertTrue(any("touched the ground" in error for error in result["errors"]), result)
+
     def test_incomplete_or_unsuccessful_summary_cannot_pass(self):
         missing = object()
         cases = {
