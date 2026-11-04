@@ -2,11 +2,13 @@
 
 import json
 import copy
+import importlib.util
 import os
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -238,6 +240,123 @@ class TerrainGradleStatusTest(unittest.TestCase):
         self.write_rows()
         status, result = self.verify(0)
         self.assertNotEqual(status, 0, result)
+
+    def test_invalid_jsonl_rows_fail_without_hiding_ground_or_speed(self):
+        self.rows[0]["on_ground"] = True
+        self.rows[2]["speed_bps"] = 1
+        valid = [json.dumps(row).encode() + b"\n" for row in self.rows]
+        for bad in (b'{"event":\n', b'\n', b'[]\n', b'42\n',
+                    b'{"bad":NaN}\n', b'{"bad":"\xff"}\n',
+                    b'{"bad":"\\ud800"}\n'):
+            with self.subTest(bad=bad):
+                self.log.write_bytes(valid[0] + bad + b''.join(valid[1:]))
+                status, result = self.verify(0)
+                self.assertNotEqual(status, 0, result)
+                self.assertFalse(result["passed"], result)
+                self.assertTrue(any("line 2" in e for e in result["errors"]), result)
+                self.assertTrue(any("touched the ground" in e for e in result["errors"]), result)
+                self.assertTrue(any("unsafe airspeed" in e for e in result["errors"]), result)
+                self.assertFalse(result["metrics"]["selected_log_parse_and_identity_checks_passed"])
+                self.assertNotIn("maximum_longitudinal_blocks", result["metrics"])
+
+    def test_unpaired_unicode_does_not_hide_observed_ground_contact(self):
+        frame = dict(self.rows[0], on_ground=True, annotation="\ud800")
+        self.log.write_text(json.dumps(frame) + "\n" + self.log.read_text(), encoding="utf-8")
+        status, result = self.verify(0)
+        self.assertNotEqual(status, 0, result)
+        self.assertTrue(any("line 1" in e and "ground" in e for e in result["errors"]), result)
+
+    def test_nonstandard_constant_does_not_hide_observed_ground_contact(self):
+        frame = dict(self.rows[0], on_ground=True, annotation=float("nan"))
+        self.log.write_text(json.dumps(frame) + "\n" + self.log.read_text(), encoding="utf-8")
+        status, result = self.verify(0)
+        self.assertNotEqual(status, 0, result)
+        self.assertTrue(any("line 1" in e and "ground" in e for e in result["errors"]), result)
+
+    def test_unpaired_unicode_does_not_hide_observed_unsafe_speed(self):
+        adapter = dict(self.rows[2], speed_bps=1, annotation="\ud800")
+        self.log.write_text(self.log.read_text() + json.dumps(adapter) + "\n", encoding="utf-8")
+        status, result = self.verify(0)
+        self.assertNotEqual(status, 0, result)
+        self.assertTrue(any("line 4" in e and "unsafe airspeed" in e for e in result["errors"]), result)
+
+    def test_invalid_identity_or_summary_marks_metrics_incomplete(self):
+        self.rows[1]["aircraft_uuid"] = self.other_uuid
+        self.write_rows()
+        status, result = self.verify(0)
+        self.assertNotEqual(status, 0, result)
+        self.assertFalse(result["metrics"]["selected_log_parse_and_identity_checks_passed"])
+        self.rows[1]["aircraft_uuid"] = self.target_uuid
+        self.write_rows()
+        self.summary_data["state"] = "running"
+        self.summary.write_text(json.dumps(self.summary_data), encoding="utf-8")
+        status, result = self.verify(0)
+        self.assertNotEqual(status, 0, result)
+        self.assertFalse(result["metrics"]["selected_log_parse_and_identity_checks_passed"])
+
+    @unittest.skipIf(os.name == "nt", "POSIX undecodable filenames")
+    def test_undecodable_log_path_can_be_reported(self):
+        target = self.log.with_name(os.fsdecode(b"\xff-" + os.fsencode(self.log.name)))
+        self.log.rename(target)
+        status, result = self.verify(0)
+        self.assertEqual(status, 0, result)
+        self.assertEqual(result["metrics"]["telemetry_log"], str(target))
+
+    def test_valid_crlf_and_unterminated_last_object_are_accepted(self):
+        self.log.write_bytes(b"\r\n".join(json.dumps(row).encode() for row in self.rows))
+        status, result = self.verify(0)
+        self.assertEqual(status, 0, result)
+
+    def test_empty_log_is_incomplete(self):
+        self.log.write_bytes(b"")
+        status, result = self.verify(0)
+        self.assertNotEqual(status, 0, result)
+        self.assertFalse(result["metrics"]["selected_log_parse_and_identity_checks_passed"])
+
+    def test_invalid_row_cannot_pass_otherwise_valid_evidence(self):
+        for bad in (b'{"event":\n', b'[]\n', b'\n', b'{"bad":"\xff"}\n'):
+            with self.subTest(bad=bad):
+                self.write_rows()
+                with self.log.open("ab") as out:
+                    out.write(bad)
+                status, result = self.verify(0)
+                self.assertNotEqual(status, 0, result)
+                self.assertFalse(result["passed"], result)
+                self.assertFalse(result["metrics"]["selected_log_parse_and_identity_checks_passed"])
+
+    def test_read_error_after_selection_keeps_observed_ground(self):
+        spec = importlib.util.spec_from_file_location("terrain_verifier", VERIFIER)
+        verifier = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(verifier)
+        self.rows[0]["on_ground"] = True
+        first = json.dumps(self.rows[0]).encode() + b"\n"
+        real_open = Path.open
+
+        class InterruptedLog:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def __iter__(self):
+                yield first
+                raise OSError("synthetic read failure")
+
+        def open_with_interruption(path, *args, **kwargs):
+            if path == self.log and args and args[0] == "rb":
+                return InterruptedLog()
+            return real_open(path, *args, **kwargs)
+
+        output = self.root / "io-result.json"
+        argv = [str(VERIFIER), "--root", str(self.root), "--gradle-status", "0", "--output", str(output)]
+        with mock.patch.object(Path, "open", open_with_interruption), mock.patch.object(sys, "argv", argv):
+            status = verifier.main()
+        result = json.loads(output.read_text())
+        self.assertNotEqual(status, 0, result)
+        self.assertTrue(any("could not read" in e for e in result["errors"]), result)
+        self.assertTrue(any("touched the ground" in e for e in result["errors"]), result)
+        self.assertFalse(result["metrics"]["selected_log_parse_and_identity_checks_passed"])
 
 
 if __name__ == "__main__":
