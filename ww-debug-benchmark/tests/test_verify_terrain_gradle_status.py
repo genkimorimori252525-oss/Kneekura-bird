@@ -147,6 +147,106 @@ class TerrainGradleStatusTest(unittest.TestCase):
                 self.assertEqual(status == 0, expected_pass, result)
                 self.assertFalse(any("speed_bps" in error for error in result["errors"]), result)
 
+    def test_every_frame_requires_positive_numeric_stall_guard(self):
+        missing = object()
+        for value in (missing, None, True, "10", [], {}, float("nan"),
+                      float("inf"), 0, -1, 10 ** 400):
+            with self.subTest(value=value):
+                frame = copy.deepcopy(self.rows[0])
+                if value is missing:
+                    frame.pop("profile_stall_guard_speed_bps")
+                else:
+                    frame["profile_stall_guard_speed_bps"] = value
+                self.rows.append(frame)
+                self.write_rows()
+                self.rows.pop()
+                status, result = self.verify(0)
+                self.assertNotEqual(status, 0, result)
+                self.assertFalse(result["passed"], result)
+                self.assertTrue(any("profile_stall_guard_speed_bps" in error
+                                    for error in result["errors"]), result)
+
+    def test_stall_guard_is_constant_across_frames(self):
+        for first, second, speed in ((10, 30, 12),
+                                     (2 ** 53, 2 ** 53 + 1, 10 ** 18)):
+            with self.subTest(first=first, second=second):
+                self.rows[0]["profile_stall_guard_speed_bps"] = first
+                self.rows[2]["speed_bps"] = speed
+                self.rows.append(dict(self.rows[0], profile_stall_guard_speed_bps=second))
+                self.write_rows()
+                self.rows.pop()
+                status, result = self.verify(0)
+                self.assertNotEqual(status, 0, result)
+                self.assertTrue(any("profile_stall_guard_speed_bps" in error
+                                    for error in result["errors"]), result)
+
+    def test_equivalent_numeric_guard_values_are_accepted(self):
+        self.rows.append(dict(self.rows[0], profile_stall_guard_speed_bps=10.0))
+        self.write_rows()
+        status, result = self.verify(0)
+        self.assertEqual(status, 0, result)
+
+    def test_invalid_guard_does_not_hide_observed_unsafe_speed(self):
+        self.rows[2]["speed_bps"] = 7.9
+        self.rows.append(dict(self.rows[0], profile_stall_guard_speed_bps=None))
+        self.write_rows()
+        status, result = self.verify(0)
+        self.assertNotEqual(status, 0, result)
+        self.assertTrue(any("profile_stall_guard_speed_bps" in error
+                            for error in result["errors"]), result)
+        self.assertTrue(any("lost unsafe airspeed" in error for error in result["errors"]), result)
+        self.assertNotIn("terrain_stall_guard_speed_bps", result["metrics"])
+        self.assertNotIn("terrain_minimum_speed_bps", result["metrics"])
+        self.assertEqual(result["metrics"]["observed_terrain_stall_guard_speed_bps"], 10)
+
+    def test_conflicting_guard_preserves_observed_unsafe_speed(self):
+        self.rows[2]["speed_bps"] = 12
+        self.rows.append(dict(self.rows[0], profile_stall_guard_speed_bps=30))
+        self.write_rows()
+        status, result = self.verify(0)
+        self.assertNotEqual(status, 0, result)
+        self.assertTrue(any("profile_stall_guard_speed_bps changed" in e for e in result["errors"]), result)
+        self.assertTrue(any("lost unsafe airspeed" in e for e in result["errors"]), result)
+        self.assertNotIn("terrain_stall_guard_speed_bps", result["metrics"])
+        self.assertNotIn("terrain_minimum_speed_bps", result["metrics"])
+        self.assertEqual(result["metrics"]["observed_terrain_stall_guard_speed_bps"], 30)
+
+    def test_guard_jsonl_speed_and_ground_violations_are_all_retained(self):
+        self.rows[0]["on_ground"] = True
+        self.rows[2]["speed_bps"] = 1
+        bad_guard = dict(self.rows[0], on_ground=False, profile_stall_guard_speed_bps=None)
+        bad_speed = dict(self.rows[2], speed_bps=None)
+        rows = [json.dumps(row).encode() + b"\n" for row in self.rows]
+        self.log.write_bytes(rows[0] + b'{"event":\n' + rows[1] +
+                             json.dumps(bad_guard).encode() + b"\n" +
+                             json.dumps(bad_speed).encode() + b"\n" + rows[2])
+        status, result = self.verify(0)
+        self.assertNotEqual(status, 0, result)
+        for phrase in ("line 2", "profile_stall_guard_speed_bps", "invalid or missing speed_bps",
+                       "lost unsafe airspeed", "touched the ground"):
+            self.assertTrue(any(phrase in error for error in result["errors"]), result)
+        self.assertFalse(result["metrics"]["selected_log_parse_and_identity_checks_passed"])
+
+    def test_tainted_high_guard_and_invalid_guard_are_observed(self):
+        self.rows[2]["speed_bps"] = 12
+        self.write_rows()
+        high = dict(self.rows[0], annotation="\ud800", profile_stall_guard_speed_bps=30)
+        invalid = dict(self.rows[0], annotation="\ud800", profile_stall_guard_speed_bps=None)
+        self.log.write_text(self.log.read_text() + json.dumps(high) + "\n" + json.dumps(invalid) + "\n")
+        status, result = self.verify(0)
+        self.assertNotEqual(status, 0, result)
+        for phrase in ("line 4 observed conflicting", "line 4 observed unsafe", "line 5 has invalid"):
+            self.assertTrue(any(phrase in error for error in result["errors"]), result)
+
+    def test_tainted_speed_and_guard_are_compared_as_unverified_observations(self):
+        high = dict(self.rows[0], annotation="\ud800", profile_stall_guard_speed_bps=30)
+        low = dict(self.rows[2], annotation="\ud800", speed_bps=12)
+        self.log.write_text(self.log.read_text() + json.dumps(high) + "\n" + json.dumps(low) + "\n")
+        status, result = self.verify(0)
+        self.assertNotEqual(status, 0, result)
+        self.assertTrue(any("line 4" in e and "line 5" in e and "unsafe airspeed" in e
+                            and "identity unverified" in e for e in result["errors"]), result)
+
     def test_incomplete_or_unsuccessful_summary_cannot_pass(self):
         missing = object()
         cases = {

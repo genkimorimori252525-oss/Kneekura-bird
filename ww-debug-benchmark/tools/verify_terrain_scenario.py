@@ -71,6 +71,16 @@ def adapter_speed(value: Any) -> float | None:
     return number if math.isfinite(number) and number >= 0 else None
 
 
+def parse_stall_guard(value: Any) -> float | None:
+    if type(value) not in (int, float):
+        return None
+    try:
+        number = float(value)
+    except OverflowError:
+        return None
+    return number if math.isfinite(number) and number > 0 else None
+
+
 def read_jsonl(path: Path | None, errors: list[str], tainted: list[tuple[int, dict[str, Any]]]) -> list[dict[str, Any]]:
     if path is None:
         return []
@@ -215,35 +225,66 @@ def main() -> int:
     require(all(value is not None for value in speeds), errors,
             "terrain adapter has invalid or missing speed_bps")
     adapter_speeds = [value for value in speeds if value is not None]
-    guard_values = [value for frame in frames
-                    if (value := finite(frame.get("profile_stall_guard_speed_bps"))) is not None]
+    guards = [(raw, parse_stall_guard(raw)) for frame in frames
+              for raw in [frame.get("profile_stall_guard_speed_bps")]]
+    require(all(value is not None for _, value in guards), errors,
+            "frame has invalid or missing profile_stall_guard_speed_bps")
+    valid_guards = [(raw, value) for raw, value in guards if value is not None]
+    guards_consistent = not valid_guards or all(raw == valid_guards[0][0] for raw, _ in valid_guards)
+    guards_valid = all(value is not None for _, value in guards)
+    require(guards_consistent, errors,
+            "profile_stall_guard_speed_bps changed between frames")
+    guard_values = [value for _, value in valid_guards]
     if metrics["selected_log_parse_and_identity_checks_passed"]:
         require(bool(adapter_speeds and guard_values), errors,
                 "terrain adapter speed or stall-guard telemetry was unavailable")
     if adapter_speeds and guard_values:
         minimum_speed = min(adapter_speeds)
-        stall_guard = guard_values[0]
+        stall_guard = max(guard_values)
         metrics["terrain_minimum_speed_bps"] = minimum_speed
         metrics["terrain_stall_guard_speed_bps"] = stall_guard
+        guard_note = " (against maximum observed guard; guard values differ)" if not guards_consistent else ""
         require(minimum_speed >= stall_guard * 0.80, errors,
-                f"terrain avoidance lost unsafe airspeed: {minimum_speed:.3f}/{stall_guard:.3f}")
-        if any(value is None for value in speeds):
+                f"terrain avoidance lost unsafe airspeed: {minimum_speed:.3f}/{stall_guard:.3f}{guard_note}")
+        if any(value is None for value in speeds) or not guards_valid or not guards_consistent:
             metrics["observed_terrain_minimum_speed_bps"] = metrics.pop("terrain_minimum_speed_bps")
+        if not guards_valid or not guards_consistent:
+            metrics["observed_terrain_stall_guard_speed_bps"] = metrics.pop("terrain_stall_guard_speed_bps")
 
     require(all(type(frame.get("on_ground")) is bool for frame in frames), errors,
             "terrain frame has invalid or missing on_ground")
     require(not any(bool(frame.get("on_ground")) for frame in frames), errors,
             "aircraft touched the ground during terrain avoidance")
+    tainted_guards = []
+    tainted_speeds = []
     for line_number, row in tainted:
-        if row.get("event") == "frame" and row.get("on_ground") is True:
-            errors.append(f"selected terrain log line {line_number} observed ground contact (identity unverified)")
+        if row.get("event") == "frame":
+            if row.get("on_ground") is True:
+                errors.append(f"selected terrain log line {line_number} observed ground contact (identity unverified)")
+            guard = parse_stall_guard(row.get("profile_stall_guard_speed_bps"))
+            if guard is None:
+                errors.append(f"selected terrain log line {line_number} has invalid or missing profile_stall_guard_speed_bps (identity unverified)")
+            elif guard_values and guard != guard_values[0]:
+                errors.append(f"selected terrain log line {line_number} observed conflicting profile_stall_guard_speed_bps (identity unverified)")
+            if guard is not None:
+                tainted_guards.append((guard, line_number))
+            if guard is not None and adapter_speeds and min(adapter_speeds) < guard * 0.80:
+                errors.append(f"selected terrain log line {line_number} observed unsafe airspeed against guard (identity unverified)")
         if (row.get("event") == "control_adapter"
                 and row.get("applied_safety_override") in ("predictive_terrain_avoidance", "terrain_emergency_climb")):
             speed = adapter_speed(row.get("speed_bps"))
             if speed is None:
                 errors.append(f"selected terrain log line {line_number} has invalid or missing speed_bps (identity unverified)")
-            elif guard_values and speed < guard_values[0] * 0.80:
+            elif guard_values and speed < max(guard_values) * 0.80:
                 errors.append(f"selected terrain log line {line_number} observed unsafe airspeed (identity unverified)")
+            if speed is not None:
+                tainted_speeds.append((speed, line_number))
+
+    if tainted_guards and tainted_speeds:
+        guard, guard_line = max(tainted_guards)
+        speed, speed_line = min(tainted_speeds)
+        if speed < guard * 0.80:
+            errors.append(f"selected terrain log line {speed_line} observed unsafe airspeed against guard in line {guard_line} (identity unverified)")
 
     if not metrics["selected_log_parse_and_identity_checks_passed"]:
         for name in ("frame_count", "terrain_adapter_count", "terrain_start_count",
