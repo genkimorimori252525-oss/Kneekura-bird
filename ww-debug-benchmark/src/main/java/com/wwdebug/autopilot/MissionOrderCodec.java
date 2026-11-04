@@ -69,6 +69,10 @@ public final class MissionOrderCodec {
             }
             builder.home(home, runway);
         }
+        if ((tag.contains("formation_id") && !tag.hasUUID("formation_id"))
+                || (tag.contains("leader_aircraft") && !tag.hasUUID("leader_aircraft"))) {
+            throw new IllegalArgumentException("Invalid formation UUID field");
+        }
         if (tag.hasUUID("formation_id") || tag.hasUUID("leader_aircraft")) {
             if (!tag.hasUUID("formation_id") || !tag.hasUUID("leader_aircraft")) {
                 throw new IllegalArgumentException("formation_id and leader_aircraft must be stored together");
