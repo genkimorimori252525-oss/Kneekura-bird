@@ -68,6 +68,27 @@ For rollback, revert the commit introducing this source set, its marker and the 
 script; do not remove run worlds, caches or flight-test jars. No changes to runner configuration
 or existing GameTest worlds are required.
 
+### Static arbiter call-site check
+
+After compiling the exact code under inspection, run the static check against its class file
+with JDK 17 `javap` (substitute the local JDK path):
+
+```text
+python3 tools/verify_arbiter_bytecode.py --javap /path/to/jdk17/bin/javap --class-file build/classes/java/main/com/wwdebug/autopilot/ControlAuthorityArbiter.class
+python3 -m unittest discover -s tests -p 'test_verify_arbiter_bytecode.py' -v
+```
+
+The check requires the expected private static `decide(Entity)` declaration and descriptor,
+increasing instruction offsets and a terminal reference return, and one each of the player gate,
+base control, mutual hold, formation and collision call sites in increasing bytecode order.
+It hashes and inspects the same copied class bytes and returns nonzero when its checks or
+inspection fail. It relies on JDK `javap` for class decoding, not a complete bytecode validator.
+Record the source tree, build provenance, class hash, JDK and result together; a class
+file can be stale or come from another build. Bytecode order alone does not prove that a branch
+executes, an input is written, a Mixin applies, or a player or aircraft is safe at runtime.
+The verifier does not start Minecraft, change flight control, or inspect other methods.
+Revert the verifier, its tests and this note to remove this check; preserve existing evidence.
+
 ## Headless real-physics GameTest
 
 The Forge GameTest server runs the real Minecraft server, real Warfare Wings entities, real Immersive Aircraft physics, the real `tickPilot()` path, and the autonomous-flight Mixin without opening a game window.
