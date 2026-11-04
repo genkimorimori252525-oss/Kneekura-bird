@@ -157,6 +157,89 @@ class FormationSafetyTest(unittest.TestCase):
         self.assertEqual(metrics["worst_stall_guard_speed_bps"], 1e308)
         self.assertIsNone(metrics["worst_speed_to_guard_ratio"])
 
+    def test_duplicate_frame_tick_fails_and_retains_observed_collision_in_either_order(self):
+        for collision_first in (True, False):
+            with self.subTest(collision_first=collision_first):
+                logs = fixture()
+                safe = logs[WING1][0]
+                collision = dict(safe, position={"x": 0.5, "y": 100, "z": 0})
+                logs[WING1][0:1] = [collision, safe] if collision_first else [safe, collision]
+                result = self.assert_verdict(logs, False)
+                self.assertTrue(any(WING1 in error and "duplicate" in error.lower()
+                                    and "0" in error for error in result["errors"]), result)
+                self.assertTrue(any("collision distance" in error for error in result["errors"]), result)
+                self.assertEqual(result["metrics"]["minimum_pairwise_distance_blocks"], 0.5)
+
+    def test_excessive_duplicate_pairs_fail_with_incomplete_distance_metrics(self):
+        logs = fixture()
+        logs[WING1][0]["position"]["x"] = 0.5
+        for name in (LEADER, WING1):
+            frame = logs[name][0]
+            logs[name][0:1] = [dict(frame) for _ in range(65)]
+        result = self.assert_verdict(logs, False)
+        self.assertTrue(any("pair" in error.lower() and "limit" in error.lower()
+                            for error in result["errors"]), result)
+        self.assertTrue(any("collision distance" in error for error in result["errors"]), result)
+        metrics = result["metrics"]
+        self.assertIsNone(metrics["minimum_pairwise_distance_blocks"])
+        self.assertEqual(metrics["minimum_evaluated_pairwise_distance_blocks"], 0.5)
+        self.assertIsNone(metrics["pairwise_separation"][f"{LEADER} <> {WING1}"])
+        self.assertIsNone(metrics["recovered_dangerous_pairs"])
+
+    def test_unexamined_position_cannot_produce_complete_safety_metrics(self):
+        logs = fixture()
+        leader = logs[LEADER][0]
+        wing = logs[WING1][0]
+        far = dict(leader, position={"x": 100, "y": 100, "z": 0})
+        close = dict(wing, position={"x": 0.5, "y": 100, "z": 0})
+        logs[LEADER][0:1] = [dict(far) for _ in range(64)] + [leader]
+        logs[WING1][0:1] = [dict(close) for _ in range(65)]
+        result = self.assert_verdict(logs, False)
+        metrics = result["metrics"]
+        self.assertTrue(any("pair" in error.lower() and "limit" in error.lower()
+                            for error in result["errors"]), result)
+        self.assertIsNone(metrics["minimum_pairwise_distance_blocks"])
+        self.assertGreaterEqual(metrics["minimum_evaluated_pairwise_distance_blocks"], 2)
+        self.assertIsNone(metrics["pairwise_separation"][f"{LEADER} <> {WING1}"])
+        self.assertIsNone(metrics["recovered_dangerous_pairs"])
+
+    def test_duplicate_pairs_at_evaluation_limit_still_report_complete_minimum(self):
+        logs = fixture()
+        logs[WING1][0]["position"]["x"] = 0.5
+        for name in (LEADER, WING1):
+            frame = logs[name][0]
+            logs[name][0:1] = [dict(frame) for _ in range(64)]
+        result = self.assert_verdict(logs, False)
+        self.assertFalse(any("pair" in error.lower() and "limit" in error.lower()
+                             for error in result["errors"]), result)
+        self.assertEqual(result["metrics"]["minimum_pairwise_distance_blocks"], 0.5)
+        self.assertTrue(any("collision distance" in error for error in result["errors"]), result)
+
+    def test_duplicate_tick_keeps_ground_and_airspeed_violations(self):
+        logs = fixture()
+        unsafe = dict(logs[WING1][0], on_ground=True, speed_bps=1)
+        logs[WING1].insert(0, unsafe)
+        result = self.assert_verdict(logs, False)
+        self.assertTrue(any(WING1 in error and "duplicate" in error.lower()
+                            for error in result["errors"]), result)
+        self.assertIn([WING1, 0], result["metrics"]["unsafe_ground_frames"])
+        self.assertTrue(any(WING1 in error and "lost unsafe formation airspeed" in error
+                            for error in result["errors"]), result)
+
+    def test_duplicate_tick_is_rejected_even_if_one_frame_has_no_position(self):
+        logs = fixture()
+        duplicate = dict(logs[WING1][0])
+        duplicate.pop("position")
+        logs[WING1].append(duplicate)
+        result = self.assert_verdict(logs, False)
+        self.assertTrue(any(WING1 in error and "duplicate" in error.lower()
+                            for error in result["errors"]), result)
+
+    def test_duplicate_tick_in_another_phase_is_not_a_formation_duplicate(self):
+        logs = fixture()
+        logs[WING1].append(dict(logs[WING1][0], phase="RETURN"))
+        self.assert_verdict(logs, True)
+
     def test_each_selected_aircraft_needs_a_formation_frame(self):
         logs = fixture()
         logs[WING2] = [row for row in logs[WING2] if row["event"] != "frame"]
