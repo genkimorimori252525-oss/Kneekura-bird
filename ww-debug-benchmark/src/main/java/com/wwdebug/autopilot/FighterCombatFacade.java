@@ -28,10 +28,15 @@ public final class FighterCombatFacade {
     }
 
     record CombatEvaluation(ControlOutcome outcome, Mob defensivePilot, ServerLevel defensiveLevel,
-                            boolean defensiveProposal, AirCombatManeuverManager.OffensiveEvaluation offensive) {
+                            boolean defensiveProposal, AirCombatManeuverManager.OffensiveEvaluation offensive,
+                            EnergyFighterApexYawAdapter.EnergyEvaluation energy) {
         CombatEvaluation(ControlOutcome outcome, Mob defensivePilot, ServerLevel defensiveLevel,
                          boolean defensiveProposal) {
-            this(outcome, defensivePilot, defensiveLevel, defensiveProposal, null);
+            this(outcome, defensivePilot, defensiveLevel, defensiveProposal, null, null);
+        }
+        CombatEvaluation(ControlOutcome outcome, Mob defensivePilot, ServerLevel defensiveLevel,
+                         boolean defensiveProposal, AirCombatManeuverManager.OffensiveEvaluation offensive) {
+            this(outcome, defensivePilot, defensiveLevel, defensiveProposal, offensive, null);
         }
     }
 
@@ -44,9 +49,9 @@ public final class FighterCombatFacade {
             return new CombatEvaluation(ControlOutcome.none(), null, null, false);
         }
 
-        Optional<ControlProposal> energy = EnergyFighterApexYawAdapter.applyControl(aircraft);
-        if (energy.isPresent()) {
-            return new CombatEvaluation(ControlOutcome.proposed(energy.get()), null, null, false);
+        EnergyFighterApexYawAdapter.EnergyEvaluation energy = EnergyFighterApexYawAdapter.evaluateWithPilot(aircraft);
+        if (energy.proposal().isPresent()) {
+            return new CombatEvaluation(ControlOutcome.proposed(energy.proposal().get()), null, null, false, null, energy);
         }
         if (EnergyFighterApexYawAdapter.active(aircraft)) {
             // The state machine still owns this tick even when its DOCTRINE stage deliberately
