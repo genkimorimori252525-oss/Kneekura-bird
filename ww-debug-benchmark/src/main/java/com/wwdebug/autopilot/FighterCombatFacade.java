@@ -23,6 +23,9 @@ public final class FighterCombatFacade {
      * {@code FormationFlightManager} earlier in the tick.</p>
      */
     public static ControlOutcome applyControl(Entity aircraft, boolean collisionRisk) {
+        if (aircraft.level().isClientSide) {
+            return ControlOutcome.none();
+        }
         if (collisionRisk) {
             return ControlOutcome.none();
         }
@@ -58,6 +61,9 @@ public final class FighterCombatFacade {
     }
 
     public static void tick(Entity aircraft) {
+        if (aircraft.level().isClientSide) {
+            return;
+        }
         if (!isFighter(aircraft)) {
             clear(aircraft.getUUID());
             return;
