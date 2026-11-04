@@ -256,7 +256,7 @@ class TerrainGradleStatusTest(unittest.TestCase):
                 self.assertTrue(any("line 2" in e for e in result["errors"]), result)
                 self.assertTrue(any("touched the ground" in e for e in result["errors"]), result)
                 self.assertTrue(any("unsafe airspeed" in e for e in result["errors"]), result)
-                self.assertFalse(result["metrics"]["terrain_assessment_complete"])
+                self.assertFalse(result["metrics"]["selected_log_parse_and_identity_checks_passed"])
                 self.assertNotIn("maximum_longitudinal_blocks", result["metrics"])
 
     def test_unpaired_unicode_does_not_hide_observed_ground_contact(self):
@@ -285,14 +285,14 @@ class TerrainGradleStatusTest(unittest.TestCase):
         self.write_rows()
         status, result = self.verify(0)
         self.assertNotEqual(status, 0, result)
-        self.assertFalse(result["metrics"]["terrain_assessment_complete"])
+        self.assertFalse(result["metrics"]["selected_log_parse_and_identity_checks_passed"])
         self.rows[1]["aircraft_uuid"] = self.target_uuid
         self.write_rows()
         self.summary_data["state"] = "running"
         self.summary.write_text(json.dumps(self.summary_data), encoding="utf-8")
         status, result = self.verify(0)
         self.assertNotEqual(status, 0, result)
-        self.assertFalse(result["metrics"]["terrain_assessment_complete"])
+        self.assertFalse(result["metrics"]["selected_log_parse_and_identity_checks_passed"])
 
     @unittest.skipIf(os.name == "nt", "POSIX undecodable filenames")
     def test_undecodable_log_path_can_be_reported(self):
@@ -311,7 +311,7 @@ class TerrainGradleStatusTest(unittest.TestCase):
         self.log.write_bytes(b"")
         status, result = self.verify(0)
         self.assertNotEqual(status, 0, result)
-        self.assertFalse(result["metrics"]["terrain_assessment_complete"])
+        self.assertFalse(result["metrics"]["selected_log_parse_and_identity_checks_passed"])
 
     def test_invalid_row_cannot_pass_otherwise_valid_evidence(self):
         for bad in (b'{"event":\n', b'[]\n', b'\n', b'{"bad":"\xff"}\n'):
@@ -322,7 +322,7 @@ class TerrainGradleStatusTest(unittest.TestCase):
                 status, result = self.verify(0)
                 self.assertNotEqual(status, 0, result)
                 self.assertFalse(result["passed"], result)
-                self.assertFalse(result["metrics"]["terrain_assessment_complete"])
+                self.assertFalse(result["metrics"]["selected_log_parse_and_identity_checks_passed"])
 
     def test_read_error_after_selection_keeps_observed_ground(self):
         spec = importlib.util.spec_from_file_location("terrain_verifier", VERIFIER)
@@ -356,7 +356,7 @@ class TerrainGradleStatusTest(unittest.TestCase):
         self.assertNotEqual(status, 0, result)
         self.assertTrue(any("could not read" in e for e in result["errors"]), result)
         self.assertTrue(any("touched the ground" in e for e in result["errors"]), result)
-        self.assertFalse(result["metrics"]["terrain_assessment_complete"])
+        self.assertFalse(result["metrics"]["selected_log_parse_and_identity_checks_passed"])
 
 
 if __name__ == "__main__":

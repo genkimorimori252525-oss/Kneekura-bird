@@ -175,15 +175,15 @@ def main() -> int:
     metrics["frame_count"] = len(frames)
     metrics["terrain_adapter_count"] = len(adapters)
     metrics["terrain_start_count"] = len(starts)
-    metrics["terrain_assessment_complete"] = log_path is not None and len(errors) == identity_error_offset
-    if metrics["terrain_assessment_complete"]:
+    metrics["selected_log_parse_and_identity_checks_passed"] = log_path is not None and len(errors) == identity_error_offset
+    if metrics["selected_log_parse_and_identity_checks_passed"]:
         require(bool(rows), errors, "no autonomous-flight telemetry was produced")
         require(bool(frames), errors, "no autonomous-flight frame telemetry was produced")
         require(bool(starts), errors, "predictive terrain avoidance never activated")
         require(bool(adapters), errors, "terrain avoidance produced no applied adapter telemetry")
 
     coordinates = [value for frame in frames if (value := route_coordinates(frame)) is not None]
-    if metrics["terrain_assessment_complete"]:
+    if metrics["selected_log_parse_and_identity_checks_passed"]:
         require(bool(coordinates), errors, "terrain route coordinates were unavailable")
     if coordinates:
         longitudes = [value[0] for value in coordinates]
@@ -195,7 +195,7 @@ def main() -> int:
         metrics["maximum_longitudinal_blocks"] = maximum_longitudinal
         metrics["maximum_abs_lateral_blocks"] = maximum_lateral
         metrics["maximum_relative_altitude_blocks"] = maximum_altitude
-        if metrics["terrain_assessment_complete"]:
+        if metrics["selected_log_parse_and_identity_checks_passed"]:
             require(maximum_longitudinal > -45.0, errors,
                     f"aircraft did not pass the obstacle wall: {maximum_longitudinal:.3f}")
             require(maximum_lateral >= 24.0 or maximum_altitude >= 112.0, errors,
@@ -204,7 +204,7 @@ def main() -> int:
     adapter_speeds = [value for row in adapters if (value := finite(row.get("speed_bps"))) is not None]
     guard_values = [value for frame in frames
                     if (value := finite(frame.get("profile_stall_guard_speed_bps"))) is not None]
-    if metrics["terrain_assessment_complete"]:
+    if metrics["selected_log_parse_and_identity_checks_passed"]:
         require(bool(adapter_speeds and guard_values), errors,
                 "terrain adapter speed or stall-guard telemetry was unavailable")
     if adapter_speeds and guard_values:
@@ -229,7 +229,7 @@ def main() -> int:
             if speed is not None and speed < guard_values[0] * 0.80:
                 errors.append(f"selected terrain log line {line_number} observed unsafe airspeed (identity unverified)")
 
-    if not metrics["terrain_assessment_complete"]:
+    if not metrics["selected_log_parse_and_identity_checks_passed"]:
         for name in ("frame_count", "terrain_adapter_count", "terrain_start_count",
                      "maximum_longitudinal_blocks", "maximum_abs_lateral_blocks",
                      "maximum_relative_altitude_blocks", "terrain_minimum_speed_bps",
