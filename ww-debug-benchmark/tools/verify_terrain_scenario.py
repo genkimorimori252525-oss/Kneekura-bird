@@ -7,13 +7,40 @@ import argparse
 import json
 import math
 import sys
+import uuid
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 
-def latest(paths: Iterable[Path]) -> Path | None:
-    candidates = [path for path in paths if path.is_file()]
-    return max(candidates, key=lambda path: path.stat().st_mtime) if candidates else None
+def target_uuid(root: Path, errors: list[str]) -> uuid.UUID | None:
+    summaries = [path for path in root.rglob("validation-summary-*.json") if path.is_file()]
+    if len(summaries) != 1:
+        errors.append(f"expected exactly one validation summary, found {len(summaries)}")
+        return None
+    try:
+        summary = json.loads(summaries[0].read_text(encoding="utf-8"))
+        results = summary["results"]
+        if not isinstance(results, list) or len(results) != 1:
+            raise ValueError("expected one result")
+        value = results[0]["aircraft_uuid"]
+        if not isinstance(value, str):
+            raise ValueError("aircraft UUID is not a string")
+        return uuid.UUID(value)
+    except (OSError, UnicodeError, ValueError, TypeError, KeyError, IndexError):
+        errors.append("validation summary must identify exactly one aircraft with a valid UUID")
+        return None
+
+
+def target_log(root: Path, target: uuid.UUID | None, errors: list[str]) -> Path | None:
+    if target is None:
+        return None
+    suffix = f"-{target}"
+    candidates = [path for path in root.rglob("aircraft/*.jsonl")
+                  if path.is_file() and path.stem.endswith(suffix)]
+    if len(candidates) != 1:
+        errors.append(f"expected exactly one aircraft log for {target}, found {len(candidates)}")
+        return None
+    return candidates[0]
 
 
 def finite(value: Any) -> float | None:
@@ -82,8 +109,18 @@ def main() -> int:
             "crash report paths found under the supplied root")
     require(bool(list(args.root.rglob("flight_profiles.json"))), errors,
             "no measured flight_profiles.json was produced or staged")
-    log_path = latest(args.root.rglob("aircraft/*.jsonl"))
+    aircraft_uuid = target_uuid(args.root, errors)
+    log_path = target_log(args.root, aircraft_uuid, errors)
     rows = read_jsonl(log_path)
+    if rows and aircraft_uuid is not None:
+        for row in rows:
+            try:
+                value = row["aircraft_uuid"]
+                if not isinstance(value, str) or uuid.UUID(value) != aircraft_uuid:
+                    raise ValueError("aircraft UUID does not match")
+            except (ValueError, TypeError, KeyError):
+                errors.append("aircraft log contains missing, invalid or conflicting aircraft UUID")
+                break
     frames = [row for row in rows if row.get("event") == "frame"]
     adapters = [
         row for row in rows
@@ -95,6 +132,7 @@ def main() -> int:
     starts = [row for row in rows if row.get("event") == "terrain_avoidance_start"]
 
     metrics["telemetry_log"] = str(log_path) if log_path else None
+    metrics["aircraft_uuid"] = str(aircraft_uuid) if aircraft_uuid else None
     metrics["frame_count"] = len(frames)
     metrics["terrain_adapter_count"] = len(adapters)
     metrics["terrain_start_count"] = len(starts)
