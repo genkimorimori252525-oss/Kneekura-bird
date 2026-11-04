@@ -142,6 +142,113 @@ public final class MissionOrderGameTests {
     }
 
     @GameTest(template = "empty", timeoutTicks = 20, batch = "mission_order_contract")
+    public static void returnHomeWithoutRunwayCodecContract(GameTestHelper helper) {
+        checkReturnHomeWithoutRunwayCodec();
+        helper.succeed();
+    }
+
+    static void checkReturnHomeWithoutRunwayCodec() {
+        MissionOrder order = MissionOrder.builder(MissionOrder.Type.RETURN_TO_BASE)
+                .orderId(UUID.fromString("00000000-0000-0000-0000-000000000801"))
+                .home(new Vec3(18.0, 73.0, -24.0), null)
+                .build();
+        CompoundTag encoded = MissionOrderCodec.write(order);
+        check(encoded.contains("home_position", Tag.TAG_COMPOUND)
+                        && !encoded.contains("runway_direction"),
+                "home-only return must serialize without inventing a runway");
+        check(order.equals(MissionOrderCodec.read(encoded)),
+                "home-only return must round-trip without changing the order");
+    }
+
+    @GameTest(template = "empty", timeoutTicks = 20, batch = "mission_order_contract")
+    public static void holdWithoutRunwayCodecContract(GameTestHelper helper) {
+        checkHoldWithoutRunwayCodec();
+        helper.succeed();
+    }
+
+    static void checkHoldWithoutRunwayCodec() {
+        MissionOrder hold = MissionOrder.builder(MissionOrder.Type.HOLD_POSITION)
+                .orderId(UUID.fromString("00000000-0000-0000-0000-000000000802"))
+                .home(new Vec3(4.0, 65.0, 6.0), null)
+                .build();
+        check(hold.equals(MissionOrderCodec.read(MissionOrderCodec.write(hold))),
+                "home-only non-landing orders must also round-trip");
+    }
+
+    @GameTest(template = "empty", timeoutTicks = 20, batch = "mission_order_contract")
+    public static void homeAndRunwayCodecContract(GameTestHelper helper) {
+        checkHomeAndRunwayCodec();
+        helper.succeed();
+    }
+
+    static void checkHomeAndRunwayCodec() {
+        Vec3 home = new Vec3(18.0, 73.0, -24.0);
+        Vec3 runway = new Vec3(0.0, 0.0, 1.0);
+        for (MissionOrder.Type type : new MissionOrder.Type[]{
+                MissionOrder.Type.RETURN_TO_BASE, MissionOrder.Type.LAND}) {
+            MissionOrder order = MissionOrder.builder(type).home(home, runway).build();
+            check(order.equals(MissionOrderCodec.read(MissionOrderCodec.write(order))),
+                    type + " with home and runway must continue to round-trip");
+        }
+    }
+
+    @GameTest(template = "empty", timeoutTicks = 20, batch = "mission_order_contract")
+    public static void returnHomeWithoutRunwaySavedDataContract(GameTestHelper helper) {
+        checkReturnHomeWithoutRunwaySavedData();
+        helper.succeed();
+    }
+
+    static void checkReturnHomeWithoutRunwaySavedData() {
+        UUID returnAircraft = UUID.fromString("00000000-0000-0000-0000-000000000811");
+        UUID otherAircraft = UUID.fromString("00000000-0000-0000-0000-000000000812");
+        MissionOrder returnOrder = MissionOrder.builder(MissionOrder.Type.RETURN_TO_BASE)
+                .orderId(UUID.fromString("00000000-0000-0000-0000-000000000813"))
+                .home(new Vec3(-18.0, 70.0, 32.0), null)
+                .build();
+        MissionOrder otherOrder = MissionOrder.builder(MissionOrder.Type.HOLD_POSITION)
+                .orderId(UUID.fromString("00000000-0000-0000-0000-000000000814"))
+                .targetPosition(new Vec3(3.0, 90.0, 7.0), 8.0)
+                .build();
+        MissionOrderManager.Assignment returning = new MissionOrderManager.Assignment(41L, returnOrder);
+        MissionOrderManager.Assignment other = new MissionOrderManager.Assignment(42L, otherOrder);
+        MissionOrderSavedData initial = new MissionOrderSavedData();
+        initial.replace(Map.of(returnAircraft, returning, otherAircraft, other));
+        Map<UUID, MissionOrderManager.Assignment> loaded =
+                MissionOrderSavedData.load(initial.save(new CompoundTag())).snapshot();
+        check(other.equals(loaded.get(otherAircraft)),
+                "saving and loading must retain an unrelated assignment");
+        check(returning.equals(loaded.get(returnAircraft)),
+                "saving and loading must retain the home-only return assignment");
+        check(loaded.size() == 2, "saving and loading must retain exactly both assignments");
+    }
+
+    @GameTest(template = "empty", timeoutTicks = 20, batch = "mission_order_contract")
+    public static void partialHomeVectorsRemainInvalidContract(GameTestHelper helper) {
+        checkPartialHomeVectorsRemainInvalid();
+        helper.succeed();
+    }
+
+    static void checkPartialHomeVectorsRemainInvalid() {
+        MissionOrder land = MissionOrder.builder(MissionOrder.Type.LAND)
+                .home(new Vec3(2.0, 64.0, 3.0), new Vec3(0.0, 0.0, 1.0))
+                .build();
+        CompoundTag landWithoutRunway = MissionOrderCodec.write(land);
+        landWithoutRunway.remove("runway_direction");
+        expectInvalid(() -> MissionOrderCodec.read(landWithoutRunway),
+                "LAND without a runway must remain invalid");
+
+        CompoundTag runwayWithoutHome = MissionOrderCodec.write(land);
+        runwayWithoutHome.remove("home_position");
+        expectInvalid(() -> MissionOrderCodec.read(runwayWithoutHome),
+                "a persisted runway without a home must remain invalid");
+
+        CompoundTag malformedHome = MissionOrderCodec.write(land);
+        malformedHome.getCompound("home_position").remove("z");
+        expectInvalid(() -> MissionOrderCodec.read(malformedHome),
+                "a home vector with missing coordinates must remain invalid");
+    }
+
+    @GameTest(template = "empty", timeoutTicks = 20, batch = "mission_order_contract")
     public static void malformedMissionOrderDoesNotDiscardValidAssignments(GameTestHelper helper) {
         UUID validAircraft = UUID.fromString("00000000-0000-0000-0000-000000000601");
         UUID malformedVectorAircraft = UUID.fromString("00000000-0000-0000-0000-000000000602");
