@@ -23,6 +23,14 @@ def generatedGameTestResources = layout.buildDirectory.dir('generated/gametest-r
 
 sourceSets.main.resources.srcDir(generatedGameTestResources)
 
+// Kept outside main so instrumentation can be added without shipping it in the mod jar.
+sourceSets {
+    gameTestOnly {
+        compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+        runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
+    }
+}
+
 minecraft {
     mappings channel: 'official', version: minecraft_version
 
@@ -49,6 +57,7 @@ minecraft {
 
         gameTestServer {
             workingDirectory gameTestRunDirectory
+            source sourceSets.gameTestOnly
             property 'forge.enabledGameTestNamespaces', mod_id
             property 'wwdebug.flightGameTestAircraft',
                     (project.findProperty('flightTestAircraft') ?: 'warfare_wings:a6m').toString()
@@ -216,6 +225,7 @@ tasks.named('check').configure {
 }
 
 tasks.matching { it.name == 'runGameTestServer' }.configureEach {
+    dependsOn tasks.named('gameTestOnlyClasses')
     dependsOn tasks.named('prepareFlightGameTestRuntime')
 }
 

@@ -39,6 +39,35 @@ The simulator is a fast logic and envelope check. It checks phase reachability, 
 
 The jar is written to `build/libs/wwdebug_benchmark-1.0.0.jar`.
 
+## Isolated GameTest source set
+
+`src/gameTestOnly/` is for development-only GameTest support. Previously the GameTest run used
+only the main source set; it now also declares this separate source set and compiles it before
+`runGameTestServer`. Its harmless `ClasspathMarker` and resource exercise classpath isolation;
+they are not a GameTest or flight instrument.
+
+To check the source-set wiring, load the marker in a separate Java process, and confirm both
+marker files are absent from the production jar, run from this directory:
+
+```text
+gradle --offline --no-daemon --no-configuration-cache -I tools/verify-gametest-isolation.gradle verifyExternalGameTestIsolation
+```
+
+The check inspects ForgeGradle's declared run sources and exercises the source-set runtime
+classpath. It does not start Minecraft or prove Forge discovers a GameTest, mod resource, or
+Mixin from this source set; establish those separately before relying on it for instrumentation.
+It checks all current test-only output paths against the jar, and direct output paths in the
+client/server classpaths; it does not rule out duplicate contents in another jar, alternate
+symlink paths, or IDE-specific run configurations.
+The cloud verification used ForgeGradle 6.0.54, JDK 17 and Gradle 8.8. The declared ForgeGradle
+range is `[6.0,6.2)`, so this is not evidence for every version in that range; Windows is
+untested. The baseline check failed for the missing source set as expected. Its original init
+script was accidentally extended afterward, so the reconstructed red script and an explanation
+are retained with the local evidence; the red output and exit code were not changed.
+For rollback, revert the commit introducing this source set, its marker and the verification
+script; do not remove run worlds, caches or flight-test jars. No changes to runner configuration
+or existing GameTest worlds are required.
+
 ## Headless real-physics GameTest
 
 The Forge GameTest server runs the real Minecraft server, real Warfare Wings entities, real Immersive Aircraft physics, the real `tickPilot()` path, and the autonomous-flight Mixin without opening a game window.

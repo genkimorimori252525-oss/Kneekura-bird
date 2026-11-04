@@ -1,0 +1,47 @@
+gradle.projectsEvaluated {
+    def project = gradle.rootProject
+    def probeSource = project.sourceSets.findByName('gameTestOnly')
+    def probeRun = probeSource == null ? null : project.tasks.register('runExternalGameTestClasspathProbe', JavaExec) {
+        dependsOn project.tasks.named('gameTestOnlyClasses')
+        classpath = probeSource.runtimeClasspath
+        mainClass = 'com.wwdebug.gametestprobe.ClasspathMarker'
+    }
+    project.tasks.register('verifyExternalGameTestIsolation') {
+        if (probeRun != null) dependsOn probeRun, project.tasks.named('jar')
+        doLast {
+            def probe = project.sourceSets.findByName('gameTestOnly')
+            if (probe == null) throw new GradleException('gameTestOnly source set is missing')
+            def runs = project.minecraft.runs
+            if (!runs.gameTestServer.allSources.contains(probe)) throw new GradleException('GameTest run lacks test-only source')
+            for (String name : ['client', 'server']) {
+                if (runs.getByName(name).allSources.contains(probe)) throw new GradleException("${name} run contains test-only source")
+                for (def source : runs.getByName(name).allSources) {
+                    if (!source.runtimeClasspath.files.intersect(probe.output.files).empty) {
+                        throw new GradleException("${name} run contains test-only output on its runtime classpath")
+                    }
+                }
+            }
+            URL[] urls = probe.output.files.collect { it.toURI().toURL() } as URL[]
+            def loader = new URLClassLoader(urls, (ClassLoader) null)
+            try {
+                if (loader.loadClass('com.wwdebug.gametestprobe.ClasspathMarker').getMethod('value').invoke(null) != 'game-test-only') {
+                    throw new GradleException('test-only marker class did not load')
+                }
+                def resource = loader.getResourceAsStream('wwdebug-gametest-only.marker')
+                if (resource == null || resource.getText('UTF-8').trim() != 'game-test-only') {
+                    throw new GradleException('test-only marker resource did not load')
+                }
+            } finally { loader.close() }
+            def artifact = project.tasks.named('jar').get().archiveFile.get().asFile
+            def zip = new java.util.zip.ZipFile(artifact)
+            try {
+                for (File root : probe.output.files.findAll { it.isDirectory() }) {
+                    project.fileTree(root).files.each { file ->
+                        def name = root.toPath().relativize(file.toPath()).toString().replace('\\', '/')
+                        if (zip.getEntry(name) != null) throw new GradleException("test-only output leaked into production jar: ${name}")
+                    }
+                }
+            } finally { zip.close() }
+        }
+    }
+}
