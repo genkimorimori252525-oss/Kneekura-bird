@@ -28,7 +28,11 @@ public final class FighterCombatFacade {
     }
 
     record CombatEvaluation(ControlOutcome outcome, Mob defensivePilot, ServerLevel defensiveLevel,
-                            boolean defensiveProposal) {
+                            boolean defensiveProposal, AirCombatManeuverManager.OffensiveEvaluation offensive) {
+        CombatEvaluation(ControlOutcome outcome, Mob defensivePilot, ServerLevel defensiveLevel,
+                         boolean defensiveProposal) {
+            this(outcome, defensivePilot, defensiveLevel, defensiveProposal, null);
+        }
     }
 
     static CombatEvaluation evaluateWithDefensivePilot(Entity aircraft, boolean collisionRisk) {
@@ -63,9 +67,10 @@ public final class FighterCombatFacade {
                     ControlAuthorityArbiter.Authority.DEFENSIVE_COMBAT), null, null, false);
         }
 
-        Optional<ControlProposal> offensive = AirCombatManeuverManager.applyControl(aircraft);
-        return new CombatEvaluation(offensive.map(ControlOutcome::proposed).orElseGet(ControlOutcome::none),
-                null, null, false);
+        AirCombatManeuverManager.OffensiveEvaluation offensive = AirCombatManeuverManager.evaluateWithPilot(aircraft);
+        return new CombatEvaluation(offensive.proposal().map(ControlOutcome::proposed).orElseGet(ControlOutcome::none),
+                null, null, false, offensive);
+
     }
 
     public static void tick(Entity aircraft) {

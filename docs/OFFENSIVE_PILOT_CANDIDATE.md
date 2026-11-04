@@ -66,3 +66,30 @@ ownership. Already executed base/direct writes cannot be retracted. The fake
 armament never proves firing, no-friendly-fire, native setter success, real
 Minecraft behavior, or air-combat safety. Prior red, failed fixture setup, and
 source-copy evidence remain separate from any later production validation.
+
+The `actual` mode copies the current worktree sources as bytes without applying
+candidate transformations. It requires three expected hashes and checks that
+all copied production files match their originals and no patches were emitted:
+
+```sh
+python3 ww-debug-benchmark/tools/observe_offensive_pilot_candidate.py \
+  --mode actual --fixture ww-debug-benchmark/tools/inspect_offensive_identity.py \
+  --java-home /path/to/jdk17 --dependencies-json /path/to/classpath.json \
+  --expected-offensive-sha256 0bb0894840f420dce02b1ab0c57dcba6243865ea68d6c7f5aa9287341a7361e0 \
+  --expected-facade-sha256 0ba31fa90b8327d81bc4c0b8452d6caced274341e9771a38bfbbebcfc4d00211 \
+  --expected-arbiter-sha256 14a8109bfe3d75d52e8c222aa976627243b1b69384a4ee3f154334ea9fb0a434 \
+  --output /path/to/new-actual
+python3 ww-debug-benchmark/tools/verify_offensive_pilot_actual.py \
+  --candidate /path/to/saved-v4-candidate --actual /path/to/new-actual \
+  --output /path/to/new-actual-comparison
+```
+
+The comparison checks historical inputs against local Git commit `d34594f`
+where production source paths have since changed. It compares saved copied
+sources, fake stubs, exit codes and stdout while excluding the known terminal
+warning; it does not authenticate the local Git objects or prove the runtime.
+The saved actual-source run has 28 zero exits and eight intentional sentinel
+exit 42 cases; its outer nonzero exit is expected and is not a blanket pass.
+The descriptor checker can compare the saved baseline with the actual-source
+classes; this is a static signature check, including the old four-argument
+constructor, not proof that the extended record is fully compatible.

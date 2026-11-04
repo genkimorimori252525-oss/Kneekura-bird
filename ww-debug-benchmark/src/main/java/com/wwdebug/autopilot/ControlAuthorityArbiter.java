@@ -155,6 +155,16 @@ public final class ControlAuthorityArbiter {
                     if (attempt == DefensiveAttempt.REJECTED) {
                         return rejected(aircraft);
                     }
+                } else if (combatEvaluation.offensive() != null
+                        && combatEvaluation.offensive().proposal().isPresent()) {
+                    DefensiveAttempt attempt = attemptOffensivePendingWrite(
+                            aircraft, combat.pendingWrite().get(), combatEvaluation.offensive());
+                    if (attempt == DefensiveAttempt.IDENTITY_MISMATCH) {
+                        return new PendingDecision(Authority.NONE, false);
+                    }
+                    if (attempt == DefensiveAttempt.REJECTED) {
+                        return rejected(aircraft);
+                    }
                 } else if (!attemptPendingWrite(aircraft, combat.pendingWrite().get())) {
                     return rejected(aircraft);
                 }
@@ -275,6 +285,28 @@ public final class ControlAuthorityArbiter {
         }
         ReflectiveAircraft.applyControl(aircraft, proposal.x(), proposal.y(),
                 proposal.z(), proposal.engineTarget());
+        return DefensiveAttempt.ATTEMPTED;
+    }
+
+    // ATTEMPTED means the adapter was called; native setter success is not established.
+    private static DefensiveAttempt attemptOffensivePendingWrite(Entity aircraft, ControlProposal proposal,
+            AirCombatManeuverManager.OffensiveEvaluation evaluation) {
+        if (aircraft.isRemoved()) {
+            return DefensiveAttempt.REJECTED;
+        }
+        var level = aircraft.level();
+        if (level.isClientSide) {
+            return DefensiveAttempt.REJECTED;
+        }
+        var pilot = MobPilotGate.pilotOf(aircraft);
+        if (pilot.isEmpty() || evaluation.pilot() == null || evaluation.level() == null) {
+            return DefensiveAttempt.REJECTED;
+        }
+        if (pilot.get() != evaluation.pilot() || level != evaluation.level()) {
+            return DefensiveAttempt.IDENTITY_MISMATCH;
+        }
+        ReflectiveAircraft.applyControl(aircraft, proposal.x(), proposal.y(), proposal.z(),
+                proposal.engineTarget());
         return DefensiveAttempt.ATTEMPTED;
     }
 
