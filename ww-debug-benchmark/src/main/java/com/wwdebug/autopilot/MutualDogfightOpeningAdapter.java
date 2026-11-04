@@ -42,7 +42,7 @@ final class MutualDogfightOpeningAdapter {
                                 && entity.getTags().contains(OPPONENT_TAG)
                                 && ReflectiveAircraft.isAirplane(entity))
                 .stream().findFirst().orElse(null);
-        if (opponent == null) {
+        if (opponent == null || !MobPilotGate.isMobPiloted(opponent)) {
             return;
         }
 
