@@ -71,6 +71,16 @@ def adapter_speed(value: Any) -> float | None:
     return number if math.isfinite(number) and number >= 0 else None
 
 
+def parse_stall_guard(value: Any) -> float | None:
+    if type(value) not in (int, float):
+        return None
+    try:
+        number = float(value)
+    except OverflowError:
+        return None
+    return number if math.isfinite(number) and number > 0 else None
+
+
 def read_jsonl(path: Path | None) -> list[dict[str, Any]]:
     if path is None:
         return []
@@ -182,8 +192,14 @@ def main() -> int:
     require(all(value is not None for value in speeds), errors,
             "terrain adapter has invalid or missing speed_bps")
     adapter_speeds = [value for value in speeds if value is not None]
-    guard_values = [value for frame in frames
-                    if (value := finite(frame.get("profile_stall_guard_speed_bps"))) is not None]
+    guards = [(raw, parse_stall_guard(raw)) for frame in frames
+              for raw in [frame.get("profile_stall_guard_speed_bps")]]
+    require(all(value is not None for _, value in guards), errors,
+            "frame has invalid or missing profile_stall_guard_speed_bps")
+    valid_guards = [(raw, value) for raw, value in guards if value is not None]
+    require(not valid_guards or all(raw == valid_guards[0][0] for raw, _ in valid_guards), errors,
+            "profile_stall_guard_speed_bps changed between frames")
+    guard_values = [value for _, value in valid_guards]
     require(bool(adapter_speeds and guard_values), errors,
             "terrain adapter speed or stall-guard telemetry was unavailable")
     if adapter_speeds and guard_values:

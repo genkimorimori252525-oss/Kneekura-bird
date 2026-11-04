@@ -143,6 +143,55 @@ class TerrainGradleStatusTest(unittest.TestCase):
                 self.assertEqual(status == 0, expected_pass, result)
                 self.assertFalse(any("speed_bps" in error for error in result["errors"]), result)
 
+    def test_every_frame_requires_positive_numeric_stall_guard(self):
+        missing = object()
+        for value in (missing, None, True, "10", [], {}, float("nan"),
+                      float("inf"), 0, -1, 10 ** 400):
+            with self.subTest(value=value):
+                frame = copy.deepcopy(self.rows[0])
+                if value is missing:
+                    frame.pop("profile_stall_guard_speed_bps")
+                else:
+                    frame["profile_stall_guard_speed_bps"] = value
+                self.rows.append(frame)
+                self.write_rows()
+                self.rows.pop()
+                status, result = self.verify(0)
+                self.assertNotEqual(status, 0, result)
+                self.assertFalse(result["passed"], result)
+                self.assertTrue(any("profile_stall_guard_speed_bps" in error
+                                    for error in result["errors"]), result)
+
+    def test_stall_guard_is_constant_across_frames(self):
+        for first, second, speed in ((10, 30, 12),
+                                     (2 ** 53, 2 ** 53 + 1, 10 ** 18)):
+            with self.subTest(first=first, second=second):
+                self.rows[0]["profile_stall_guard_speed_bps"] = first
+                self.rows[2]["speed_bps"] = speed
+                self.rows.append(dict(self.rows[0], profile_stall_guard_speed_bps=second))
+                self.write_rows()
+                self.rows.pop()
+                status, result = self.verify(0)
+                self.assertNotEqual(status, 0, result)
+                self.assertTrue(any("profile_stall_guard_speed_bps" in error
+                                    for error in result["errors"]), result)
+
+    def test_equivalent_numeric_guard_values_are_accepted(self):
+        self.rows.append(dict(self.rows[0], profile_stall_guard_speed_bps=10.0))
+        self.write_rows()
+        status, result = self.verify(0)
+        self.assertEqual(status, 0, result)
+
+    def test_invalid_guard_does_not_hide_observed_unsafe_speed(self):
+        self.rows[2]["speed_bps"] = 7.9
+        self.rows.append(dict(self.rows[0], profile_stall_guard_speed_bps=None))
+        self.write_rows()
+        status, result = self.verify(0)
+        self.assertNotEqual(status, 0, result)
+        self.assertTrue(any("profile_stall_guard_speed_bps" in error
+                            for error in result["errors"]), result)
+        self.assertTrue(any("lost unsafe airspeed" in error for error in result["errors"]), result)
+
     def test_incomplete_or_unsuccessful_summary_cannot_pass(self):
         missing = object()
         cases = {
