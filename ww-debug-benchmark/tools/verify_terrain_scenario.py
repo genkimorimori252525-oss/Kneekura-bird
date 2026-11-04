@@ -20,8 +20,18 @@ def target_uuid(root: Path, errors: list[str]) -> uuid.UUID | None:
     try:
         summary = json.loads(summaries[0].read_text(encoding="utf-8"))
         results = summary["results"]
-        if not isinstance(results, list) or len(results) != 1:
+        if not isinstance(results, list) or len(results) != 1 or not isinstance(results[0], dict):
             raise ValueError("expected one result")
+        if summary.get("state") != "complete":
+            errors.append("validation summary state must be complete")
+        for field in ("total", "completed"):
+            value = summary.get(field)
+            if type(value) is not int or value != 1:
+                errors.append(f"validation summary {field} must be the integer 1")
+        if results[0].get("passed") is not True:
+            errors.append("validation summary result passed must be true")
+        if results[0].get("final_phase") != "PARKED":
+            errors.append("validation summary result final_phase must be PARKED")
         value = results[0]["aircraft_uuid"]
         if not isinstance(value, str):
             raise ValueError("aircraft UUID is not a string")

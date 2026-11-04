@@ -1,6 +1,7 @@
 """Check that terrain evidence cannot override a failed GameTest process."""
 
 import json
+import copy
 import os
 import subprocess
 import sys
@@ -23,8 +24,12 @@ class TerrainGradleStatusTest(unittest.TestCase):
         self.target_uuid = "11111111-1111-4111-8111-111111111111"
         self.other_uuid = "22222222-2222-4222-8222-222222222222"
         self.summary = self.root / "validation-summary-1.json"
-        self.summary.write_text(json.dumps({"results": [{"aircraft_uuid": self.target_uuid}]}),
-                                encoding="utf-8")
+        self.summary_data = {
+            "state": "complete", "total": 1, "completed": 1,
+            "results": [{"aircraft_uuid": self.target_uuid, "passed": True,
+                         "final_phase": "PARKED", "reason": "completed_full_mission"}],
+        }
+        self.summary.write_text(json.dumps(self.summary_data), encoding="utf-8")
         self.log = aircraft / f"warfare_wings-a6m-{self.target_uuid}.jsonl"
         self.rows = [
             {"event": "frame", "position": {"x": 0, "y": 120, "z": 25},
@@ -72,6 +77,47 @@ class TerrainGradleStatusTest(unittest.TestCase):
         status, result = self.verify(0)
         self.assertNotEqual(status, 0, result)
         self.assertTrue(any("ground" in error for error in result["errors"]), result)
+
+    def test_incomplete_or_unsuccessful_summary_cannot_pass(self):
+        missing = object()
+        cases = {
+            "state": ("running", "aborted", None, missing),
+            "total": (0, 2, True, 1.0, "1", None, missing),
+            "completed": (0, 2, True, 1.0, "1", None, missing),
+            "passed": (False, 1, "true", None, missing),
+            "final_phase": ("ABORTED", "BRAKE", None, missing),
+        }
+        for field, values in cases.items():
+            for value in values:
+                with self.subTest(field=field, value=value):
+                    summary = copy.deepcopy(self.summary_data)
+                    owner = summary["results"][0] if field in ("passed", "final_phase") else summary
+                    if value is missing:
+                        owner.pop(field)
+                    else:
+                        owner[field] = value
+                    self.summary.write_text(json.dumps(summary), encoding="utf-8")
+                    status, result = self.verify(0)
+                    self.assertNotEqual(status, 0, result)
+                    self.assertFalse(result["passed"], result)
+                    self.assertTrue(any(field in error for error in result["errors"]), result)
+
+    def test_failed_summary_does_not_hide_observed_ground_contact(self):
+        self.summary_data["results"][0]["passed"] = False
+        self.summary.write_text(json.dumps(self.summary_data), encoding="utf-8")
+        self.rows[0]["on_ground"] = True
+        self.write_rows()
+        status, result = self.verify(0)
+        self.assertNotEqual(status, 0, result)
+        self.assertTrue(any("passed" in error for error in result["errors"]), result)
+        self.assertTrue(any("ground" in error for error in result["errors"]), result)
+
+    def test_successful_summary_reason_is_not_a_fixed_string_requirement(self):
+        self.summary_data["results"][0]["reason"] = "another_success_reason"
+        self.summary.write_text(json.dumps(self.summary_data), encoding="utf-8")
+        status, result = self.verify(0)
+        self.assertEqual(status, 0, result)
+        self.assertTrue(result["passed"], result)
 
     def test_crash_report_cannot_be_overridden_by_successful_gradle_and_telemetry(self):
         crashes = self.root / "crash-reports"
@@ -128,13 +174,13 @@ class TerrainGradleStatusTest(unittest.TestCase):
         self.summary.unlink()
         status, result = self.verify(0)
         self.assertNotEqual(status, 0, result)
-        self.summary.write_text(json.dumps({"results": [{"aircraft_uuid": self.target_uuid}]}))
+        self.summary.write_text(json.dumps(self.summary_data), encoding="utf-8")
         (self.root / "validation-summary-2.json").write_text(self.summary.read_text())
         status, result = self.verify(0)
         self.assertNotEqual(status, 0, result)
 
     def test_invalid_or_ambiguous_summary_identity_fails(self):
-        for results in ([], [{"aircraft_uuid": "invalid"}],
+        for results in ([], [None], ["bad"], [[]], [{"aircraft_uuid": "invalid"}],
                         [{"aircraft_uuid": self.target_uuid}, {"aircraft_uuid": self.other_uuid}]):
             with self.subTest(results=results):
                 self.summary.write_text(json.dumps({"results": results}), encoding="utf-8")
