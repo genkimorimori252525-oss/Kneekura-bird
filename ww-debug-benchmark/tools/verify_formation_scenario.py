@@ -16,6 +16,7 @@ from typing import Any
 
 SLOT_ERROR = re.compile(r"(?:^|:)slot_error=(-?\d+(?:\.\d+)?)")
 FORMATION_TEST_PHASES = {"CRUISE_OUTBOUND"}
+MAX_POSITION_PAIRS_PER_TICK = 4096
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -143,39 +144,64 @@ def main() -> int:
     require(bool(tracking_rows), errors,
             "formation slot tracking never activated during straight flight")
 
-    frames_by_name: dict[str, dict[int, tuple[float, float, float]]] = {}
+    frames_by_name: dict[str, dict[int, list[tuple[float, float, float]]]] = {}
     for name, (_, rows) in logs.items():
-        frames: dict[int, tuple[float, float, float]] = {}
+        frames: dict[int, list[tuple[float, float, float]]] = {}
+        seen_ticks: set[int] = set()
+        duplicate_ticks: set[int] = set()
         for row in rows:
             if (row.get("event") != "frame"
                     or str(row.get("phase", "")) not in FORMATION_TEST_PHASES):
                 continue
             row_tick = tick(row)
+            if row_tick is not None:
+                if row_tick in seen_ticks:
+                    duplicate_ticks.add(row_tick)
+                seen_ticks.add(row_tick)
             row_position = position(row)
             if row_tick is not None and row_position is not None:
-                frames[row_tick] = row_position
+                frames.setdefault(row_tick, []).append(row_position)
+        require(not duplicate_ticks, errors,
+                f"{name} has duplicate formation frame ticks: {sorted(duplicate_ticks)[:5]}")
         frames_by_name[name] = frames
 
     pair_series: dict[str, list[tuple[int, float]]] = {}
+    truncated_pairs: set[str] = set()
     for first, second in itertools.combinations(sorted(frames_by_name), 2):
+        pair = f"{first} <> {second}"
         common = sorted(set(frames_by_name[first]) & set(frames_by_name[second]))
-        series = [
-            (value, distance(frames_by_name[first][value], frames_by_name[second][value]))
-            for value in common
-        ]
-        pair_series[f"{first} <> {second}"] = series
+        series: list[tuple[int, float]] = []
+        for value in common:
+            first_positions = frames_by_name[first][value]
+            second_positions = frames_by_name[second][value]
+            count = len(first_positions) * len(second_positions)
+            if count > MAX_POSITION_PAIRS_PER_TICK:
+                truncated_pairs.add(pair)
+                errors.append(f"{pair} tick {value} position pair evaluation limit "
+                              f"{MAX_POSITION_PAIRS_PER_TICK} exceeded ({count} pairs); "
+                              "distance metrics are incomplete")
+            positions = ((a, b) for a in first_positions for b in second_positions)
+            evaluated = itertools.islice(positions, MAX_POSITION_PAIRS_PER_TICK)
+            series.append((value, min(distance(a, b) for a, b in evaluated)))
+        pair_series[pair] = series
 
     all_distances = [value for series in pair_series.values() for _, value in series]
-    metrics["minimum_pairwise_distance_blocks"] = min(all_distances) if all_distances else None
+    minimum_evaluated = min(all_distances) if all_distances else None
+    metrics["minimum_pairwise_distance_blocks"] = None if truncated_pairs else minimum_evaluated
+    if truncated_pairs:
+        metrics["minimum_evaluated_pairwise_distance_blocks"] = minimum_evaluated
     require(bool(all_distances), errors,
             "synchronized formation position telemetry was unavailable")
     if all_distances:
-        require(min(all_distances) >= 2.0, errors,
-                f"aircraft bodies approached collision distance: {min(all_distances):.3f}")
+        require(minimum_evaluated >= 2.0, errors,
+                f"aircraft bodies approached collision distance: {minimum_evaluated:.3f}")
 
     recovered_pairs = 0
     pair_metrics: dict[str, Any] = {}
     for pair, series in pair_series.items():
+        if pair in truncated_pairs:
+            pair_metrics[pair] = None
+            continue
         if not series:
             continue
         start_tick = series[0][0]
@@ -191,9 +217,10 @@ def main() -> int:
         if initial < 13.0 and best_later >= 15.0:
             recovered_pairs += 1
     metrics["pairwise_separation"] = pair_metrics
-    metrics["recovered_dangerous_pairs"] = recovered_pairs
-    require(recovered_pairs >= 1, errors,
-            "no initially dangerous aircraft pair recovered to at least 15 blocks separation")
+    metrics["recovered_dangerous_pairs"] = None if truncated_pairs else recovered_pairs
+    if not truncated_pairs:
+        require(recovered_pairs >= 1, errors,
+                "no initially dangerous aircraft pair recovered to at least 15 blocks separation")
 
     convergence: dict[str, Any] = {}
     for name in wingman_names[:2]:
