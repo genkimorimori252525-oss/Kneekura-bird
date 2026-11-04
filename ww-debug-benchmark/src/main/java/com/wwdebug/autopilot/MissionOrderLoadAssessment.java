@@ -54,7 +54,9 @@ public final class MissionOrderLoadAssessment {
                 return UNKNOWN;
             }
             CompoundTag orderTag = entry.getCompound("order");
-            if (invalidOptionalUuid(orderTag, "target_entity")
+            if (!orderTag.contains("weapons_free", Tag.TAG_BYTE)
+                    || (orderTag.getByte("weapons_free") != 0 && orderTag.getByte("weapons_free") != 1)
+                    || invalidOptionalUuid(orderTag, "target_entity")
                     || invalidOptionalUuid(orderTag, "formation_id")
                     || invalidOptionalUuid(orderTag, "leader_aircraft")) {
                 return UNKNOWN;

@@ -32,7 +32,9 @@ public final class MissionOrderLoadAssessmentGameTests {
                 "valid", "valid-optional-uuids", "duplicate-identical", "newer-valid", "unknown-uuid", "missing-uuid",
                 "bad-revision-type", "bad-revision-zero", "bad-revision-limit", "missing-order",
                 "bad-order", "bad-formation-uuid", "bad-target-uuid", "conflicting-revision", "conflicting-revision-reversed",
-                "bad-newer", "bad-newer-reversed", "input-unchanged"};
+                "bad-newer", "bad-newer-reversed", "input-unchanged",
+                "weapons-byte-zero", "weapons-byte-one", "weapons-byte-two", "weapons-byte-minus-one",
+                "weapons-byte-bad-newer", "weapons-byte-bad-newer-reversed"};
     }
 
     static void checkScenario(String scenario) {
@@ -118,6 +120,28 @@ public final class MissionOrderLoadAssessmentGameTests {
                 CompoundTag invalid = entry(aircraft, 3, denied);
                 invalid.getCompound("order").putIntArray("target_entity", new int[] {1, 2, 3});
                 list.add(invalid);
+            }
+            case "weapons-byte-zero", "weapons-byte-one" -> {
+                boolean enabled = scenario.equals("weapons-byte-one");
+                MissionOrder order = enabled ? permitted : denied;
+                CompoundTag validEntry = entry(aircraft, 3, order);
+                validEntry.getCompound("order").putByte("weapons_free", (byte) (enabled ? 1 : 0));
+                list.add(validEntry);
+                expected = Map.of(aircraft, new MissionOrderManager.Assignment(3, order));
+                clean = true;
+            }
+            case "weapons-byte-two", "weapons-byte-minus-one" -> {
+                CompoundTag invalid = entry(aircraft, 3, denied);
+                invalid.getCompound("order").putByte("weapons_free",
+                        (byte) (scenario.equals("weapons-byte-two") ? 2 : -1));
+                list.add(invalid);
+            }
+            case "weapons-byte-bad-newer", "weapons-byte-bad-newer-reversed" -> {
+                CompoundTag older = entry(aircraft, 3, permitted);
+                CompoundTag newer = entry(aircraft, 4, denied);
+                newer.getCompound("order").putByte("weapons_free", (byte) 2);
+                list.add(scenario.endsWith("reversed") ? newer : older);
+                list.add(scenario.endsWith("reversed") ? older : newer);
             }
             case "conflicting-revision", "conflicting-revision-reversed" -> {
                 CompoundTag first = entry(aircraft, 3, permitted);
