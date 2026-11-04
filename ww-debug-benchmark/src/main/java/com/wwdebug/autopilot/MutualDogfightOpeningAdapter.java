@@ -36,9 +36,13 @@ final class MutualDogfightOpeningAdapter {
             return;
         }
 
+        Entity ownedOpponent = MutualDogfightValidationManager.openingOpponent(level, primary);
+        if (ownedOpponent == null) {
+            return;
+        }
         AABB search = primary.getBoundingBox().inflate(240.0, 96.0, 240.0);
         Entity opponent = level.getEntities(primary, search,
-                        entity -> !entity.isRemoved()
+                        entity -> entity == ownedOpponent && !entity.isRemoved()
                                 && entity.getTags().contains(OPPONENT_TAG)
                                 && ReflectiveAircraft.isAirplane(entity))
                 .stream().findFirst().orElse(null);
