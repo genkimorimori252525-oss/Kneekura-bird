@@ -63,6 +63,28 @@ public final class MissionOrderNbtObservationChecks {
                 input = encode(root, true);
                 expected = MissionOrderNbtObservation.Status.ASSESSED_UNKNOWN;
             }
+            case "cross-gzip-two", "cross-gzip-minus-one", "cross-plain-two", "cross-plain-minus-one",
+                    "cross-gzip-newer", "cross-gzip-newer-reversed",
+                    "cross-plain-newer", "cross-plain-newer-reversed" -> {
+                CompoundTag root = validRoot();
+                ListTag entries = root.getCompound("data").getList("assignments", 10);
+                CompoundTag older = entries.getCompound(0);
+                if (scenario.contains("newer")) {
+                    CompoundTag newer = older.copy();
+                    newer.putLong("revision", 8L);
+                    newer.getCompound("order").putByte("weapons_free", (byte) 2);
+                    if (scenario.endsWith("reversed")) {
+                        entries.add(0, newer);
+                    } else {
+                        entries.add(newer);
+                    }
+                } else {
+                    older.getCompound("order").putByte("weapons_free",
+                            (byte) (scenario.endsWith("minus-one") ? -1 : 2));
+                }
+                input = encode(root, scenario.startsWith("cross-gzip"));
+                expected = MissionOrderNbtObservation.Status.ASSESSED_UNKNOWN;
+            }
             case "bad-gzip" -> {
                 input = new byte[] {31, (byte) 139, 8, 0, 1};
                 expected = MissionOrderNbtObservation.Status.INVALID;
