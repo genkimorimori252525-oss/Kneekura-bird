@@ -64,8 +64,8 @@ public final class MissionOrderCodec {
         Vec3 home = readVec(tag, "home_position");
         Vec3 runway = readVec(tag, "runway_direction");
         if (home != null || runway != null) {
-            if (home == null || runway == null) {
-                throw new IllegalArgumentException("home_position and runway_direction must be stored together");
+            if (home == null) {
+                throw new IllegalArgumentException("runway_direction requires home_position");
             }
             builder.home(home, runway);
         }
