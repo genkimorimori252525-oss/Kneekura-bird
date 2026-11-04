@@ -4,6 +4,7 @@ import com.wwdebug.benchmark.ReflectiveAircraft;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.Mob;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
@@ -35,23 +36,30 @@ public final class FormationFlightManager {
     }
 
     public static ControlOutcome applyControl(Entity aircraft) {
+        return evaluateWithPilot(aircraft).outcome();
+    }
+
+    record FormationEvaluation(ControlOutcome outcome, Mob pilot, ServerLevel level) { }
+
+    static FormationEvaluation evaluateWithPilot(Entity aircraft) {
         if (aircraft.level().isClientSide || !ReflectiveAircraft.isAirplane(aircraft)
                 || !ReflectiveAircraft.isControllable(aircraft)
                 || !(aircraft.level() instanceof ServerLevel level)) {
             clear(aircraft.getUUID());
-            return ControlOutcome.none();
+            return new FormationEvaluation(ControlOutcome.none(), null, null);
         }
         Optional<AutonomousFlightManager.SessionStatus> status =
                 AutonomousFlightManager.status(aircraft.getUUID());
-        if (!MobPilotGate.isMobPiloted(aircraft) || status.isEmpty()) {
+        Optional<Mob> pilot = MobPilotGate.pilotOf(aircraft);
+        if (pilot.isEmpty() || status.isEmpty()) {
             clear(aircraft.getUUID());
-            return ControlOutcome.none();
+            return new FormationEvaluation(ControlOutcome.none(), null, null);
         }
         FlightPhase phase = status.get().phase();
         if (!eligiblePhase(phase) || aircraft.onGround()
                 || TerrainAvoidancePlanner.active(aircraft) || immediateTerrainAhead(aircraft)) {
             clearModes(level, aircraft, phase);
-            return ControlOutcome.none();
+            return new FormationEvaluation(ControlOutcome.none(), null, null);
         }
 
         FlightSnapshot snapshot = FlightSnapshot.capture(aircraft);
@@ -59,7 +67,7 @@ public final class FormationFlightManager {
                 .orElse(null);
         if (profile == null) {
             clear(aircraft.getUUID());
-            return ControlOutcome.none();
+            return new FormationEvaluation(ControlOutcome.none(), null, null);
         }
 
         List<Entity> nearby = nearbyAircraft(level, aircraft);
@@ -70,8 +78,8 @@ public final class FormationFlightManager {
         if (collision.isPresent()) {
             applyCollisionAvoidance(level, aircraft, phase, snapshot, profile, collision.get());
             ACTIVE_FORMATION.remove(aircraft.getUUID());
-            return ControlOutcome.alreadyWrote(
-                    ControlAuthorityArbiter.Authority.COLLISION_AVOIDANCE);
+            return new FormationEvaluation(ControlOutcome.alreadyWrote(
+                    ControlAuthorityArbiter.Authority.COLLISION_AVOIDANCE), null, null);
         }
         if (ACTIVE_COLLISION.remove(aircraft.getUUID()) != null) {
             AutopilotLogManager.writeEvent(level.getServer(), aircraft,
@@ -81,20 +89,20 @@ public final class FormationFlightManager {
         String group = formationGroup(aircraft);
         if (group == null) {
             clearFormation(level, aircraft, phase, "no_formation_group");
-            return ControlOutcome.none();
+            return new FormationEvaluation(ControlOutcome.none(), null, null);
         }
         List<Entity> members = formationMembers(level, aircraft, group);
         if (members.size() < 2) {
             clearFormation(level, aircraft, phase, "formation_group_has_no_other_members");
-            return ControlOutcome.none();
+            return new FormationEvaluation(ControlOutcome.none(), null, null);
         }
         Entity leader = selectLeader(members);
         if (leader == aircraft) {
             clearFormation(level, aircraft, phase, "formation_leader_uses_mission_control");
-            return ControlOutcome.none();
+            return new FormationEvaluation(ControlOutcome.none(), null, null);
         }
-        return ControlOutcome.proposed(
-                applyFormationSlot(level, aircraft, phase, snapshot, profile, leader, members));
+        return new FormationEvaluation(ControlOutcome.proposed(
+                applyFormationSlot(level, aircraft, phase, snapshot, profile, leader, members)), pilot.get(), level);
     }
 
     private static void applyCollisionAvoidance(ServerLevel level, Entity aircraft, FlightPhase phase,
