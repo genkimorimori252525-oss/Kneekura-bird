@@ -15,7 +15,8 @@ public final class AutopilotWheelLockAdapter {
     }
 
     public static void apply(Entity aircraft) {
-        if (aircraft.level().isClientSide || !aircraft.onGround()) {
+        if (aircraft.level().isClientSide || !aircraft.onGround()
+                || !MobPilotGate.isMobPiloted(aircraft)) {
             return;
         }
         AutonomousFlightManager.SessionStatus status = AutonomousFlightManager
