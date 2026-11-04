@@ -26,6 +26,9 @@ public final class FighterCombatFacade {
         if (collisionRisk) {
             return ControlOutcome.none();
         }
+        if (aircraft.level().isClientSide) {
+            return ControlOutcome.none();
+        }
         if (!isFighter(aircraft)) {
             clear(aircraft.getUUID());
             return ControlOutcome.none();
@@ -58,6 +61,9 @@ public final class FighterCombatFacade {
     }
 
     public static void tick(Entity aircraft) {
+        if (aircraft.level().isClientSide) {
+            return;
+        }
         if (!isFighter(aircraft)) {
             clear(aircraft.getUUID());
             return;
