@@ -106,19 +106,31 @@ public final class ControlAuthorityArbiter {
         if (aircraft.level().isClientSide) {
             return Authority.NONE;
         }
-        Authority authority = decide(aircraft);
-        recordAuthorityChange(aircraft, authority);
-        return authority;
+        PendingDecision decision = decide(aircraft);
+        if (decision.updateMarker()) {
+            recordAuthorityChange(aircraft, decision.authority());
+        }
+        return decision.authority();
     }
 
-    private static Authority decide(Entity aircraft) {
+    private record PendingDecision(Authority authority, boolean updateMarker) {
+    }
+
+    private static PendingDecision rejected(Entity aircraft) {
+        Authority label = !aircraft.isRemoved() && !aircraft.level().isClientSide
+                && MobPilotGate.isPlayerControlled(aircraft)
+                ? Authority.PLAYER_CONTROLLED : Authority.NONE;
+        return new PendingDecision(label, false);
+    }
+
+    private static PendingDecision decide(Entity aircraft) {
         if (aircraft.level().isClientSide) {
-            return Authority.NONE;
+            return new PendingDecision(Authority.NONE, true);
         }
 
         if (MobPilotGate.isPlayerControlled(aircraft)) {
             clearAutomatedControl(aircraft);
-            return Authority.PLAYER_CONTROLLED;
+            return new PendingDecision(Authority.PLAYER_CONTROLLED, true);
         }
 
         BenchmarkManager.applyControl(aircraft);
@@ -130,23 +142,29 @@ public final class ControlAuthorityArbiter {
         ControlOutcome combat = FighterCombatFacade.applyControl(aircraft, collisionRisk);
         if (combat.claimed()) {
             // A converted layer leaves its write to us; an unconverted one has already performed it.
-            combat.pendingWrite().ifPresent(proposal -> write(aircraft, proposal));
-            return combat.authority();
+            if (combat.pendingWrite().isPresent()
+                    && !attemptPendingWrite(aircraft, combat.pendingWrite().get())) {
+                return rejected(aircraft);
+            }
+            return new PendingDecision(combat.authority(), true);
         }
         if (formation.authority() == Authority.COLLISION_AVOIDANCE || collisionRisk) {
             // Collision avoidance is intentionally still a direct writer during the staged
             // conversion. It ran before combat, and combat stands down while collision risk holds.
-            return Authority.COLLISION_AVOIDANCE;
+            return new PendingDecision(Authority.COLLISION_AVOIDANCE, true);
         }
         if (TerrainAvoidancePlanner.active(aircraft)) {
-            return Authority.TERRAIN_AVOIDANCE;
+            return new PendingDecision(Authority.TERRAIN_AVOIDANCE, true);
         }
         if (formation.claimed()) {
-            formation.pendingWrite().ifPresent(proposal -> write(aircraft, proposal));
-            return formation.authority();
+            if (formation.pendingWrite().isPresent()
+                    && !attemptPendingWrite(aircraft, formation.pendingWrite().get())) {
+                return rejected(aircraft);
+            }
+            return new PendingDecision(formation.authority(), true);
         }
-        return AutonomousFlightManager.status(aircraft.getUUID()).isPresent()
-                ? Authority.BASE_AUTONOMY : Authority.NONE;
+        return new PendingDecision(AutonomousFlightManager.status(aircraft.getUUID()).isPresent()
+                ? Authority.BASE_AUTONOMY : Authority.NONE, true);
     }
 
     /**
@@ -222,9 +240,14 @@ public final class ControlAuthorityArbiter {
      * {@code ReflectiveAircraft.applyControl} on the production path, and the "exactly one write
      * per aircraft per tick" invariant becomes checkable rather than asserted.</p>
      */
-    private static void write(Entity aircraft, ControlProposal proposal) {
+    // True means the adapter was called, not that the native setters succeeded.
+    private static boolean attemptPendingWrite(Entity aircraft, ControlProposal proposal) {
+        if (aircraft.isRemoved() || aircraft.level().isClientSide || !MobPilotGate.isMobPiloted(aircraft)) {
+            return false;
+        }
         ReflectiveAircraft.applyControl(aircraft, proposal.x(), proposal.y(), proposal.z(),
                 proposal.engineTarget());
+        return true;
     }
 
     private static void clearAutomatedControl(Entity aircraft) {
