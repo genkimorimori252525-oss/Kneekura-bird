@@ -27,6 +27,16 @@ The fake profile and snapshots are synthetic; they are not the exact #214 record
 
 The `getter-throw` test injects an exception at the **third** fake `getControllingPassenger` invocation. With the unchanged source this occurs at formation evaluation after one base call; in the experimental capture it occurs at the manager's mob gate before a base call, after the extra capture getter. This count-based injection reaches different semantic call sites and does not establish that the same real getter failure occurs in both versions. The extra `beginCapture` pilot/level getters run before its surrounding `try`; either can throw before the base manager call. Other added getters, real exception rates, all exception cleanup paths, change-and-restore, reentrancy beyond these stand-ins, concurrent mutation and same-object dismount/reboard remain unverified.
 
-The nested cleanup check ignores a missing test hook, so that assertion alone could pass if the hook were absent. The generated candidate source in the recorded nested run was independently checked to contain `hasCaptureForTest`; future runs must verify that separately.
+The nested cleanup check now fails if the test hook is missing. The earlier #231 runner ignored a missing hook, so its nested assertion alone could pass without checking cleanup; its recorded candidate source was independently checked to contain `hasCaptureForTest`.
 
 The experimental source keeps `applyControl` and its mission-output STORE in the fixture's compiled class, but **does not apply or test** `AutonomousFlightRouteGuidanceMixin` or any transformed production class. Its own bound checks, fallback behavior, and exit 0 do not prove a safe implementation. The real reflective adapter performs separate input and engine writes, can swallow errors or partially mutate state, and returns no success signal; this tool does not model those faults. Historical #150 and #214 contain wingmen that completed a right turn while formation was selected, so these stand-ins do not establish the real timeout's cause or a production fix.
+
+The optional negative checker verifies that a missing nested hook is rejected. It makes a private copy of the runner, removes only the generated candidate's test hook, compiles the source copies, and checks that nested execution fails with the expected missing-hook assertion. It also checks the generated source and `javap` output for the absent hook. It does not modify the runner or production source:
+
+```sh
+python3 -I -B tools/check_nested_recovery_hook.py \
+  --java-home /path/to/jdk17 --dependencies-json /path/to/classpath.json \
+  --output /path/to/new-negative-check
+```
+
+The checker exits 0 as `EXPECTED_HOOK_REJECTION_NOT_SAFETY` only for the expected rejection; a false green or other result is `INCONCLUSIVE` and exits nonzero. It saves the hook-removal patch, copied runner, source and input hashes, commands, original runner report, stdout/stderr and disassembly. It requires a new output and does not itself test real cleanup, native setters or the Mixin.

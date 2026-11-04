@@ -413,7 +413,7 @@ def prepare_nested():
  STUBS['com/wwdebug/benchmark/ReflectiveAircraft.java']=old
  old=STUBS['com/wwdebug/autopilot/Probe.java']
  old=old.replace('if(c.equals("mob-swap"))ReflectiveAircraft.swapPilotAtBase=true;', 'if(c.equals("nested-arbiter")){ReflectiveAircraft.nestedArbiter=true;AutopilotValidationCheckpoint.ticks=100;}if(c.equals("mob-swap"))ReflectiveAircraft.swapPilotAtBase=true;')
- old=old.replace('if(c.equals("mob-swap")){', 'if(c.equals("nested-arbiter")){check(ReflectiveAircraft.writes.size()==4,"nested writer count");checkWrite(3,0.62f,0f,0.02f,0.08f);try{var f=AutonomousFlightManager.class.getDeclaredMethod("hasCaptureForTest");f.setAccessible(true);check(!((Boolean)f.invoke(null)),"nested frame leak");}catch(NoSuchMethodException ignored){}System.out.println("classification=NESTED_ARBITER_FALLBACK_NOT_SAFETY");return;}if(c.equals("mob-swap")){')
+ old=old.replace('if(c.equals("mob-swap")){', 'if(c.equals("nested-arbiter")){check(ReflectiveAircraft.writes.size()==4,"nested writer count");checkWrite(3,0.62f,0f,0.02f,0.08f);try{var f=AutonomousFlightManager.class.getDeclaredMethod("hasCaptureForTest");f.setAccessible(true);check(!((Boolean)f.invoke(null)),"nested frame leak");}catch(NoSuchMethodException e){throw new AssertionError("nested cleanup hook missing",e);}System.out.println("classification=NESTED_ARBITER_FALLBACK_NOT_SAFETY");return;}if(c.equals("mob-swap")){')
  STUBS['com/wwdebug/autopilot/Probe.java']=old
 
 
