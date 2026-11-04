@@ -1,6 +1,8 @@
 # AI development handoff
 
-Last updated: 2026-11-03 (Asia/Tokyo)
+Latest continuation: [2026-11-04 checkpoint](validation/2026-11-04/continuation-checkpoint.md).
+
+Last updated: 2026-11-04 (Asia/Tokyo)
 
 ## 2026-11-03 continuation checkpoint
 
