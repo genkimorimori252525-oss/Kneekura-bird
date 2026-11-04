@@ -76,6 +76,8 @@ def main() -> int:
         "crash_reports": [str(path) for path in args.root.glob("crash-reports/*.txt")],
     }
 
+    require(args.gradle_status == 0, errors,
+            f"headless GameTest exited with status {args.gradle_status}")
     require(bool(list(args.root.rglob("flight_profiles.json"))), errors,
             "no measured flight_profiles.json was produced or staged")
     log_path = latest(args.root.rglob("aircraft/*.jsonl"))
