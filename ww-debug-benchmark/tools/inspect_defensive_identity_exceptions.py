@@ -121,7 +121,7 @@ public class Probe{
 CASES=tuple('defense-throw-'+site+'-'+getter+'-'+kind for site in ('def','gate','rejected') for getter in ('pilot','level') for kind in ('runtime','error'))
 def digest(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 def main():
- p=argparse.ArgumentParser(description=__doc__);p.add_argument('--java-home',type=pathlib.Path,required=True);p.add_argument('--dependencies-json',type=pathlib.Path,required=True);p.add_argument('--output',type=pathlib.Path,required=True);p.add_argument('--policy',choices=['baseline','candidate'],required=True);a=p.parse_args()
+ p=argparse.ArgumentParser(description=__doc__);p.add_argument('--java-home',type=pathlib.Path,required=True);p.add_argument('--dependencies-json',type=pathlib.Path,required=True);p.add_argument('--output',type=pathlib.Path,required=True);p.add_argument('--policy',choices=['baseline','candidate','actual'],required=True);a=p.parse_args()
  out=a.output.absolute();out.mkdir(mode=0o700);src=out/'source-copy';fake=out/'stubs';classes=out/'classes';empty=out/'empty';[x.mkdir() for x in (src,fake,classes,empty)]
  jdk=a.java_home.resolve()/'bin';depsfile=a.dependencies_json.resolve();deps=[pathlib.Path(x) for x in json.loads(depsfile.read_text())]
  if not deps or any(not d.is_absolute() or not d.exists() for d in deps):raise ValueError('absolute existing classpath required')
@@ -144,8 +144,13 @@ def main():
    for item in files:result[str(item)]=digest(item)
   return result
  inputs=original+copies+paths+[jdk/'java',jdk/'javac',depsfile,pathlib.Path(__file__).resolve()];before=inventory(inputs);cpbefore=inventory(deps);shutil.copyfile(__file__,out/'runner-snapshot.py');copy_equal=all(digest(x)==digest(y) for x,y in zip(original,copies));arbiter=digest(next(x for x in original if x.name=='ControlAuthorityArbiter.java'));patches=sorted(p.name for p in out.glob('*.patch'))
- if (a.policy=='baseline' and (not copy_equal or patches)) or (a.policy=='candidate' and (copy_equal or len(patches)!=3)) or arbiter!='090110ff9896c5020efc0a47056063f1e10dfdf57c706b2273cd29a470bc8a3f':raise RuntimeError('source/copy/patch provenance mismatch')
- report={'scope':'Policy '+a.policy+'; #214 source copies plus patches only for candidate. Fake Entity.isRemoved callback in pending-write guard, fake awareness, snapshot, terrain, combat neighbours, setter and world. defensive-claimed uses fake logger reentry to restore state; not natural execution. Getter counts synthetic. No runtime, fire, ownership or physical safety proof.','arbiter_sha256':arbiter,'source_copy_equal':copy_equal,'patch_files':patches,'inputs_before':before,'classpath_before':cpbefore,'runs':{}}
+ expected_actual={'ControlAuthorityArbiter.java':'0bd7e22f7928de30e1c9621ae4cd16942c6723f395d7f7da278c998da4ca01c3','FighterCombatFacade.java':'405b1d9cca93bddb8a7a379f1828a810a15f777093b9f9c19072c22038df858f','DefensiveAirCombatManager.java':'4cf26f7412093458f35a06da0d2a7dc888116b58a697577b0d833febfd5659fb'}
+ actual_hashes={x.name:digest(x) for x in original if x.name in expected_actual}
+ valid=(a.policy in ('baseline','candidate') and arbiter=='090110ff9896c5020efc0a47056063f1e10dfdf57c706b2273cd29a470bc8a3f' and ((a.policy=='baseline' and copy_equal and not patches) or (a.policy=='candidate' and not copy_equal and len(patches)==3))) or (a.policy=='actual' and copy_equal and not patches and actual_hashes==expected_actual)
+ if not valid:
+  (out/'preflight.json').write_text(json.dumps({'policy':a.policy,'valid':False,'source_copy_equal':copy_equal,'patch_files':patches,'expected_actual':expected_actual,'actual_hashes':actual_hashes,'inputs_before':before,'classpath_before':cpbefore},indent=2)+'\n')
+  raise RuntimeError('source/copy/patch provenance mismatch')
+ report={'policy':a.policy,'expected_actual':expected_actual,'actual_hashes':actual_hashes,'scope':'Policy '+a.policy+'; original source copies, patched only for candidate; actual requires matching expected hashes and an unmodified copy. Fake Entity.isRemoved callback in pending-write guard, fake awareness, snapshot, terrain, combat neighbours, setter and world. defensive-claimed uses fake logger reentry to restore state; not natural execution. Getter counts synthetic. No runtime, fire, ownership or physical safety proof.','arbiter_sha256':arbiter,'source_copy_equal':copy_equal,'patch_files':patches,'inputs_before':before,'classpath_before':cpbefore,'runs':{}}
  def run(name,command):
   r=subprocess.run(command,cwd=out,capture_output=True,text=True,timeout=30);(out/(name+'.stdout')).write_text(r.stdout);(out/(name+'.stderr')).write_text(r.stderr);report['runs'][name]={'argv':command,'exit':r.returncode};print(name,r.returncode,flush=True);return r.returncode
  rc=run('compile',[str(jdk/'javac'),'-proc:none','--release','17','-cp',os.pathsep.join(map(str,deps)),'-sourcepath',str(empty),'-d',str(classes),*map(str,copies),*map(str,paths)])

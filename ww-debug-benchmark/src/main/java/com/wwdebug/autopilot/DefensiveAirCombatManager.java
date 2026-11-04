@@ -47,11 +47,18 @@ public final class DefensiveAirCombatManager {
      * ahead of the ones above it safe.</p>
      */
     public static Optional<ControlProposal> applyControl(Entity aircraft) {
+        return evaluateWithPilot(aircraft).proposal();
+    }
+
+    record DefensiveEvaluation(Optional<ControlProposal> proposal, Mob pilot, ServerLevel level) {
+    }
+
+    static DefensiveEvaluation evaluateWithPilot(Entity aircraft) {
         if (aircraft.level().isClientSide || !(aircraft.level() instanceof ServerLevel level)
                 || !ReflectiveAircraft.isAirplane(aircraft)
                 || !ReflectiveAircraft.isControllable(aircraft)) {
             clear(aircraft.getUUID());
-            return Optional.empty();
+            return new DefensiveEvaluation(Optional.empty(), null, null);
         }
         Mob pilot = MobPilotGate.pilotOf(aircraft).orElse(null);
         Optional<AutonomousFlightManager.SessionStatus> status =
@@ -61,19 +68,19 @@ public final class DefensiveAirCombatManager {
                 || aircraft.onGround() || TerrainAvoidancePlanner.active(aircraft)) {
             clearWithLog(level, aircraft, status.map(AutonomousFlightManager.SessionStatus::phase)
                     .orElse(FlightPhase.ABORTED), "defensive_control_not_eligible");
-            return Optional.empty();
+            return new DefensiveEvaluation(Optional.empty(), null, null);
         }
 
         FlightProfile profile = AutopilotProfileRegistry.resolve(level.getServer(), aircraft).orElse(null);
         if (profile == null) {
             clear(aircraft.getUUID());
-            return Optional.empty();
+            return new DefensiveEvaluation(Optional.empty(), null, null);
         }
         FlightSnapshot snapshot = FlightSnapshot.capture(aircraft);
         Optional<Threat> threat = findThreat(level, aircraft, pilot, snapshot);
         if (threat.isEmpty()) {
             clearWithLog(level, aircraft, status.get().phase(), "no_active_rear_threat");
-            return Optional.empty();
+            return new DefensiveEvaluation(Optional.empty(), null, null);
         }
 
         State state = STATES.computeIfAbsent(aircraft.getUUID(), ignored -> new State());
@@ -93,8 +100,8 @@ public final class DefensiveAirCombatManager {
                     "defensive_air_combat_status", description(state, threat.get()),
                     status.get().phase());
         }
-        return Optional.of(ControlProposal.fromGuidance(
-                ControlAuthorityArbiter.Authority.DEFENSIVE_COMBAT, output));
+        return new DefensiveEvaluation(Optional.of(ControlProposal.fromGuidance(
+                ControlAuthorityArbiter.Authority.DEFENSIVE_COMBAT, output)), pilot, level);
     }
 
     public static boolean active(Entity aircraft) {
