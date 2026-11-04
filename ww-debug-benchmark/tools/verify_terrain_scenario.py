@@ -61,6 +61,16 @@ def finite(value: Any) -> float | None:
     return number if math.isfinite(number) else None
 
 
+def adapter_speed(value: Any) -> float | None:
+    if type(value) not in (int, float):
+        return None
+    try:
+        number = float(value)
+    except OverflowError:
+        return None
+    return number if math.isfinite(number) and number >= 0 else None
+
+
 def read_jsonl(path: Path | None) -> list[dict[str, Any]]:
     if path is None:
         return []
@@ -168,7 +178,10 @@ def main() -> int:
         require(maximum_lateral >= 24.0 or maximum_altitude >= 112.0, errors,
                 "aircraft neither routed around nor climbed above the obstacle wall")
 
-    adapter_speeds = [value for row in adapters if (value := finite(row.get("speed_bps"))) is not None]
+    speeds = [adapter_speed(row.get("speed_bps")) for row in adapters]
+    require(all(value is not None for value in speeds), errors,
+            "terrain adapter has invalid or missing speed_bps")
+    adapter_speeds = [value for value in speeds if value is not None]
     guard_values = [value for frame in frames
                     if (value := finite(frame.get("profile_stall_guard_speed_bps"))) is not None]
     require(bool(adapter_speeds and guard_values), errors,
