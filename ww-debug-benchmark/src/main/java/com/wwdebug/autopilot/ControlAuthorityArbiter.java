@@ -103,6 +103,9 @@ public final class ControlAuthorityArbiter {
      * controller. Player control is absolute and bypasses every automated writer.</p>
      */
     public static Authority applyControl(Entity aircraft) {
+        if (aircraft.level().isClientSide) {
+            return Authority.NONE;
+        }
         Authority authority = decide(aircraft);
         recordAuthorityChange(aircraft, authority);
         return authority;
