@@ -16,6 +16,7 @@ import sys
 CASES = (
     "player-locked", "empty-locked", "client-locked", "player-decel", "empty-decel", "client-decel",
     "mob-locked", "mob-default", "mob-min", "mob-max", "airborne", "wrong-phase", "no-session",
+    "cross-player", "cross-empty", "cross-client", "cross-mob", "cross-mob-crossover",
 )
 
 
@@ -58,7 +59,7 @@ def main():
     standin_sources = sorted(fixture.rglob("*.java"))
     source_root = (args.source_root or args.source_provenance).resolve()
     actual_sources = [source_root / "com/wwdebug/autopilot" / (name + ".java")
-                      for name in ("AutonomousFlightManager", "MobPilotGate")]
+                      for name in ("AutonomousFlightManager", "MobPilotGate", "AutopilotWheelLockAdapter")]
     deps = [pathlib.Path(item).resolve() for item in json.loads(args.dependencies_json.read_text())]
     java = (args.java_home / "bin" / ("java.exe" if os.name == "nt" else "java")).resolve()
     javac = (args.java_home / "bin" / ("javac.exe" if os.name == "nt" else "javac")).resolve()
