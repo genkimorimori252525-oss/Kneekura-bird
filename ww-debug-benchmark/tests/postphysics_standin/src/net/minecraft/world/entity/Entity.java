@@ -10,6 +10,7 @@ public class Entity {
     private Vec3 velocity = new Vec3(0, 0, 0);
     private int setterCalls;
     public Entity(UUID uuid, Level world) { this.uuid = uuid; this.world = world; }
+    public net.minecraft.network.chat.Component getName() { return net.minecraft.network.chat.Component.literal("fixture"); }
     public UUID getUUID() { return uuid; }
     public Level level() { return world; }
     public boolean onGround() { return ground; }

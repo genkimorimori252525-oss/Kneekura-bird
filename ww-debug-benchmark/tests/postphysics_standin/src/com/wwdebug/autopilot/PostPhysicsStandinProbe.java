@@ -19,6 +19,7 @@ public final class PostPhysicsStandinProbe {
 
     public static void main(String[] args) throws Exception {
         String scenario = args[0];
+        if (scenario.startsWith("cross-")) { cross(scenario); return; }
         Entity aircraft = new Entity(ID, new Level(false));
         Mob mob = new Mob();
         aircraft.fixturePilot(mob);
@@ -57,6 +58,40 @@ public final class PostPhysicsStandinProbe {
             check(aircraft.fixtureSetterCalls() == 1, "eligible mob must receive brake setter");
             double expectedX = scenario.equals("mob-min") ? 0.195 : scenario.equals("mob-max") ? 0.19 : 0.1925;
             checkVelocity(aircraft, expectedX, -0.03, 0);
+        }
+        System.out.println("PASS " + scenario);
+    }
+
+    private static void cross(String scenario) throws Exception {
+        Entity aircraft = new Entity(ID, new Level(false));
+        aircraft.fixturePilot(new Mob());
+        aircraft.fixtureGround(true);
+        install(aircraft, new AutopilotSession(FlightPhase.BRAKE, new FlightProfile(null, 40.0)));
+        boolean ineligible = scenario.equals("cross-player") || scenario.equals("cross-empty")
+                || scenario.equals("cross-client");
+        if (ineligible) {
+            aircraft.fixtureVelocity(0.01, -0.02, 0);
+            AutonomousFlightManager.applyPostPhysics(aircraft);
+            check(isLocked(), "mob must establish the actual manager lock");
+        }
+        if (scenario.equals("cross-player")) aircraft.fixturePilot(new Player());
+        if (scenario.equals("cross-empty")) aircraft.fixturePilot(null);
+        if (scenario.equals("cross-client")) aircraft.fixtureLevel(new Level(true));
+        double x = ineligible ? 0.03 : scenario.equals("cross-mob-crossover") ? 0.055 : 0.2;
+        aircraft.fixtureVelocity(x, -0.03, 0);
+        aircraft.fixtureResetCalls();
+        AutonomousFlightManager.applyPostPhysics(aircraft);
+        AutopilotWheelLockAdapter.apply(aircraft);
+        if (ineligible) {
+            check(isLocked(), "ineligible call must not clear the manager lock");
+            check(aircraft.fixtureSetterCalls() == 0, "CONTRACT_FAIL combined setters invoked without eligible server mob");
+            checkVelocity(aircraft, x, -0.03, 0);
+        } else if (scenario.equals("cross-mob-crossover")) {
+            check(aircraft.fixtureSetterCalls() == 2, "manager deceleration should enter wheel-lock threshold");
+            checkVelocity(aircraft, 0, -0.03, 0);
+        } else {
+            check(aircraft.fixtureSetterCalls() == 1, "mob receives normal manager deceleration");
+            checkVelocity(aircraft, 0.1925, -0.03, 0);
         }
         System.out.println("PASS " + scenario);
     }
