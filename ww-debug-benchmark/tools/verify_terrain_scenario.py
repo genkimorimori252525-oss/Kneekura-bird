@@ -243,8 +243,9 @@ def main() -> int:
         stall_guard = max(guard_values)
         metrics["terrain_minimum_speed_bps"] = minimum_speed
         metrics["terrain_stall_guard_speed_bps"] = stall_guard
+        guard_note = " (against maximum observed guard; guard values differ)" if not guards_consistent else ""
         require(minimum_speed >= stall_guard * 0.80, errors,
-                f"terrain avoidance lost unsafe airspeed: {minimum_speed:.3f}/{stall_guard:.3f}")
+                f"terrain avoidance lost unsafe airspeed: {minimum_speed:.3f}/{stall_guard:.3f}{guard_note}")
         if any(value is None for value in speeds) or not guards_valid or not guards_consistent:
             metrics["observed_terrain_minimum_speed_bps"] = metrics.pop("terrain_minimum_speed_bps")
         if not guards_valid or not guards_consistent:
@@ -254,6 +255,8 @@ def main() -> int:
             "terrain frame has invalid or missing on_ground")
     require(not any(bool(frame.get("on_ground")) for frame in frames), errors,
             "aircraft touched the ground during terrain avoidance")
+    tainted_guards = []
+    tainted_speeds = []
     for line_number, row in tainted:
         if row.get("event") == "frame":
             if row.get("on_ground") is True:
@@ -263,6 +266,8 @@ def main() -> int:
                 errors.append(f"selected terrain log line {line_number} has invalid or missing profile_stall_guard_speed_bps (identity unverified)")
             elif guard_values and guard != guard_values[0]:
                 errors.append(f"selected terrain log line {line_number} observed conflicting profile_stall_guard_speed_bps (identity unverified)")
+            if guard is not None:
+                tainted_guards.append((guard, line_number))
             if guard is not None and adapter_speeds and min(adapter_speeds) < guard * 0.80:
                 errors.append(f"selected terrain log line {line_number} observed unsafe airspeed against guard (identity unverified)")
         if (row.get("event") == "control_adapter"
@@ -272,6 +277,14 @@ def main() -> int:
                 errors.append(f"selected terrain log line {line_number} has invalid or missing speed_bps (identity unverified)")
             elif guard_values and speed < max(guard_values) * 0.80:
                 errors.append(f"selected terrain log line {line_number} observed unsafe airspeed (identity unverified)")
+            if speed is not None:
+                tainted_speeds.append((speed, line_number))
+
+    if tainted_guards and tainted_speeds:
+        guard, guard_line = max(tainted_guards)
+        speed, speed_line = min(tainted_speeds)
+        if speed < guard * 0.80:
+            errors.append(f"selected terrain log line {speed_line} observed unsafe airspeed against guard in line {guard_line} (identity unverified)")
 
     if not metrics["selected_log_parse_and_identity_checks_passed"]:
         for name in ("frame_count", "terrain_adapter_count", "terrain_start_count",

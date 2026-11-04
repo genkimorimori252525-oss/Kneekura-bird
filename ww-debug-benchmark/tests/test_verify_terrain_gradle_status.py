@@ -238,6 +238,15 @@ class TerrainGradleStatusTest(unittest.TestCase):
         for phrase in ("line 4 observed conflicting", "line 4 observed unsafe", "line 5 has invalid"):
             self.assertTrue(any(phrase in error for error in result["errors"]), result)
 
+    def test_tainted_speed_and_guard_are_compared_as_unverified_observations(self):
+        high = dict(self.rows[0], annotation="\ud800", profile_stall_guard_speed_bps=30)
+        low = dict(self.rows[2], annotation="\ud800", speed_bps=12)
+        self.log.write_text(self.log.read_text() + json.dumps(high) + "\n" + json.dumps(low) + "\n")
+        status, result = self.verify(0)
+        self.assertNotEqual(status, 0, result)
+        self.assertTrue(any("line 4" in e and "line 5" in e and "unsafe airspeed" in e
+                            and "identity unverified" in e for e in result["errors"]), result)
+
     def test_incomplete_or_unsuccessful_summary_cannot_pass(self):
         missing = object()
         cases = {
