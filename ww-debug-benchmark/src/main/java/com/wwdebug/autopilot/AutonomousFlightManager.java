@@ -158,7 +158,11 @@ public final class AutonomousFlightManager {
      * mission is in BRAKE and the aircraft is physically on the ground.
      */
     public static void applyPostPhysics(Entity aircraft) {
-        if (aircraft.level().isClientSide || !MobPilotGate.isMobPiloted(aircraft)) {
+        if (aircraft.level().isClientSide) {
+            return;
+        }
+        if (!MobPilotGate.isMobPiloted(aircraft)) {
+            POST_PHYSICS_BRAKE_LOCKED.remove(aircraft.getUUID());
             return;
         }
         SessionEntry entry = SESSIONS.get(aircraft.getUUID());

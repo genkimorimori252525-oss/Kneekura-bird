@@ -19,6 +19,7 @@ public final class PostPhysicsStandinProbe {
 
     public static void main(String[] args) throws Exception {
         String scenario = args[0];
+        if (scenario.startsWith("stale-")) { stale(scenario); return; }
         if (scenario.startsWith("cross-")) { cross(scenario); return; }
         Entity aircraft = new Entity(ID, new Level(false));
         Mob mob = new Mob();
@@ -48,7 +49,8 @@ public final class PostPhysicsStandinProbe {
         AutonomousFlightManager.applyPostPhysics(aircraft);
         if (scenario.startsWith("player") || scenario.startsWith("empty") || scenario.startsWith("client")
                 || scenario.equals("airborne") || scenario.equals("wrong-phase") || scenario.equals("no-session")) {
-            if (locked) check(isLocked(), "lock must remain present in this isolated direct call");
+            if (locked) check(isLocked() == scenario.startsWith("client"),
+                    "server non-mob clears lock; client must not alter it");
             check(aircraft.fixtureSetterCalls() == 0, "CONTRACT_FAIL automated setter invoked without eligible server mob");
             check(aircraft.getDeltaMovement().equals(before), "ineligible velocity changed");
         } else if (scenario.equals("mob-locked")) {
@@ -83,7 +85,8 @@ public final class PostPhysicsStandinProbe {
         AutonomousFlightManager.applyPostPhysics(aircraft);
         AutopilotWheelLockAdapter.apply(aircraft);
         if (ineligible) {
-            check(isLocked(), "ineligible call must not clear the manager lock");
+            check(isLocked() == scenario.equals("cross-client"),
+                    "server non-mob clears lock; client must not alter it");
             check(aircraft.fixtureSetterCalls() == 0, "CONTRACT_FAIL combined setters invoked without eligible server mob");
             checkVelocity(aircraft, x, -0.03, 0);
         } else if (scenario.equals("cross-mob-crossover")) {
@@ -92,6 +95,71 @@ public final class PostPhysicsStandinProbe {
         } else {
             check(aircraft.fixtureSetterCalls() == 1, "mob receives normal manager deceleration");
             checkVelocity(aircraft, 0.1925, -0.03, 0);
+        }
+        System.out.println("PASS " + scenario);
+    }
+
+    private static void stale(String scenario) throws Exception {
+        Entity aircraft = new Entity(ID, new Level(false));
+        aircraft.fixturePilot(new Mob());
+        aircraft.fixtureGround(true);
+        install(aircraft, new AutopilotSession(FlightPhase.BRAKE, new FlightProfile(null, 40.0)));
+        aircraft.fixtureVelocity(0.01, -0.02, 0);
+        AutonomousFlightManager.applyPostPhysics(aircraft);
+        check(isLocked(), "mob must establish lock");
+        if (scenario.equals("stale-force-stop-locked")) {
+            AutonomousFlightManager.forceStop(ID, "synthetic_test");
+            check(!isLocked() && AutonomousFlightManager.status(ID).isEmpty(), "forceStop must remove the live lock and session");
+            aircraft.fixtureVelocity(0.2, -0.03, 0);
+            aircraft.fixtureResetCalls();
+            AutonomousFlightManager.applyPostPhysics(aircraft);
+            AutopilotWheelLockAdapter.apply(aircraft);
+            check(aircraft.fixtureSetterCalls() == 0, "stopped session must not write");
+            checkVelocity(aircraft, 0.2, -0.03, 0);
+            System.out.println("PASS " + scenario);
+            return;
+        }
+        if (scenario.equals("stale-player") || scenario.equals("stale-client")) aircraft.fixturePilot(new Player());
+        if (scenario.equals("stale-empty") || scenario.equals("stale-empty-airborne") || scenario.equals("stale-stop")) {
+            aircraft.fixturePilot(null);
+        }
+        if (scenario.equals("stale-client")) aircraft.fixtureLevel(new Level(true));
+        if (scenario.equals("stale-airborne") || scenario.equals("stale-empty-airborne")) aircraft.fixtureGround(false);
+        aircraft.fixtureVelocity(0.2, -0.03, 0);
+        aircraft.fixtureResetCalls();
+        Object originalEntry = sessionEntry();
+        AutonomousFlightManager.SessionStatus originalStatus = AutonomousFlightManager.status(ID).orElseThrow();
+        AutonomousFlightManager.applyPostPhysics(aircraft);
+        AutopilotWheelLockAdapter.apply(aircraft);
+        check(sessionEntry() == originalEntry && AutonomousFlightManager.status(ID).orElseThrow().equals(originalStatus),
+                "direct calls must preserve the session entry and visible status");
+        check(aircraft.fixtureSetterCalls() == 0, "ineligible aircraft must not receive a setter");
+        checkVelocity(aircraft, 0.2, -0.03, 0);
+        check(AutonomousFlightManager.status(ID).isPresent(), "direct calls must not stop the session");
+        boolean retainsLock = scenario.equals("stale-client") || scenario.equals("stale-airborne");
+        boolean lockAfterIneligible = isLocked();
+        if (scenario.equals("stale-stop")) {
+            check(!lockAfterIneligible, "CONTRACT_FAIL server non-mob retained lock");
+            AutonomousFlightManager.forceStop(ID, "synthetic_test");
+            check(!isLocked() && AutonomousFlightManager.status(ID).isEmpty(), "forceStop must remove session and lock");
+        }
+        aircraft.fixtureLevel(new Level(false));
+        aircraft.fixtureGround(true);
+        aircraft.fixturePilot(new Mob());
+        aircraft.fixtureVelocity(0.2, -0.03, 0);
+        aircraft.fixtureResetCalls();
+        AutonomousFlightManager.applyPostPhysics(aircraft);
+        AutopilotWheelLockAdapter.apply(aircraft);
+        if (scenario.equals("stale-stop")) {
+            check(aircraft.fixtureSetterCalls() == 0, "no session must prevent a setter");
+            checkVelocity(aircraft, 0.2, -0.03, 0);
+        } else if (retainsLock) {
+            check(lockAfterIneligible, "client or airborne mob must retain lock");
+            check(isLocked() && aircraft.fixtureSetterCalls() == 2, "unchanged lock must remain effective");
+            checkVelocity(aircraft, 0, -0.03, 0);
+        } else {
+            checkVelocity(aircraft, 0.1925, -0.03, 0);
+            check(!lockAfterIneligible && !isLocked() && aircraft.fixtureSetterCalls() == 1, "CONTRACT_FAIL stale lock remains on mob return");
         }
         System.out.println("PASS " + scenario);
     }
@@ -105,6 +173,13 @@ public final class PostPhysicsStandinProbe {
         ctor.setAccessible(true);
         Object entry = ctor.newInstance(aircraft, session, null);
         ((Map<UUID, Object>) sessions.get(null)).put(ID, entry);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Object sessionEntry() throws Exception {
+        Field sessions = AutonomousFlightManager.class.getDeclaredField("SESSIONS");
+        sessions.setAccessible(true);
+        return ((Map<UUID, Object>) sessions.get(null)).get(ID);
     }
 
     @SuppressWarnings("unchecked")

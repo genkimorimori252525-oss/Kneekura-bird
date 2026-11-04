@@ -17,6 +17,7 @@ CASES = (
     "player-locked", "empty-locked", "client-locked", "player-decel", "empty-decel", "client-decel",
     "mob-locked", "mob-default", "mob-min", "mob-max", "airborne", "wrong-phase", "no-session",
     "cross-player", "cross-empty", "cross-client", "cross-mob", "cross-mob-crossover",
+    "stale-player", "stale-empty", "stale-empty-airborne", "stale-stop", "stale-client", "stale-airborne", "stale-force-stop-locked",
 )
 
 
