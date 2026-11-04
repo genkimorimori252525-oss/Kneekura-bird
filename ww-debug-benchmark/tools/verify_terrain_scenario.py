@@ -220,6 +220,9 @@ def main() -> int:
                     f"aircraft did not pass the obstacle wall: {maximum_longitudinal:.3f}")
             require(maximum_lateral >= 24.0 or maximum_altitude >= 112.0, errors,
                     "aircraft neither routed around nor climbed above the obstacle wall")
+            require(any(longitude > -45.0 and (abs(lateral) >= 24.0 or altitude >= 112.0)
+                        for longitude, lateral, altitude in coordinates), errors,
+                    "aircraft did not demonstrate wall clearance and passage in the same frame")
 
     speeds = [adapter_speed(row.get("speed_bps")) for row in adapters]
     require(all(value is not None for value in speeds), errors,
