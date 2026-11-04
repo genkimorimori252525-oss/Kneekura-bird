@@ -45,7 +45,10 @@ public final class CombatWeaponManager {
     }
 
     public static void tick(Entity aircraft) {
-        if (aircraft.level().isClientSide || !ReflectiveAircraft.isAirplane(aircraft)
+        if (aircraft.level().isClientSide) {
+            return;
+        }
+        if (!ReflectiveAircraft.isAirplane(aircraft)
                 || !(aircraft.level() instanceof ServerLevel level)) {
             clear(aircraft.getUUID());
             return;
