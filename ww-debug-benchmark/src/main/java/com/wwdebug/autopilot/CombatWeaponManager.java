@@ -260,8 +260,7 @@ public final class CombatWeaponManager {
             if (!protectedFromFire(aircraft, pilot, candidate)) {
                 continue;
             }
-            double radius = Math.max(1.25, candidate.getBbWidth() * 0.5 + 0.8);
-            if (distanceToSegment(candidate.getBoundingBox().getCenter(), start, end) <= radius) {
+            if (protectedCorridorHit(candidate.getBoundingBox(), candidate.getBbWidth(), start, end)) {
                 return Optional.of(candidate);
             }
         }
@@ -283,6 +282,75 @@ public final class CombatWeaponManager {
         }
         return !(candidate instanceof Enemy)
                 && !(candidate instanceof Mob mob && mob.getTarget() == pilot);
+    }
+
+    /** Preserve the legacy center-radius guard and also cover the whole protected body. */
+    static boolean protectedCorridorHit(AABB box, double width, Vec3 start, Vec3 end) {
+        if (box == null || start == null || end == null || !Double.isFinite(width) || width < 0.0
+                || !finite(box.minX, box.minY, box.minZ, box.maxX, box.maxY, box.maxZ,
+                start.x, start.y, start.z, end.x, end.y, end.z)) {
+            return true; // Unknown geometry must not enable firing.
+        }
+        double radius = Math.max(1.25, width * 0.5 + 0.8);
+        if (!Double.isFinite(radius)) return true;
+        double centerDistance = distanceToSegment(box.getCenter(), start, end);
+        if (!Double.isFinite(centerDistance) || centerDistance <= radius) return true;
+
+        // Inclusive slab intersection handles face/edge contact, endpoint contact and zero
+        // length segments. AABB.clip excludes endpoint intersections in this MC version.
+        // Bounds are widened at every floating-point operation; uncertainty inhibits fire.
+        double[] origin = {start.x, start.y, start.z};
+        double[] finish = {end.x, end.y, end.z};
+        double[] minimum = {box.minX, box.minY, box.minZ};
+        double[] maximum = {box.maxX, box.maxY, box.maxZ};
+        double lower = 0.0;
+        double upper = 1.0;
+        for (int axis = 0; axis < 3; axis++) {
+            double delta = finish[axis] - origin[axis];
+            if (!Double.isFinite(delta)) return true;
+            if (delta == 0.0) {
+                if (origin[axis] < minimum[axis] || origin[axis] > maximum[axis]) return false;
+                continue;
+            }
+            double[] first = quotientBounds(minimum[axis], origin[axis], delta);
+            double[] second = quotientBounds(maximum[axis], origin[axis], delta);
+            if (first == null || second == null) return true;
+            lower = Math.max(lower, Math.min(first[0], second[0]));
+            upper = Math.min(upper, Math.max(first[1], second[1]));
+            if (lower > upper) return false;
+        }
+        return true;
+    }
+
+    /** Conservative interval for the exact real quotient of binary64 inputs. */
+    private static double[] quotientBounds(double boundary, double origin, double delta) {
+        double difference = boundary - origin;
+        if (!Double.isFinite(difference)) return null;
+        double differenceLow = Math.nextDown(difference);
+        double differenceHigh = Math.nextUp(difference);
+        double deltaLow = Math.nextDown(delta);
+        double deltaHigh = Math.nextUp(delta);
+        if (!finite(differenceLow, differenceHigh, deltaLow, deltaHigh)
+                || (deltaLow <= 0.0 && deltaHigh >= 0.0)) return null;
+        double[] candidates = {differenceLow / deltaLow, differenceLow / deltaHigh,
+                differenceHigh / deltaLow, differenceHigh / deltaHigh};
+        if (!finite(candidates)) return null;
+        double low = candidates[0];
+        double high = candidates[0];
+        for (double candidate : candidates) {
+            low = Math.min(low, candidate);
+            high = Math.max(high, candidate);
+        }
+        double outwardLow = Math.nextDown(low);
+        double outwardHigh = Math.nextUp(high);
+        return finite(outwardLow, outwardHigh) ? new double[]{outwardLow, outwardHigh} : null;
+    }
+
+    private static boolean finite(double... values) {
+        for (double value : values) {
+            if (!Double.isFinite(value)) return false;
+        }
+        return true;
     }
 
     private static double distanceToSegment(Vec3 point, Vec3 start, Vec3 end) {
