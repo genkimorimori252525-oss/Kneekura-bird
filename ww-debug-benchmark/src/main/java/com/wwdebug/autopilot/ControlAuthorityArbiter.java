@@ -136,7 +136,8 @@ public final class ControlAuthorityArbiter {
         BenchmarkManager.applyControl(aircraft);
         AutonomousFlightManager.applyControl(aircraft);
         MutualDogfightMissionHoldAdapter.apply(aircraft);
-        ControlOutcome formation = FormationFlightManager.applyControl(aircraft);
+        FormationFlightManager.FormationEvaluation formationEvaluation = FormationFlightManager.evaluateWithPilot(aircraft);
+        ControlOutcome formation = formationEvaluation.outcome();
 
         boolean collisionRisk = AirspaceSafetyProbe.collisionRisk(aircraft);
         ControlOutcome combat = FighterCombatFacade.applyControl(aircraft, collisionRisk);
@@ -158,7 +159,7 @@ public final class ControlAuthorityArbiter {
         }
         if (formation.claimed()) {
             if (formation.pendingWrite().isPresent()
-                    && !attemptPendingWrite(aircraft, formation.pendingWrite().get())) {
+                    && !attemptFormationPendingWrite(aircraft, formation.pendingWrite().get(), formationEvaluation)) {
                 return rejected(aircraft);
             }
             return new PendingDecision(formation.authority(), true);
@@ -243,6 +244,25 @@ public final class ControlAuthorityArbiter {
     // True means the adapter was called, not that the native setters succeeded.
     private static boolean attemptPendingWrite(Entity aircraft, ControlProposal proposal) {
         if (aircraft.isRemoved() || aircraft.level().isClientSide || !MobPilotGate.isMobPiloted(aircraft)) {
+            return false;
+        }
+        ReflectiveAircraft.applyControl(aircraft, proposal.x(), proposal.y(), proposal.z(),
+                proposal.engineTarget());
+        return true;
+    }
+
+    private static boolean attemptFormationPendingWrite(Entity aircraft, ControlProposal proposal,
+                                                        FormationFlightManager.FormationEvaluation formation) {
+        if (aircraft.isRemoved()) {
+            return false;
+        }
+        var level = aircraft.level();
+        if (level.isClientSide) {
+            return false;
+        }
+        var pilot = MobPilotGate.pilotOf(aircraft);
+        if (pilot.isEmpty() || formation == null
+                || pilot.get() != formation.pilot() || level != formation.level()) {
             return false;
         }
         ReflectiveAircraft.applyControl(aircraft, proposal.x(), proposal.y(), proposal.z(),

@@ -73,3 +73,33 @@ the same object, or a change after its final check. Reentry and runtime hooks
 `pilotOf` call) remain unverified. The formation provider's captured references
 may also become stale during its own calculation. Earlier base and direct writes
 are not undone, and combat pending is intentionally outside this candidate.
+
+## Checking a reflected production worktree
+
+After separately reviewing and applying the candidate source changes, `actual`
+mode verifies the following exact source hashes, copies all 11 production
+sources byte-for-byte, and rejects any generated patch:
+
+```sh
+python3 ww-debug-benchmark/tools/observe_formation_owner_candidate.py \
+  --mode actual --java-home /path/to/jdk17 \
+  --expected-arbiter-sha256 090110ff9896c5020efc0a47056063f1e10dfdf57c706b2273cd29a470bc8a3f \
+  --expected-formation-sha256 dcd90dc80255bbfe90fc1e275345c807f899483f4c8ac71f7de83bac85b193e7 \
+  --dependencies-json /path/to/classpath.json --output /path/to/new-actual
+python3 ww-debug-benchmark/tools/verify_formation_owner_actual.py \
+  --candidate /path/to/saved-private-candidate --actual /path/to/new-actual \
+  --output /path/to/new-actual-comparison
+```
+
+Actual mode remains a stand-in source-copy test and intentionally exits
+nonzero because combat-swap contracts and artificial getter exceptions remain
+nonzero. The comparison checks source-copy and fixture bytes, per-case exits,
+and stdout after excluding only the documented terminal-feature warning. Its
+historical candidate original source is compared to the local `e3fe81a` Git
+blobs and the old runner to its saved snapshot; the repository must retain that
+commit. Capture outer exits and inspect the report and class-load logs.
+
+The first saved actual comparison v1 failed because it compared changed current
+worktree paths against the historical candidate input hashes. Its failure was
+retained. Comparison v2 uses the historical Git blobs and saved runner snapshot
+instead; this does not authenticate the local Git objects, the JDK or runtime.

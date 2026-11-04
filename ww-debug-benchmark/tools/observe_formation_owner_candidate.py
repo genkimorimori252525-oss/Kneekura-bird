@@ -120,11 +120,16 @@ public UUID id;''')
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--mode',choices=('baseline','candidate'),required=True)
+    p.add_argument('--mode',choices=('baseline','candidate','actual'),required=True)
+    p.add_argument('--expected-arbiter-sha256')
+    p.add_argument('--expected-formation-sha256')
     p.add_argument('--java-home',type=pathlib.Path,required=True)
     p.add_argument('--dependencies-json',type=pathlib.Path,required=True)
     p.add_argument('--output',type=pathlib.Path,required=True)
-    a=p.parse_args(); out=a.output.absolute();out.mkdir(mode=0o700)
+    a=p.parse_args()
+    if a.mode=='actual' and (not a.expected_arbiter_sha256 or not a.expected_formation_sha256):
+        p.error('actual mode requires both expected source hashes')
+    out=a.output.absolute();out.mkdir(mode=0o700)
     src=out/'source-copy';fake=out/'stubs';classes=out/'classes';empty=out/'empty'
     for q in (src,fake,classes,empty):q.mkdir()
     jdk=a.java_home.resolve()/'bin';depsfile=a.dependencies_json.resolve();deps=[pathlib.Path(x) for x in json.loads(depsfile.read_text())]
@@ -135,7 +140,10 @@ def main():
         text=source.read_text();modified=text
         if a.mode=='candidate' and source.stem=='FormationFlightManager': modified=transform_formation(text)
         if a.mode=='candidate' and source.stem=='ControlAuthorityArbiter': modified=transform_arbiter(text)
-        target=src/source.relative_to(ROOT);target.parent.mkdir(parents=True,exist_ok=True);target.write_text(modified);copies.append(target)
+        target=src/source.relative_to(ROOT);target.parent.mkdir(parents=True,exist_ok=True)
+        if a.mode=='actual': target.write_bytes(source.read_bytes())
+        else: target.write_text(modified)
+        copies.append(target)
         if modified!=text:(out/(source.stem+'.patch')).write_text(''.join(difflib.unified_diff(text.splitlines(True),modified.splitlines(True),fromfile='original/'+source.name,tofile='private-copy/'+source.name)))
     instrument_stubs();paths=[]
     for name,value in STUBS.items():
@@ -148,7 +156,14 @@ def main():
         return result
     inputs=original+copies+paths+[jdk/'java',jdk/'javac',depsfile,BASE,pathlib.Path(__file__).resolve()]
     before=inventory(inputs);cpbefore=inventory(deps);shutil.copyfile(__file__,out/'runner-snapshot.py')
-    report={'mode':a.mode,'scope':'Actual production source or explicitly patched copies; artificial entities, level, checkpoint, world, combat and setter. No runtime or native setter claim. Getter trace is synthetic observation.', 'inputs_before':before,'classpath_before':cpbefore,'runs':{}}
+    copy_equal=all(digest(x)==digest(y) for x,y in zip(original,copies))
+    patches=sorted(p.name for p in out.glob('*.patch'))
+    arbiter_sha=digest(next(x for x in original if x.name=='ControlAuthorityArbiter.java'))
+    formation_sha=digest(next(x for x in original if x.name=='FormationFlightManager.java'))
+    actual_provenance=(a.mode!='actual' or (copy_equal and not patches and
+                       arbiter_sha==a.expected_arbiter_sha256 and formation_sha==a.expected_formation_sha256))
+    if not actual_provenance: raise RuntimeError('actual mode source/hash/patch provenance mismatch')
+    report={'mode':a.mode,'scope':'Actual production source or explicitly patched copies; artificial entities, level, checkpoint, world, combat and setter. No runtime or native setter claim. Getter trace is synthetic observation.', 'source_copy_equal':copy_equal,'patch_files':patches,'arbiter_sha256':arbiter_sha,'formation_sha256':formation_sha,'expected_arbiter_sha256':a.expected_arbiter_sha256,'expected_formation_sha256':a.expected_formation_sha256,'actual_provenance':actual_provenance,'inputs_before':before,'classpath_before':cpbefore,'runs':{}}
     def run(name,command):
         r=subprocess.run(command,cwd=out,capture_output=True,text=True,timeout=30);(out/(name+'.stdout')).write_text(r.stdout);(out/(name+'.stderr')).write_text(r.stderr);report['runs'][name]={'argv':command,'exit':r.returncode};print(name,r.returncode,flush=True);return r.returncode
     rc=run('compile',[str(jdk/'javac'),'-proc:none','--release','17','-cp',os.pathsep.join(map(str,deps)),'-sourcepath',str(empty),'-d',str(classes),*map(str,copies),*map(str,paths)])
@@ -166,5 +181,5 @@ def main():
         run('pending-level-callback',[str(jdk/'java'),'-Xmx128m','-Xverify:all','-Dfixture.inject=level:pending:callback','-Xlog:class+load=info:file='+str(out/'pending-level-callback.classes.log'),'-cp',str(classes)+os.pathsep+os.pathsep.join(map(str,deps)),'com.wwdebug.autopilot.Probe','formation-same'])
     report['inputs_after']=inventory(inputs);report['inputs_unchanged']=before==report['inputs_after'];report['classpath_after']=inventory(deps);report['classpath_unchanged']=cpbefore==report['classpath_after'];report['compiled_classes']=inventory([classes]);report['runner_snapshot_sha256']=digest(out/'runner-snapshot.py');(out/'report.json').write_text(json.dumps(report,indent=2)+'\n')
     # Existing combat swaps intentionally remain red; candidate is not a whole-stack fix.
-    return 0 if report['inputs_unchanged'] and report['classpath_unchanged'] and len(report['runs'])==len(CASES)+21 and all(x['exit']==0 for x in report['runs'].values()) else 1
+    return 0 if actual_provenance and report['inputs_unchanged'] and report['classpath_unchanged'] and len(report['runs'])==len(CASES)+21 and all(x['exit']==0 for x in report['runs'].values()) else 1
 if __name__=='__main__':sys.exit(main())
