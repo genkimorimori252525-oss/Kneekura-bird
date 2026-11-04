@@ -78,6 +78,8 @@ def main() -> int:
 
     require(args.gradle_status == 0, errors,
             f"headless GameTest exited with status {args.gradle_status}")
+    require(not metrics["crash_reports"], errors,
+            "crash report paths found under the supplied root")
     require(bool(list(args.root.rglob("flight_profiles.json"))), errors,
             "no measured flight_profiles.json was produced or staged")
     log_path = latest(args.root.rglob("aircraft/*.jsonl"))
