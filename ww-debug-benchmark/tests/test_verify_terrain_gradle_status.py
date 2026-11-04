@@ -81,6 +81,46 @@ class TerrainGradleStatusTest(unittest.TestCase):
         self.assertNotEqual(status, 0, result)
         self.assertTrue(any("ground" in error for error in result["errors"]), result)
 
+    def test_past_wall_and_clearance_must_occur_in_same_frame(self):
+        template = self.rows[0]
+        for clearance in ("lateral", "altitude"):
+            with self.subTest(clearance=clearance):
+                frames = []
+                for tick in range(213):
+                    x = -150 + tick * 0.5
+                    offset = max(0, min(30, (-x - 90) * 0.5))
+                    position = {"x": x, "y": 78 + offset * 2 if clearance == "altitude" else 78,
+                                "z": offset if clearance == "lateral" else 0}
+                    frames.append(dict(template, server_tick=tick, position=position))
+                self.rows = [*frames, *self.rows[-2:]]
+                self.write_rows()
+                status, result = self.verify(0)
+                self.assertNotEqual(status, 0, result)
+                self.assertTrue(any("same frame" in error for error in result["errors"]), result)
+
+    def test_same_frame_threshold_boundaries(self):
+        for x, lateral, altitude, expected in ((-44, 24, 78, True),
+                                                (-44, -24, 78, True),
+                                                (-44, 0, 112, True),
+                                                (-45, 24, 78, False),
+                                                (-44, 23.9, 111.9, False)):
+            with self.subTest(x=x, lateral=lateral, altitude=altitude):
+                self.rows[0]["position"] = {"x": x, "y": altitude, "z": lateral}
+                self.write_rows()
+                status, result = self.verify(0)
+                self.assertEqual(status == 0, expected, result)
+
+    def test_same_frame_failure_preserves_existing_hazard_diagnostics(self):
+        self.rows[0]["position"] = {"x": -45, "y": 78, "z": 0}
+        self.rows[0]["on_ground"] = True
+        self.rows[2]["speed_bps"] = 7.9
+        self.write_rows()
+        status, result = self.verify(0)
+        self.assertNotEqual(status, 0, result)
+        for text in ("same frame", "did not pass", "neither routed", "touched the ground",
+                     "lost unsafe airspeed"):
+            self.assertTrue(any(text in error for error in result["errors"]), result)
+
     def test_every_frame_requires_explicit_boolean_on_ground(self):
         missing = object()
         for value in (missing, None, 0, 1, "", "false", [], {}):

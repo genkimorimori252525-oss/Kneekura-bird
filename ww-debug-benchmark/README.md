@@ -242,6 +242,7 @@ Files:
 ## Important limitations
 
 - Terrain verifier `selected_log_parse_and_identity_checks_passed` means only that its selected log passed the implemented parsing, selection, summary and UUID checks. It does not prove overall safety, that all telemetry rows were emitted, or that the log and summary came from the same run. The verifier's exit status and overall result must also be checked; use a unique output path because a failed output write can leave an older result.
+- The terrain verifier requires a sampled frame past the wall and outside its lateral or altitude threshold at the same time. This necessary check does not prove collision-free passage: it does not establish complete frames, actual aircraft collision shape or orientation, or motion between samples. It can conservatively reject a safe trajectory that returns to the center before the sampled passage threshold.
 - The deterministic simulator is a pre-flight logic model, not an exact reimplementation of Minecraft physics.
 - `stall_proxy_speed_bps` is a conservative game-AI threshold, not a real aerodynamic stall definition.
 - The generated profile provides measured starting values; controller constants still require autonomous-flight validation.
