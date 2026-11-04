@@ -71,3 +71,25 @@ to the candidate because it directly names candidate-only records and helper.
 A missing sentinel, unexpected individual exit, failed compilation or changed
 input makes the relevant observation inconclusive. Output events and getter counts
 are observations of the fake fixture, not runtime instrumentation.
+
+## Inspecting matching production source
+
+The runners also accept `--policy actual`. This mode makes an unmodified byte copy
+of all 14 selected sources and compiles that copy with the same fake fixtures. It
+requires the three source hashes above, verifies that every copy matches its source,
+and refuses to compile if any patch is present. The report records source and copy
+hashes, the expected and observed three hashes, fake and dependency hashes before
+and after execution, individual process exits and class-load logs. A failed
+preflight writes `preflight.json` and is not a behavioral result.
+
+The local actual-mode evidence is under
+`/workspace/issue7-evidence-20261104/defensive-pilot-actual-{matrix,exceptions,wrappers,level_exceptions,null}-v1/`
+with matching `-outer/` directories. Each copied source matched its source; the
+selected input and classpath hashes remained unchanged. Matrix, wrappers, level
+exceptions and null controls exited 0. The exceptions runner's outer exit is 1
+because eight deliberate getter sentinels propagate; inspect every case and its
+stderr rather than treating that exit as a passing suite or as an unrelated error.
+An independent negative probe used an intentionally wrong arbiter hash and stopped
+before compilation; its local evidence is `defensive-actual-negative-v1/` and
+`defensive-actual-negative-v1-outer/`. These are fake-fixture observations, not a
+Minecraft GameTest, a native setter success check, or proof of callback reachability.

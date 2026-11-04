@@ -2,6 +2,7 @@ package com.wwdebug.autopilot;
 
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.Mob;
 
 import java.util.Optional;
 import java.util.UUID;
@@ -23,38 +24,48 @@ public final class FighterCombatFacade {
      * {@code FormationFlightManager} earlier in the tick.</p>
      */
     public static ControlOutcome applyControl(Entity aircraft, boolean collisionRisk) {
+        return evaluateWithDefensivePilot(aircraft, collisionRisk).outcome();
+    }
+
+    record CombatEvaluation(ControlOutcome outcome, Mob defensivePilot, ServerLevel defensiveLevel,
+                            boolean defensiveProposal) {
+    }
+
+    static CombatEvaluation evaluateWithDefensivePilot(Entity aircraft, boolean collisionRisk) {
         if (collisionRisk) {
-            return ControlOutcome.none();
+            return new CombatEvaluation(ControlOutcome.none(), null, null, false);
         }
         if (!isFighter(aircraft)) {
             clear(aircraft.getUUID());
-            return ControlOutcome.none();
+            return new CombatEvaluation(ControlOutcome.none(), null, null, false);
         }
 
         Optional<ControlProposal> energy = EnergyFighterApexYawAdapter.applyControl(aircraft);
         if (energy.isPresent()) {
-            return ControlOutcome.proposed(energy.get());
+            return new CombatEvaluation(ControlOutcome.proposed(energy.get()), null, null, false);
         }
         if (EnergyFighterApexYawAdapter.active(aircraft)) {
             // The state machine still owns this tick even when its DOCTRINE stage deliberately
             // produces no proposal. Lower combat layers must remain suppressed as before.
-            return ControlOutcome.claimedWithoutProposal(
-                    ControlAuthorityArbiter.Authority.ENERGY_FIGHTER_REENGAGEMENT);
+            return new CombatEvaluation(ControlOutcome.claimedWithoutProposal(
+                    ControlAuthorityArbiter.Authority.ENERGY_FIGHTER_REENGAGEMENT), null, null, false);
         }
 
-        Optional<ControlProposal> defensive = DefensiveAirCombatManager.applyControl(aircraft);
-        if (defensive.isPresent()) {
-            return ControlOutcome.proposed(defensive.get());
+        DefensiveAirCombatManager.DefensiveEvaluation defensive = DefensiveAirCombatManager.evaluateWithPilot(aircraft);
+        if (defensive.proposal().isPresent()) {
+            return new CombatEvaluation(ControlOutcome.proposed(defensive.proposal().get()),
+                    defensive.pilot(), defensive.level(), true);
         }
         if (DefensiveAirCombatManager.active(aircraft)) {
             // The layer holds a live defensive action but declined the tick, so nothing may be
             // written on its behalf. It still owns the tick for reporting purposes.
-            return ControlOutcome.claimedWithoutProposal(
-                    ControlAuthorityArbiter.Authority.DEFENSIVE_COMBAT);
+            return new CombatEvaluation(ControlOutcome.claimedWithoutProposal(
+                    ControlAuthorityArbiter.Authority.DEFENSIVE_COMBAT), null, null, false);
         }
 
         Optional<ControlProposal> offensive = AirCombatManeuverManager.applyControl(aircraft);
-        return offensive.map(ControlOutcome::proposed).orElseGet(ControlOutcome::none);
+        return new CombatEvaluation(offensive.map(ControlOutcome::proposed).orElseGet(ControlOutcome::none),
+                null, null, false);
     }
 
     public static void tick(Entity aircraft) {

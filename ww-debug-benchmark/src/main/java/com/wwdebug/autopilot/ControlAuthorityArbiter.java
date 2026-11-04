@@ -140,12 +140,24 @@ public final class ControlAuthorityArbiter {
         ControlOutcome formation = formationEvaluation.outcome();
 
         boolean collisionRisk = AirspaceSafetyProbe.collisionRisk(aircraft);
-        ControlOutcome combat = FighterCombatFacade.applyControl(aircraft, collisionRisk);
+        FighterCombatFacade.CombatEvaluation combatEvaluation =
+                FighterCombatFacade.evaluateWithDefensivePilot(aircraft, collisionRisk);
+        ControlOutcome combat = combatEvaluation.outcome();
         if (combat.claimed()) {
             // A converted layer leaves its write to us; an unconverted one has already performed it.
-            if (combat.pendingWrite().isPresent()
-                    && !attemptPendingWrite(aircraft, combat.pendingWrite().get())) {
-                return rejected(aircraft);
+            if (combat.pendingWrite().isPresent()) {
+                if (combatEvaluation.defensiveProposal()) {
+                    DefensiveAttempt attempt = attemptDefensivePendingWrite(
+                            aircraft, combat.pendingWrite().get(), combatEvaluation);
+                    if (attempt == DefensiveAttempt.IDENTITY_MISMATCH) {
+                        return new PendingDecision(Authority.NONE, false);
+                    }
+                    if (attempt == DefensiveAttempt.REJECTED) {
+                        return rejected(aircraft);
+                    }
+                } else if (!attemptPendingWrite(aircraft, combat.pendingWrite().get())) {
+                    return rejected(aircraft);
+                }
             }
             return new PendingDecision(combat.authority(), true);
         }
@@ -241,6 +253,31 @@ public final class ControlAuthorityArbiter {
      * {@code ReflectiveAircraft.applyControl} on the production path, and the "exactly one write
      * per aircraft per tick" invariant becomes checkable rather than asserted.</p>
      */
+    // ATTEMPTED means the adapter was called; native setter success is not established.
+    private enum DefensiveAttempt { ATTEMPTED, REJECTED, IDENTITY_MISMATCH }
+
+    private static DefensiveAttempt attemptDefensivePendingWrite(Entity aircraft, ControlProposal proposal,
+            FighterCombatFacade.CombatEvaluation evaluation) {
+        if (aircraft.isRemoved()) {
+            return DefensiveAttempt.REJECTED;
+        }
+        var level = aircraft.level();
+        if (level.isClientSide) {
+            return DefensiveAttempt.REJECTED;
+        }
+        var pilot = MobPilotGate.pilotOf(aircraft);
+        if (pilot.isEmpty() || evaluation.defensivePilot() == null
+                || evaluation.defensiveLevel() == null) {
+            return DefensiveAttempt.REJECTED;
+        }
+        if (pilot.get() != evaluation.defensivePilot() || level != evaluation.defensiveLevel()) {
+            return DefensiveAttempt.IDENTITY_MISMATCH;
+        }
+        ReflectiveAircraft.applyControl(aircraft, proposal.x(), proposal.y(),
+                proposal.z(), proposal.engineTarget());
+        return DefensiveAttempt.ATTEMPTED;
+    }
+
     // True means the adapter was called, not that the native setters succeeded.
     private static boolean attemptPendingWrite(Entity aircraft, ControlProposal proposal) {
         if (aircraft.isRemoved() || aircraft.level().isClientSide || !MobPilotGate.isMobPiloted(aircraft)) {
