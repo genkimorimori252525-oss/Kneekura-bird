@@ -339,6 +339,67 @@ public final class MissionOrderGameTests {
         helper.succeed();
     }
 
+    @GameTest(template = "empty", timeoutTicks = 20, batch = "mission_order_contract")
+    public static void formationUuidPersistenceContract(GameTestHelper helper) {
+        for (String scenario : new String[] {
+                "absent", "paired", "formation-only", "leader-only",
+                "formation-string", "leader-string", "formation-short", "leader-long",
+                "both-malformed", "malformed-with-valid", "saved"}) {
+            checkFormationUuidScenario(scenario);
+        }
+        helper.succeed();
+    }
+
+    static void checkFormationUuidScenario(String scenario) {
+        UUID formation = UUID.fromString("00000000-0000-0000-0000-000000000801");
+        UUID leader = UUID.fromString("00000000-0000-0000-0000-000000000802");
+        MissionOrder absent = MissionOrder.builder(MissionOrder.Type.HOLD_POSITION)
+                .orderId(UUID.fromString("00000000-0000-0000-0000-000000000803"))
+                .build();
+        MissionOrder paired = MissionOrder.builder(MissionOrder.Type.HOLD_POSITION)
+                .orderId(absent.orderId()).formation(formation, leader).build();
+        CompoundTag tag = MissionOrderCodec.write(absent);
+        switch (scenario) {
+            case "absent" -> check(MissionOrderCodec.read(tag).equals(absent),
+                    "two absent formation UUIDs must remain valid");
+            case "paired" -> check(MissionOrderCodec.read(MissionOrderCodec.write(paired)).equals(paired),
+                    "paired formation UUIDs must round trip");
+            case "formation-only" -> tag.putUUID("formation_id", formation);
+            case "leader-only" -> tag.putUUID("leader_aircraft", leader);
+            case "formation-string" -> tag.putString("formation_id", "not-a-uuid");
+            case "leader-string" -> tag.putString("leader_aircraft", "not-a-uuid");
+            case "formation-short" -> tag.putIntArray("formation_id", new int[] {1, 2, 3});
+            case "leader-long" -> tag.putIntArray("leader_aircraft", new int[] {1, 2, 3, 4, 5});
+            case "both-malformed" -> {
+                tag.putString("formation_id", "not-a-uuid");
+                tag.putIntArray("leader_aircraft", new int[0]);
+            }
+            case "malformed-with-valid" -> {
+                tag.putUUID("formation_id", formation);
+                tag.putString("leader_aircraft", "not-a-uuid");
+            }
+            case "saved" -> {
+                UUID validAircraft = UUID.fromString("00000000-0000-0000-0000-000000000804");
+                UUID corruptAircraft = UUID.fromString("00000000-0000-0000-0000-000000000805");
+                MissionOrderManager.Assignment valid = new MissionOrderManager.Assignment(1L, paired);
+                CompoundTag corrupt = MissionOrderCodec.write(absent);
+                corrupt.putString("formation_id", "not-a-uuid");
+                CompoundTag root = new CompoundTag();
+                ListTag entries = new ListTag();
+                entries.add(assignmentEntry(validAircraft, valid.revision(), MissionOrderCodec.write(valid.order())));
+                entries.add(assignmentEntry(corruptAircraft, 2L, corrupt));
+                root.put("assignments", entries);
+                Map<UUID, MissionOrderManager.Assignment> restored = MissionOrderSavedData.load(root).snapshot();
+                check(valid.equals(restored.get(validAircraft)), "an unrelated valid assignment must survive");
+                check(!restored.containsKey(corruptAircraft), "a corrupt formation UUID assignment must be isolated");
+            }
+            default -> throw new IllegalArgumentException("Unknown formation UUID scenario: " + scenario);
+        }
+        if (!scenario.equals("absent") && !scenario.equals("paired") && !scenario.equals("saved")) {
+            expectInvalid(() -> MissionOrderCodec.read(tag), "formation UUID scenario must be rejected: " + scenario);
+        }
+    }
+
     private static CompoundTag assignmentEntry(UUID aircraftId, long revision, CompoundTag order) {
         CompoundTag entry = new CompoundTag();
         entry.putUUID("aircraft_id", aircraftId);
