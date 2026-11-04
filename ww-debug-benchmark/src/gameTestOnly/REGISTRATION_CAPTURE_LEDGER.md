@@ -14,7 +14,9 @@ Method can produce another object, so `Method.equals` is used for this initial
 comparison. Later observations must use the exact Method object passed at begin,
 the same opaque token and owner thread, and the same consumer and function
 object references in the required order. A caller reports construction and
-registration; the ledger does not invoke or inspect those operations.
+registration; the ledger does not invoke or inspect those operations. In
+particular, the reported consumer is not read from a function field and its
+actual association with the function is not established by this model.
 
 One selected function matching the captured reference and explicit `ABSENT`
 observations for both callbacks are required. `UNKNOWN`, `PRESENT`, null,
@@ -24,6 +26,11 @@ missing finish remains incomplete. Inconsistency is sticky. A selection array
 is observed only at that call; later mutation or another thread changing the
 source is not prevented. Callback absence is the caller's assertion, not a
 callback inspection. No selection is filtered or changed.
+
+`CONSISTENT` is an observation at the moment of `finish`, not a lasting
+invariant: a subsequent event makes the ledger inconsistent. It provides no
+execution authorization and does not make later selection, callback or object
+state immutable.
 
 The fixed mapped Forge implementation currently passes one Method through
 `turnMethodIntoTestFunction` and its nested `turnMethodIntoConsumer`; callback
