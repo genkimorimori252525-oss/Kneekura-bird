@@ -4,13 +4,16 @@ final class AutopilotSession {
     private Vec3 runwayForward;
     private FlightPhase phase;
     private int phaseTicks;
+    // Fields reflected by the real validation checkpoint initializer during forceStop.
+    private int missionTicks, stableTicks, fallingTicks;
+    private Object phaseTargetYaw, phaseDirection, recoveryPullOut, lastOutput;
     private String transitionReason;
     private final FlightProfile profile;
     AutopilotSession(FlightPhase phase, FlightProfile profile) { this.phase = phase; this.profile = profile; }
     FlightPhase phase() { return phase; }
     FlightProfile profile() { return profile; }
     int phaseTicks() { return phaseTicks; }
-    int missionTicks() { return 0; }
+    int missionTicks() { return missionTicks; }
     String transitionReason() { return transitionReason; }
 }
 
