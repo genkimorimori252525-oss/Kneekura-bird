@@ -49,6 +49,7 @@ class TerrainGradleStatusTest(unittest.TestCase):
 
     def verify(self, gradle_status):
         output = self.root / "result.json"
+        output.unlink(missing_ok=True)
         process = subprocess.run(
             [sys.executable, str(VERIFIER), "--root", str(self.root),
              "--gradle-status", str(gradle_status), "--output", str(output)],
@@ -104,6 +105,43 @@ class TerrainGradleStatusTest(unittest.TestCase):
         self.assertNotEqual(status, 0, result)
         self.assertTrue(any("on_ground" in error for error in result["errors"]), result)
         self.assertTrue(any("touched the ground" in error for error in result["errors"]), result)
+
+    def test_every_terrain_adapter_requires_valid_speed(self):
+        missing = object()
+        self.rows[0]["profile_stall_guard_speed_bps"] = 1
+        for value in (missing, None, "20", True, [], {}, float("nan"),
+                      float("inf"), -1, 10 ** 400):
+            with self.subTest(value=value):
+                adapter = copy.deepcopy(self.rows[2])
+                if value is missing:
+                    adapter.pop("speed_bps")
+                else:
+                    adapter["speed_bps"] = value
+                self.rows.append(adapter)
+                self.write_rows()
+                self.rows.pop()
+                status, result = self.verify(0)
+                self.assertNotEqual(status, 0, result)
+                self.assertFalse(result["passed"], result)
+                self.assertTrue(any("speed_bps" in error for error in result["errors"]), result)
+
+    def test_invalid_adapter_speed_does_not_hide_observed_unsafe_speed(self):
+        self.rows[2]["speed_bps"] = 7.9
+        self.rows.append(dict(self.rows[2], speed_bps=None))
+        self.write_rows()
+        status, result = self.verify(0)
+        self.assertNotEqual(status, 0, result)
+        self.assertTrue(any("speed_bps" in error for error in result["errors"]), result)
+        self.assertTrue(any("lost unsafe airspeed" in error for error in result["errors"]), result)
+
+    def test_adapter_speed_threshold_and_zero(self):
+        for speed, expected_pass in ((8.0, True), (7.9, False), (0, False)):
+            with self.subTest(speed=speed):
+                self.rows[2]["speed_bps"] = speed
+                self.write_rows()
+                status, result = self.verify(0)
+                self.assertEqual(status == 0, expected_pass, result)
+                self.assertFalse(any("speed_bps" in error for error in result["errors"]), result)
 
     def test_incomplete_or_unsuccessful_summary_cannot_pass(self):
         missing = object()
