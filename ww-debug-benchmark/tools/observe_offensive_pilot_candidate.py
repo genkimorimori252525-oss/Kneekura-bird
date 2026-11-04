@@ -85,7 +85,8 @@ def arbiter(s):
 '''+marker)
 
 def main():
- p=argparse.ArgumentParser(description=__doc__);p.add_argument('--mode',choices=('baseline','candidate'),required=True);p.add_argument('--fixture',type=pathlib.Path,required=True);p.add_argument('--java-home',type=pathlib.Path,required=True);p.add_argument('--dependencies-json',type=pathlib.Path,required=True);p.add_argument('--output',type=pathlib.Path,required=True);a=p.parse_args()
+ p=argparse.ArgumentParser(description=__doc__);p.add_argument('--mode',choices=('baseline','candidate','actual'),required=True);p.add_argument('--expected-offensive-sha256');p.add_argument('--expected-facade-sha256');p.add_argument('--expected-arbiter-sha256');p.add_argument('--fixture',type=pathlib.Path,required=True);p.add_argument('--java-home',type=pathlib.Path,required=True);p.add_argument('--dependencies-json',type=pathlib.Path,required=True);p.add_argument('--output',type=pathlib.Path,required=True);a=p.parse_args()
+ if a.mode=='actual' and not all((a.expected_offensive_sha256,a.expected_facade_sha256,a.expected_arbiter_sha256)):p.error('actual mode requires all three expected source hashes')
  fixture=a.fixture.resolve();expected_fixture='c4f6fe9de97b5491f02784ddb0ae201548833a729bbf45915b02960558631b0e'
  if sha(fixture)!=expected_fixture:raise ValueError('unexpected fixture hash')
  env={'__name__':'offensive_red_fixture','__file__':str(fixture)};exec(compile(fixture.read_bytes(),str(fixture),'exec'),env);stubs=dict(env['STUBS']);cases=env['CASES']
@@ -118,7 +119,10 @@ def main():
  transforms={'AirCombatManeuverManager':offensive,'FighterCombatFacade':facade,'ControlAuthorityArbiter':arbiter}
  for source in original:
   text=source.read_text();modified=transforms[source.stem](text) if a.mode=='candidate' and source.stem in transforms else text
-  target=src/source.relative_to(ROOT);target.parent.mkdir(parents=True,exist_ok=True);target.write_text(modified);copies.append(target)
+  target=src/source.relative_to(ROOT);target.parent.mkdir(parents=True,exist_ok=True)
+  if a.mode=='actual':target.write_bytes(source.read_bytes())
+  else:target.write_text(modified)
+  copies.append(target)
   if modified!=text:(out/(source.stem+'.patch')).write_text(''.join(difflib.unified_diff(text.splitlines(True),modified.splitlines(True),fromfile='original/'+source.name,tofile='private-copy/'+source.name)))
  paths=[]
  for name,value in stubs.items():
@@ -129,8 +133,12 @@ def main():
    for item in sorted(f for f in entry.rglob('*') if f.is_file()) if entry.is_dir() else [entry]:result[str(item)]=sha(item)
   return result
  inputs=original+copies+paths+[fixture,jdk/'java',jdk/'javac',depsfile,pathlib.Path(__file__).resolve()];before=inventory(inputs);cpbefore=inventory(deps);shutil.copyfile(__file__,out/'runner-snapshot.py');arbiter_sha=sha(next(x for x in original if x.name=='ControlAuthorityArbiter.java'))
- if arbiter_sha!='0bd7e22f7928de30e1c9621ae4cd16942c6723f395d7f7da278c998da4ca01c3':raise ValueError('unexpected #218 source')
- report={'scope':'#218 source or explicitly modified copies; fake world, snapshot, weapon, awareness, terrain, logging and setter; no MOD/runtime, actual shooting, ownership or physical safety. Fake hook supports old/new method names equally.','mode':a.mode,'fixture_sha256':sha(fixture),'inputs_before':before,'classpath_before':cpbefore,'runs':{}}
+ source_hashes={x.stem:sha(x) for x in original};copy_equal=all(sha(x)==sha(y) for x,y in zip(original,copies));patches=sorted(p.name for p in out.glob('*.patch'))
+ expected={'AirCombatManeuverManager':a.expected_offensive_sha256,'FighterCombatFacade':a.expected_facade_sha256,'ControlAuthorityArbiter':a.expected_arbiter_sha256}
+ if a.mode=='actual':
+  if not copy_equal or patches or any(source_hashes[k]!=v for k,v in expected.items()):raise ValueError('actual source/copy/patch provenance mismatch')
+ elif arbiter_sha!='0bd7e22f7928de30e1c9621ae4cd16942c6723f395d7f7da278c998da4ca01c3':raise ValueError('unexpected #218 source')
+ report={'scope':'#218 source, explicitly modified copies, or byte-identical actual worktree copies; fake world, snapshot, weapon, awareness, terrain, logging and setter; no MOD/runtime, actual shooting, ownership or physical safety. Fake hook supports old/new method names equally.','mode':a.mode,'fixture_sha256':sha(fixture),'source_hashes':source_hashes,'expected_source_hashes':expected,'source_copy_equal':copy_equal,'patch_files':patches,'inputs_before':before,'classpath_before':cpbefore,'runs':{}}
  def run(name,argv):
   cbefore=inventory([classes]);r=subprocess.run(argv,cwd=out,capture_output=True,text=True,timeout=30);stdout=out/(name+'.stdout');stderr=out/(name+'.stderr');stdout.write_text(r.stdout);stderr.write_text(r.stderr);log=out/(name+'.classes.log');report['runs'][name]={'argv':argv,'exit':r.returncode,'classes_before':cbefore,'classes_after':inventory([classes]),'outputs_immediate':inventory([stdout,stderr]+([log] if log.exists() else []))};print(name,r.returncode,flush=True)
  run('compile',[str(jdk/'javac'),'-proc:none','--release','17','-cp',os.pathsep.join(map(str,deps)),'-sourcepath',str(empty),'-d',str(classes),*map(str,copies),*map(str,paths)])

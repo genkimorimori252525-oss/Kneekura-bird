@@ -6,6 +6,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.Mob;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.EnumMap;
@@ -33,42 +34,50 @@ public final class AirCombatManeuverManager {
     }
 
     public static Optional<ControlProposal> applyControl(Entity aircraft) {
+        return evaluateWithPilot(aircraft).proposal();
+    }
+
+    record OffensiveEvaluation(Optional<ControlProposal> proposal, Mob pilot, ServerLevel level) {
+    }
+
+    static OffensiveEvaluation evaluateWithPilot(Entity aircraft) {
         if (aircraft.level().isClientSide || !(aircraft.level() instanceof ServerLevel level)
                 || !ReflectiveAircraft.isAirplane(aircraft) || !ReflectiveAircraft.isControllable(aircraft)) {
             clear(aircraft.getUUID());
-            return Optional.empty();
+            return new OffensiveEvaluation(Optional.empty(), null, null);
         }
         Optional<AutonomousFlightManager.SessionStatus> status =
                 AutonomousFlightManager.status(aircraft.getUUID());
-        if (!MobPilotGate.isMobPiloted(aircraft) || status.isEmpty()
+        Mob pilot = MobPilotGate.pilotOf(aircraft).orElse(null);
+        if (pilot == null || status.isEmpty()
                 || !eligiblePhase(status.get().phase()) || aircraft.onGround()
                 || TerrainAvoidancePlanner.active(aircraft)) {
             clear(aircraft.getUUID());
-            return Optional.empty();
+            return new OffensiveEvaluation(Optional.empty(), null, null);
         }
 
         Optional<CombatTargetSelector.Solution> selected =
                 CombatAwarenessManager.currentSolution(aircraft.getUUID());
         if (selected.isEmpty()) {
             clearAfterTargetLoss(level, aircraft, status.get().phase(), "no_combat_target");
-            return Optional.empty();
+            return new OffensiveEvaluation(Optional.empty(), null, null);
         }
         CombatTargetSelector.Solution targetSolution = selected.get();
         Entity selectedEntity = level.getEntity(targetSolution.targetUuid());
         if (!(selectedEntity instanceof LivingEntity livingTarget) || !livingTarget.isAlive()) {
             clearAfterTargetLoss(level, aircraft, status.get().phase(), "combat_target_missing");
-            return Optional.empty();
+            return new OffensiveEvaluation(Optional.empty(), null, null);
         }
         Entity pursuitTarget = pursuitTarget(livingTarget);
         if (!airTarget(livingTarget, pursuitTarget)) {
             clearAfterTargetLoss(level, aircraft, status.get().phase(), "target_is_not_airborne_combat_target");
-            return Optional.empty();
+            return new OffensiveEvaluation(Optional.empty(), null, null);
         }
 
         FlightProfile profile = AutopilotProfileRegistry.resolve(level.getServer(), aircraft).orElse(null);
         if (profile == null) {
             clear(aircraft.getUUID());
-            return Optional.empty();
+            return new OffensiveEvaluation(Optional.empty(), null, null);
         }
         AirCombatDoctrineTuning.Tuning tuning = AirCombatDoctrineTuning.resolve(profile.doctrine());
         State state = STATES.computeIfAbsent(aircraft.getUUID(), ignored -> new State());
@@ -82,7 +91,7 @@ public final class AirCombatManeuverManager {
         int shotsRemaining = ReflectiveArmament.estimatedShotsRemaining(aircraft);
         if (!hasMachineGun) {
             clearAfterTargetLoss(level, aircraft, status.get().phase(), "no_pilot_machine_gun");
-            return Optional.empty();
+            return new OffensiveEvaluation(Optional.empty(), null, null);
         }
 
         AirCombatAction chosen = selectAction(state, context, shotsRemaining, tuning);
@@ -96,7 +105,7 @@ public final class AirCombatManeuverManager {
         FlightControlOutput output = controlFor(state.action, aircraft, pursuitTarget,
                 snapshot, profile, context);
         if (output == null) {
-            return Optional.empty();
+            return new OffensiveEvaluation(Optional.empty(), null, null);
         }
         AutopilotLogManager.writeControlAdapter(level.getServer(), aircraft, status.get().phase(),
                 tacticalDescription(state, context, shotsRemaining, tuning), snapshot,
@@ -107,8 +116,8 @@ public final class AirCombatManeuverManager {
                     "air_combat_status", tacticalDescription(state, context, shotsRemaining, tuning),
                     status.get().phase());
         }
-        return Optional.of(ControlProposal.fromGuidance(
-                ControlAuthorityArbiter.Authority.OFFENSIVE_COMBAT, output));
+        return new OffensiveEvaluation(Optional.of(ControlProposal.fromGuidance(
+                ControlAuthorityArbiter.Authority.OFFENSIVE_COMBAT, output)), pilot, level);
     }
 
     public static boolean active(Entity aircraft) {
