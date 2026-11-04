@@ -39,6 +39,39 @@ The simulator is a fast logic and envelope check. It checks phase reachability, 
 
 The jar is written to `build/libs/wwdebug_benchmark-1.0.0.jar`.
 
+## Observe the GameTest run directory
+
+`prepareFlightGameTestRuntime` writes `eula.txt`, deletes `run-gametest/mods`, and replaces the
+staged profile. Git status alone does not reveal ignored worlds or files in that directory. The
+Linux-only inspector below reads the fixed path without creating, deleting, moving or launching
+anything. Supply the expected lowercase SHA-256 for `server.properties` from an independently
+verified checkout/receipt; the inspector does not authenticate that value or inspect Git.
+
+```text
+python tools/inspect_gametest_directory.py \
+  --workspace-root /workspace \
+  --project-dir /workspace/<dedicated-checkout>/ww-debug-benchmark \
+  --expected-properties-sha256 <trusted-lowercase-sha256>
+```
+
+`ABSENT`, `EMPTY`, and `MATCHING_PROPERTIES_ONLY` describe the contents observed during this
+check; exit 0 means only that such an observation completed. The latter means the sole entry
+matched the caller-supplied hash, not that the file is tracked or that the checkout is new.
+Unexpected entries, links, special files, ambiguous paths and hash mismatches produce `REJECTED`
+(exit 1). Missing platform features, inaccessible procfs/permissions or unstable observations
+produce `UNAVAILABLE` (exit 2). The tool emits JSON to stdout and does not save a receipt.
+
+This is **not an authorization to run Gradle or GameTest**. A separate trusted process must
+create and preserve a new checkout and receipt, verify the exact source/task/inputs, and ensure
+the checked paths cannot be replaced or modified during execution. The inspector narrows races
+using no-follow directory descriptors and before/after checks; it cannot make a later Gradle
+path lookup atomic or prevent same-UID changes. It does not detect bind mounts or check test
+selection, MOD discovery, players, chunk ownership, cleanup, or flight safety. Reading files or
+directories can update filesystem access times. Linux no-follow, dirfd and `/proc/self/fd`
+support are required; Windows is unsupported and untested. Review emitted UID/GID and device/inode
+metadata before sharing. To roll back, revert this inspector, its tests and this documentation;
+do not delete a run directory or evidence.
+
 ## Headless real-physics GameTest
 
 The Forge GameTest server runs the real Minecraft server, real Warfare Wings entities, real Immersive Aircraft physics, the real `tickPilot()` path, and the autonomous-flight Mixin without opening a game window.
