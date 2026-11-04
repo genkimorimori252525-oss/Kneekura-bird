@@ -65,6 +65,28 @@ class TerrainGradleStatusTest(unittest.TestCase):
         self.assertNotEqual(status, 0, result)
         self.assertTrue(any("ground" in error for error in result["errors"]), result)
 
+    def test_crash_report_cannot_be_overridden_by_successful_gradle_and_telemetry(self):
+        crashes = self.root / "crash-reports"
+        crashes.mkdir()
+        report = crashes / "crash-2026-11-04-server.txt"
+        report.write_text("synthetic crash report\n", encoding="utf-8")
+        status, result = self.verify(0)
+        self.assertNotEqual(status, 0, result)
+        self.assertFalse(result["passed"], result)
+        self.assertIn(str(report), result["metrics"]["crash_reports"])
+        self.assertTrue(any("crash" in error.lower() for error in result["errors"]), result)
+
+    def test_crash_report_does_not_hide_observed_ground_contact(self):
+        crashes = self.root / "crash-reports"
+        crashes.mkdir()
+        (crashes / "crash-report.txt").write_text("synthetic crash report\n", encoding="utf-8")
+        self.rows[0]["on_ground"] = True
+        self.write_rows()
+        status, result = self.verify(0)
+        self.assertNotEqual(status, 0, result)
+        self.assertTrue(any("crash" in error.lower() for error in result["errors"]), result)
+        self.assertTrue(any("ground" in error for error in result["errors"]), result)
+
 
 if __name__ == "__main__":
     unittest.main()
