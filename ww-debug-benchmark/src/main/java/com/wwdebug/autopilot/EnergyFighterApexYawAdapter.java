@@ -79,11 +79,18 @@ public final class EnergyFighterApexYawAdapter {
 
     /** @return this controller's proposal for the current tick, or empty when it abstains */
     public static Optional<ControlProposal> applyControl(Entity aircraft) {
+        return evaluateWithPilot(aircraft).proposal();
+    }
+
+    record EnergyEvaluation(Optional<ControlProposal> proposal, Mob pilot, ServerLevel level,
+                            AirCombatManeuverManager.OffensiveEvaluation offensive, boolean doctrine) { }
+
+    static EnergyEvaluation evaluateWithPilot(Entity aircraft) {
         if (!(aircraft.level() instanceof ServerLevel level) || aircraft.level().isClientSide
                 || !ReflectiveAircraft.isAirplane(aircraft)
                 || !ReflectiveAircraft.isControllable(aircraft)) {
             clear(aircraft.getUUID());
-            return Optional.empty();
+            return new EnergyEvaluation(Optional.empty(), null, null, null, false);
         }
 
         Mob pilot = MobPilotGate.pilotOf(aircraft).orElse(null);
@@ -99,14 +106,14 @@ public final class EnergyFighterApexYawAdapter {
                 || AirspaceSafetyProbe.collisionRisk(aircraft)) {
             finish(level, aircraft, session.map(AutonomousFlightManager.SessionStatus::phase)
                     .orElse(FlightPhase.ABORTED), "not_eligible", true);
-            return Optional.empty();
+            return new EnergyEvaluation(Optional.empty(), null, null, null, false);
         }
 
         Target target = target(level, aircraft).orElse(null);
         State state = STATES.get(aircraft.getUUID());
         if (target == null) {
             finish(level, aircraft, session.get().phase(), "target_lost", true);
-            return Optional.empty();
+            return new EnergyEvaluation(Optional.empty(), null, null, null, false);
         }
 
         FlightSnapshot snapshot = FlightSnapshot.capture(aircraft);
@@ -122,7 +129,7 @@ public final class EnergyFighterApexYawAdapter {
         if (state == null) {
             if (!canStart(level, aircraft, target, snapshot, profile, rawAngle,
                     distance, closure, threat)) {
-                return Optional.empty();
+                return new EnergyEvaluation(Optional.empty(), null, null, null, false);
             }
             Vec3 horizontalLead = safeNormalize(horizontal(leadDirection),
                     snapshot.horizontalForward());
@@ -147,19 +154,19 @@ public final class EnergyFighterApexYawAdapter {
 
         if (!state.targetPilotUuid.equals(target.pilotUuid())) {
             finish(level, aircraft, session.get().phase(), "target_changed", true);
-            return Optional.empty();
+            return new EnergyEvaluation(Optional.empty(), null, null, null, false);
         }
         if (ReflectiveArmament.estimatedShotsRemaining(aircraft) < state.initialShots) {
             finish(level, aircraft, session.get().phase(), "fire_confirmed", true);
-            return Optional.empty();
+            return new EnergyEvaluation(Optional.empty(), null, null, null, false);
         }
         if (state.totalTicks >= MAX_TOTAL_TICKS) {
             finish(level, aircraft, session.get().phase(), "total_timeout", true);
-            return Optional.empty();
+            return new EnergyEvaluation(Optional.empty(), null, null, null, false);
         }
         if (credibleThreat(distance, closure, rawAngle, threat)) {
             finish(level, aircraft, session.get().phase(), "credible_threat_restored", true);
-            return Optional.empty();
+            return new EnergyEvaluation(Optional.empty(), null, null, null, false);
         }
 
         DefensiveAirCombatManager.clear(aircraft.getUUID());
@@ -199,7 +206,7 @@ public final class EnergyFighterApexYawAdapter {
                         yawWindowReached ? "overlap_yaw_window_reached" : "climb_energy_guard");
             } else if (state.stageTicks >= MAX_CLIMB_TICKS) {
                 finish(level, aircraft, session.get().phase(), "climb_timeout", true);
-                return Optional.empty();
+                return new EnergyEvaluation(Optional.empty(), null, null, null, false);
             }
         }
 
@@ -218,7 +225,7 @@ public final class EnergyFighterApexYawAdapter {
                         headingCaptured ? "horizontal_lead_captured" : "pivot_energy_guard");
             } else if (state.stageTicks >= MAX_PIVOT_TICKS) {
                 finish(level, aircraft, session.get().phase(), "pivot_timeout", true);
-                return Optional.empty();
+                return new EnergyEvaluation(Optional.empty(), null, null, null, false);
             }
         }
 
@@ -282,13 +289,15 @@ public final class EnergyFighterApexYawAdapter {
                         Stage.DOCTRINE, "attack_sector_reached");
             } else if (state.stageTicks >= MAX_CAPTURE_TICKS || distance > 190.0) {
                 finish(level, aircraft, session.get().phase(), "capture_timeout", true);
-                return Optional.empty();
+                return new EnergyEvaluation(Optional.empty(), null, null, null, false);
             }
         }
 
         state.minimumAgl = Math.min(state.minimumAgl, snapshot.altitudeAboveGround());
         state.maximumAltitude = Math.max(state.maximumAltitude, snapshot.position().y);
 
+        AirCombatManeuverManager.OffensiveEvaluation offensive = null;
+        boolean doctrineStage = state.stage == Stage.DOCTRINE;
         Optional<ControlProposal> proposal = switch (state.stage) {
             case CLIMB -> Optional.of(applyClimb(level, aircraft, snapshot, profile, state,
                     pitchRateDegPerTick, rawAngle, leadAngle, closure,
@@ -301,7 +310,8 @@ public final class EnergyFighterApexYawAdapter {
                     pitchRateDegPerTick, state, rawAngle, leadAngle, closure,
                     session.get().phase()));
             case DOCTRINE -> {
-                Optional<ControlProposal> doctrine = AirCombatManeuverManager.applyControl(aircraft);
+                offensive = AirCombatManeuverManager.evaluateWithPilot(aircraft);
+                Optional<ControlProposal> doctrine = offensive.proposal();
                 Optional<ControlProposal> alignment = applyFinalAlignment(level, aircraft, target,
                         snapshot, profile, rawAngle, closure, state, session.get().phase());
                 yield alignment.isPresent() ? alignment : doctrine;
@@ -315,7 +325,7 @@ public final class EnergyFighterApexYawAdapter {
                     state, snapshot, distance, rawAngle, leadAngle, closure,
                     threat.aimAngleDeg(), "active");
         }
-        return proposal;
+        return new EnergyEvaluation(proposal, pilot, level, offensive, doctrineStage);
     }
 
     private static boolean canStart(ServerLevel level, Entity aircraft, Target target,
