@@ -213,6 +213,13 @@ class TerrainCorridorTest(unittest.TestCase):
                 self.assertFalse(active)
                 self.assertAlmostEqual(clearance, 100.0 if fraction < 0 else 95.0)
 
+    def test_nonfinite_hit_position_is_not_treated_as_clear(self):
+        for fraction in ("NaN", "Infinity"):
+            with self.subTest(fraction=fraction):
+                active, _, clearance, _ = self.check_corridor(100, fraction, 0)
+                self.assertTrue(active)
+                self.assertEqual(clearance, 0.0)
+
     def test_steep_detour_candidate_clearance_uses_horizontal_distance(self):
         # The direct ray is horizontal; the planner's candidate rays climb.
         active, _, direct, selected = self.check_corridor(0, 0.8)

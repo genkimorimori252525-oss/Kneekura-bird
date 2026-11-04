@@ -200,6 +200,11 @@ final class TerrainAvoidancePlanner {
                 // threshold decisions when hypot and distanceTo round differently.
                 clearance = Math.min(start.distanceTo(location),
                         Math.hypot(location.x - start.x, location.z - start.z));
+                if (!Double.isFinite(start.x) || !Double.isFinite(start.y) || !Double.isFinite(start.z)
+                        || !Double.isFinite(location.x) || !Double.isFinite(location.y)
+                        || !Double.isFinite(location.z) || !Double.isFinite(clearance)) {
+                    clearance = 0.0; // A malformed hit must never turn the corridor clear.
+                }
             }
             minimum = Math.min(minimum, clearance);
         }
