@@ -191,9 +191,16 @@ final class TerrainAvoidancePlanner {
                     ClipContext.Fluid.NONE,
                     aircraft
             ));
-            double clearance = hit.getType() == HitResult.Type.MISS
-                    ? lookAhead
-                    : start.distanceTo(hit.getLocation());
+            // lookAhead and every clearance threshold are horizontal distances.  A sloped
+            // ray's 3D length is longer and would hide a hit inside that corridor.
+            double clearance = lookAhead;
+            if (hit.getType() != HitResult.Type.MISS) {
+                Vec3 location = hit.getLocation();
+                // Keeping the old value in the minimum also preserves existing strict
+                // threshold decisions when hypot and distanceTo round differently.
+                clearance = Math.min(start.distanceTo(location),
+                        Math.hypot(location.x - start.x, location.z - start.z));
+            }
             minimum = Math.min(minimum, clearance);
         }
         return new Probe(minimum);
